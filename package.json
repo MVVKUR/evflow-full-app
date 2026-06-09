@@ -1,0 +1,15 @@
+{
+  "name": "evflow-fullstack",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "backend:dev": "cd backend-ev-flow && .venv/bin/python -m uvicorn api.main:app --reload --port 8000",
+    "backend:test": "cd backend-ev-flow && .venv/bin/python -m pytest -q",
+    "frontend:install": "npm --prefix group4-evflow-app install",
+    "frontend:web": "npm --prefix group4-evflow-app run web",
+    "frontend:typecheck": "npm --prefix group4-evflow-app run typecheck",
+    "frontend:build": "npm --prefix group4-evflow-app run build:web",
+    "test": "npm run backend:test && npm run frontend:typecheck",
+    "build": "npm run frontend:build"
+  }
+}

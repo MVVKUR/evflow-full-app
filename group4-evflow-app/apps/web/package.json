@@ -1,0 +1,35 @@
+{
+  "name": "@evflow/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@evflow/features": "*",
+    "@evflow/maps": "*",
+    "@evflow/shared": "*",
+    "@evflow/ui": "*",
+    "@vitejs/plugin-react": "^6.0.2",
+    "expo-file-system": "~18.0.7",
+    "expo-intent-launcher": "~11.0.1",
+    "expo-print": "~15.0.8",
+    "expo-sharing": "~14.0.8",
+    "html2pdf.js": "^0.14.0",
+    "leaflet": "1.9.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native-web": "^0.21.2",
+    "react-router": "^6.30.1",
+    "react-router-dom": "^6.30.1",
+    "vite": "^8.0.14"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.21",
+    "@types/react": "~19.1.10",
+    "@types/react-dom": "~19.1.7",
+    "typescript": "~5.9.2"
+  }
+}

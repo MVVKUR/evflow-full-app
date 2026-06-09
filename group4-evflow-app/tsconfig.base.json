@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@evflow/shared": ["packages/shared/src/index.ts"],
+      "@evflow/ui": ["packages/ui/src/index.ts"],
+      "@evflow/maps": ["packages/maps/src/index.ts"],
+      "@evflow/features": ["packages/features/src/index.ts"]
+    }
+  }
+}

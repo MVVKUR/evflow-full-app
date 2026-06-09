@@ -1,0 +1,3113 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Jakarta EV Charging Stations API",
+    "license": {
+      "name": "Data: PLN, OCM (CC-BY-SA), OSM (ODbL)"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Liveness + dataset size",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stations": {
+      "get": {
+        "tags": [
+          "stations"
+        ],
+        "summary": "List / filter charging stations",
+        "operationId": "list_stations_api_v1_stations_get",
+        "parameters": [
+          {
+            "name": "province",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact province match (case-insensitive), e.g. 'DKI Jakarta'.",
+              "title": "Province"
+            },
+            "description": "Exact province match (case-insensitive), e.g. 'DKI Jakarta'."
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "City/kabupaten substring match.",
+              "title": "City"
+            },
+            "description": "City/kabupaten substring match."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive search on station name.",
+              "title": "Q"
+            },
+            "description": "Case-insensitive search on station name."
+          },
+          {
+            "name": "min_power",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Min power (kW).",
+              "title": "Min Power"
+            },
+            "description": "Min power (kW)."
+          },
+          {
+            "name": "max_power",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Max power (kW).",
+              "title": "Max Power"
+            },
+            "description": "Max power (kW)."
+          },
+          {
+            "name": "connector_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Connector standard(s); repeatable for multi-select (OR), e.g. ?connector_type=CCS2&connector_type=AC%20Type%202 (see /api/v1/connectors).",
+              "title": "Connector Type"
+            },
+            "description": "Connector standard(s); repeatable for multi-select (OR), e.g. ?connector_type=CCS2&connector_type=AC%20Type%202 (see /api/v1/connectors)."
+          },
+          {
+            "name": "speed_tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Speed tier(s); repeatable for multi-select (OR): slow / medium / fast / ultra_fast (see /api/v1/speed-tiers).",
+              "title": "Speed Tier"
+            },
+            "description": "Speed tier(s); repeatable for multi-select (OR): slow / medium / fast / ultra_fast (see /api/v1/speed-tiers)."
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Bounding box 'minLon,minLat,maxLon,maxLat'.",
+              "examples": [
+                "106.55,-6.65,107.10,-5.95"
+              ],
+              "title": "Bbox"
+            },
+            "description": "Bounding box 'minLon,minLat,maxLon,maxLat'."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Page size.",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "Page size."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Page offset.",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Page offset."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StationList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stations/nearby": {
+      "get": {
+        "tags": [
+          "stations"
+        ],
+        "summary": "Nearest stations to a point ('near me')",
+        "operationId": "nearby_api_v1_stations_nearby_get",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 90,
+                  "minimum": -90
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Origin latitude. Omit (with lon) if location is denied.",
+              "title": "Lat"
+            },
+            "description": "Origin latitude. Omit (with lon) if location is denied."
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 180,
+                  "minimum": -180
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Origin longitude. Omit (with lat) if location is denied.",
+              "title": "Lon"
+            },
+            "description": "Origin longitude. Omit (with lat) if location is denied."
+          },
+          {
+            "name": "radius_km",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 500,
+              "exclusiveMinimum": 0,
+              "default": 5.0,
+              "title": "Radius Km"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "connector_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Connector Type"
+            }
+          },
+          {
+            "name": "speed_tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Speed Tier"
+            }
+          },
+          {
+            "name": "min_power",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Power"
+            }
+          },
+          {
+            "name": "max_power",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Power"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Station"
+                  },
+                  "title": "Response Nearby Api V1 Stations Nearby Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stations/{station_id}": {
+      "get": {
+        "tags": [
+          "stations"
+        ],
+        "summary": "Fetch one station by id",
+        "operationId": "get_station_api_v1_stations__station_id__get",
+        "parameters": [
+          {
+            "name": "station_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Station Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Station"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stations.geojson": {
+      "get": {
+        "tags": [
+          "geo"
+        ],
+        "summary": "Stations as a GeoJSON FeatureCollection",
+        "operationId": "stations_geojson_api_v1_stations_geojson_get",
+        "parameters": [
+          {
+            "name": "province",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Province"
+            }
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "City"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "min_power",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Power"
+            }
+          },
+          {
+            "name": "max_power",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Power"
+            }
+          },
+          {
+            "name": "connector_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Connector Type"
+            }
+          },
+          {
+            "name": "speed_tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Speed Tier"
+            }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bbox"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20000,
+              "minimum": 1,
+              "default": 5000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoJSONFeatureCollection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/route": {
+      "get": {
+        "tags": [
+          "geo"
+        ],
+        "summary": "Shortest driving path (Dijkstra) to a point or station",
+        "operationId": "route_api_v1_route_get",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 90,
+                  "minimum": -90
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Origin latitude (needed to route).",
+              "examples": [
+                -6.2088
+              ],
+              "title": "Lat"
+            },
+            "description": "Origin latitude (needed to route)."
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 180,
+                  "minimum": -180
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Origin longitude (needed to route).",
+              "examples": [
+                106.8456
+              ],
+              "title": "Lon"
+            },
+            "description": "Origin longitude (needed to route)."
+          },
+          {
+            "name": "station_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Destination = this station's coordinates.",
+              "title": "Station Id"
+            },
+            "description": "Destination = this station's coordinates."
+          },
+          {
+            "name": "dest_lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 90,
+                  "minimum": -90
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Destination latitude (if no station_id).",
+              "title": "Dest Lat"
+            },
+            "description": "Destination latitude (if no station_id)."
+          },
+          {
+            "name": "dest_lon",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 180,
+                  "minimum": -180
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Destination longitude (if no station_id).",
+              "title": "Dest Lon"
+            },
+            "description": "Destination longitude (if no station_id)."
+          },
+          {
+            "name": "weight",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(length|travel_time)$",
+              "description": "Minimise 'length' (shortest) or 'travel_time' (fastest).",
+              "default": "length",
+              "title": "Weight"
+            },
+            "description": "Minimise 'length' (shortest) or 'travel_time' (fastest)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Route"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Station not found / no drivable route"
+          },
+          "422": {
+            "description": "Destination not provided"
+          },
+          "503": {
+            "description": "Road graph unavailable (not built yet)"
+          }
+        }
+      }
+    },
+    "/api/v1/route/nearest-station": {
+      "get": {
+        "tags": [
+          "geo"
+        ],
+        "summary": "Nearest charging station reachable by road (Dijkstra) + route to it",
+        "operationId": "nearest_station_api_v1_route_nearest_station_get",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 90,
+                  "minimum": -90
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Origin latitude (needed to route).",
+              "examples": [
+                -6.2088
+              ],
+              "title": "Lat"
+            },
+            "description": "Origin latitude (needed to route)."
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 180,
+                  "minimum": -180
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Origin longitude (needed to route).",
+              "examples": [
+                106.8456
+              ],
+              "title": "Lon"
+            },
+            "description": "Origin longitude (needed to route)."
+          },
+          {
+            "name": "weight",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(length|travel_time)$",
+              "description": "Rank by 'length' (nearest) or 'travel_time' (quickest).",
+              "default": "length",
+              "title": "Weight"
+            },
+            "description": "Rank by 'length' (nearest) or 'travel_time' (quickest)."
+          },
+          {
+            "name": "max_range_km",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "EV remaining range (km). Flags whether the nearest charger is within reach (Route & Battery).",
+              "title": "Max Range Km"
+            },
+            "description": "EV remaining range (km). Flags whether the nearest charger is within reach (Route & Battery)."
+          },
+          {
+            "name": "ev_model_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "EV model id (see /api/v1/ev-models). With current_soc the backend derives the remaining range, overriding max_range_km.",
+              "title": "Ev Model Id"
+            },
+            "description": "EV model id (see /api/v1/ev-models). With current_soc the backend derives the remaining range, overriding max_range_km."
+          },
+          {
+            "name": "current_soc",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 100,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Current state of charge (%); required when ev_model_id is given.",
+              "title": "Current Soc"
+            },
+            "description": "Current state of charge (%); required when ev_model_id is given."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NearestStationRoute"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No stations loaded / none reachable by road"
+          },
+          "503": {
+            "description": "Road graph unavailable (not built yet)"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ev-models": {
+      "get": {
+        "tags": [
+          "ev-models"
+        ],
+        "summary": "List EV models (catalogue from the Kaggle Indonesia-EV-2026 dataset)",
+        "operationId": "ev_models_api_v1_ev_models_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive search on vehicle name.",
+              "title": "Q"
+            },
+            "description": "Case-insensitive search on vehicle name."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "description": "Page size.",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "Page size."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Page offset.",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Page offset."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EVModelList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ev-models/{model_id}": {
+      "get": {
+        "tags": [
+          "ev-models"
+        ],
+        "summary": "Fetch one EV model by id",
+        "operationId": "ev_model_api_v1_ev_models__model_id__get",
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EVModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wallet/topup": {
+      "post": {
+        "tags": [
+          "wallet"
+        ],
+        "summary": "Create a Xendit invoice to top up the wallet",
+        "operationId": "wallet_topup_api_v1_wallet_topup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopupCreated"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Payment provider error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wallet": {
+      "get": {
+        "tags": [
+          "wallet"
+        ],
+        "summary": "Wallet balance",
+        "operationId": "wallet_balance_api_v1_wallet_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletBalance"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/webhooks/xendit": {
+      "post": {
+        "tags": [
+          "wallet"
+        ],
+        "summary": "Xendit invoice webhook (credits the wallet on PAID)",
+        "operationId": "xendit_webhook_api_v1_webhooks_xendit_post",
+        "parameters": [
+          {
+            "name": "x-callback-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Callback-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid callback token"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wallet/topups": {
+      "get": {
+        "tags": [
+          "wallet"
+        ],
+        "summary": "Recent top-ups",
+        "operationId": "wallet_topups_api_v1_wallet_topups_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Topup"
+                  },
+                  "title": "Response Wallet Topups Api V1 Wallet Topups Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Register",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "username taken"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "bad credentials"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/google/login": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Redirect to Google sign-in",
+        "operationId": "google_login_api_v1_auth_google_login_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/google/callback": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Google OAuth callback",
+        "operationId": "google_callback_api_v1_auth_google_callback_get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Current user",
+        "operationId": "get_me_api_v1_users_me_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPublic"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Patch Me",
+        "operationId": "patch_me_api_v1_users_me_patch",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPublic"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "username taken"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stats": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Aggregate statistics",
+        "operationId": "stats_api_v1_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sources": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Sources Lookup",
+        "operationId": "sources_lookup_api_v1_sources_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SourceCount"
+                  },
+                  "type": "array",
+                  "title": "Response Sources Lookup Api V1 Sources Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/provinces": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Provinces Lookup",
+        "operationId": "provinces_lookup_api_v1_provinces_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NameCount"
+                  },
+                  "type": "array",
+                  "title": "Response Provinces Lookup Api V1 Provinces Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cities": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Cities Lookup",
+        "operationId": "cities_lookup_api_v1_cities_get",
+        "parameters": [
+          {
+            "name": "province",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Province"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NameCount"
+                  },
+                  "title": "Response Cities Lookup Api V1 Cities Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Connector types with counts for the filter dropdown (inferred)",
+        "operationId": "connectors_lookup_api_v1_connectors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NameCount"
+                  },
+                  "type": "array",
+                  "title": "Response Connectors Lookup Api V1 Connectors Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/speed-tiers": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Speed tier definitions with counts",
+        "operationId": "speed_tiers_lookup_api_v1_speed_tiers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SpeedTier"
+                  },
+                  "type": "array",
+                  "title": "Response Speed Tiers Lookup Api V1 Speed Tiers Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Connector": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "Connector standard (inferred from power).",
+            "examples": [
+              "CCS2"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "description": "Number of this connector at the station.",
+            "examples": [
+              2
+            ]
+          },
+          "speed_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed Tier",
+            "examples": [
+              "ultra_fast"
+            ]
+          },
+          "power_kw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Kw",
+            "examples": [
+              200.0
+            ]
+          },
+          "type_inferred": {
+            "type": "boolean",
+            "title": "Type Inferred",
+            "description": "True when the type is inferred from power, not source data.",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "count"
+        ],
+        "title": "Connector"
+      },
+      "EVModel": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "examples": [
+              "wuling-air-ev"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Wuling Air EV"
+            ]
+          },
+          "make": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Make",
+            "examples": [
+              "Wuling"
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "examples": [
+              "Air EV"
+            ]
+          },
+          "battery_kwh": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery Kwh",
+            "description": "Usable battery capacity (kWh).",
+            "examples": [
+              26.7
+            ]
+          },
+          "range_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Range Km",
+            "description": "Manufacturer range (km); the lower bound where a range is given.",
+            "examples": [
+              200.0
+            ]
+          },
+          "price_range": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Range",
+            "examples": [
+              "Rp 214 - 307,5 Juta"
+            ]
+          },
+          "charging_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charging Time",
+            "examples": [
+              "8.5 Jam"
+            ]
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "EVModel"
+      },
+      "EVModelList": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "examples": [
+              60
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "examples": [
+              100
+            ]
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset",
+            "examples": [
+              0
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EVModel"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "limit",
+          "offset",
+          "items"
+        ],
+        "title": "EVModelList"
+      },
+      "GeoJSONFeatureCollection": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "FeatureCollection",
+            "examples": [
+              "FeatureCollection"
+            ]
+          },
+          "features": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Features"
+          }
+        },
+        "type": "object",
+        "required": [
+          "features"
+        ],
+        "title": "GeoJSONFeatureCollection",
+        "description": "RFC 7946 FeatureCollection. Drop straight into Leaflet or Mapbox."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Health": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "examples": [
+              "ok"
+            ]
+          },
+          "stations_loaded": {
+            "type": "integer",
+            "title": "Stations Loaded",
+            "examples": [
+              3569
+            ]
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "examples": [
+              "1.0.0"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "stations_loaded",
+          "version"
+        ],
+        "title": "Health"
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "NameCount": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "DKI Jakarta"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "examples": [
+              731
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "title": "NameCount"
+      },
+      "NearestStationRoute": {
+        "properties": {
+          "station": {
+            "$ref": "#/components/schemas/Station",
+            "description": "The closest reachable station; its distance_km mirrors the road distance."
+          },
+          "route": {
+            "$ref": "#/components/schemas/Route"
+          },
+          "candidates_considered": {
+            "type": "integer",
+            "title": "Candidates Considered",
+            "description": "How many stations were reachable by road and ranked.",
+            "examples": [
+              1142
+            ]
+          },
+          "within_range": {
+            "type": "boolean",
+            "title": "Within Range",
+            "description": "False if the nearest station is beyond the EV's remaining range.",
+            "default": true
+          },
+          "range_used_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Range Used Km",
+            "description": "Remaining range (km) used for the within_range check: either the explicit max_range_km, or derived from ev_model_id plus current_soc.",
+            "examples": [
+              85.0
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "station",
+          "route",
+          "candidates_considered"
+        ],
+        "title": "NearestStationRoute",
+        "description": "Nearest charging station reachable by road + the route to it (Epic 2.0)."
+      },
+      "ProfileUpdate": {
+        "properties": {
+          "username": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "ev_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev Model Id"
+          },
+          "main_connector_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Connector Type"
+          },
+          "location_consent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Consent"
+          }
+        },
+        "type": "object",
+        "title": "ProfileUpdate"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "title": "Username",
+            "examples": [
+              "budi"
+            ]
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "title": "Password",
+            "examples": [
+              "s3cret123"
+            ]
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name",
+            "examples": [
+              "Budi Santoso"
+            ]
+          },
+          "ev_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev Model Id",
+            "examples": [
+              "hyundai-ioniq-5"
+            ]
+          },
+          "main_connector_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Connector Type",
+            "examples": [
+              "CCS2"
+            ]
+          },
+          "location_consent": {
+            "type": "boolean",
+            "title": "Location Consent",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "RegisterRequest"
+      },
+      "Route": {
+        "properties": {
+          "weight": {
+            "type": "string",
+            "title": "Weight",
+            "description": "Cost minimised: 'length' (metres) or 'travel_time' (seconds).",
+            "examples": [
+              "length"
+            ]
+          },
+          "distance_m": {
+            "type": "number",
+            "title": "Distance M",
+            "description": "Total path length in metres.",
+            "examples": [
+              4230.5
+            ]
+          },
+          "duration_s": {
+            "type": "number",
+            "title": "Duration S",
+            "description": "Estimated drive time in seconds.",
+            "examples": [
+              540.2
+            ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/RoutePoint"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/RoutePoint"
+          },
+          "node_count": {
+            "type": "integer",
+            "title": "Node Count",
+            "description": "Number of road nodes in the path.",
+            "examples": [
+              87
+            ]
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/RouteGeometry"
+          }
+        },
+        "type": "object",
+        "required": [
+          "weight",
+          "distance_m",
+          "duration_s",
+          "origin",
+          "destination",
+          "node_count",
+          "geometry"
+        ],
+        "title": "Route",
+        "description": "Shortest driving path between two points (Dijkstra over the road graph)."
+      },
+      "RouteGeometry": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "LineString",
+            "examples": [
+              "LineString"
+            ]
+          },
+          "coordinates": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Coordinates",
+            "description": "Ordered [longitude, latitude] pairs (WGS84)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "coordinates"
+        ],
+        "title": "RouteGeometry",
+        "description": "GeoJSON LineString. Pass it to L.geoJSON() to draw the path on the map."
+      },
+      "RoutePoint": {
+        "properties": {
+          "lat": {
+            "type": "number",
+            "title": "Lat",
+            "examples": [
+              -6.2088
+            ]
+          },
+          "lon": {
+            "type": "number",
+            "title": "Lon",
+            "examples": [
+              106.8456
+            ]
+          },
+          "snapped_node": {
+            "type": "string",
+            "title": "Snapped Node",
+            "description": "Nearest road-graph node the point was snapped to."
+          },
+          "snap_distance_km": {
+            "type": "number",
+            "title": "Snap Distance Km",
+            "description": "Distance from the input point to the snapped node."
+          },
+          "station_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Station Id",
+            "description": "Set on the destination when routing to a station."
+          }
+        },
+        "type": "object",
+        "required": [
+          "lat",
+          "lon",
+          "snapped_node",
+          "snap_distance_km"
+        ],
+        "title": "RoutePoint"
+      },
+      "Source": {
+        "type": "string",
+        "enum": [
+          "pln_spklu",
+          "open_charge_map",
+          "osm"
+        ],
+        "title": "Source"
+      },
+      "SourceCount": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "count"
+        ],
+        "title": "SourceCount"
+      },
+      "SpeedTier": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "examples": [
+              "fast"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "examples": [
+              "Fast"
+            ]
+          },
+          "min_kw": {
+            "type": "number",
+            "title": "Min Kw",
+            "description": "Lower power bound (kW), inclusive.",
+            "examples": [
+              50.0
+            ]
+          },
+          "max_kw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Kw",
+            "description": "Upper power bound (kW); null for ultra_fast.",
+            "examples": [
+              150.0
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "description": "Stations in this tier.",
+            "examples": [
+              789
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "min_kw",
+          "count"
+        ],
+        "title": "SpeedTier",
+        "description": "One charging-speed bucket with its power range + station count."
+      },
+      "Station": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Stable unique id, '<source>-<n>'.",
+            "examples": [
+              "pln_spklu-1"
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "examples": [
+              "SPKLU PLN UID JAKARTA RAYA"
+            ]
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "type": "array",
+            "title": "Sources",
+            "description": "Datasets this station appears in (deduplicated).",
+            "examples": [
+              [
+                "pln_spklu",
+                "open_charge_map"
+              ]
+            ]
+          },
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "examples": [
+              -6.18039
+            ]
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "examples": [
+              106.833191
+            ]
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address",
+            "examples": [
+              "Jl. M.I. Ridwan Rais No.1, Gambir"
+            ]
+          },
+          "province": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Province",
+            "examples": [
+              "DKI Jakarta"
+            ]
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City",
+            "examples": [
+              "Kota ADM Jakarta Pusat"
+            ]
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator",
+            "examples": [
+              "PLN"
+            ]
+          },
+          "power_kw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Kw",
+            "description": "Peak power (kW).",
+            "examples": [
+              22.0
+            ]
+          },
+          "charge_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charge Type",
+            "description": "slow / medium / fast where known.",
+            "examples": [
+              "medium"
+            ]
+          },
+          "speed_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed Tier",
+            "description": "Speed bucket from power: slow / medium / fast / ultra_fast.",
+            "examples": [
+              "medium"
+            ]
+          },
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/Connector"
+            },
+            "type": "array",
+            "title": "Connectors",
+            "description": "Per-connector breakdown: type (inferred), real count/power/speed."
+          },
+          "connector_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Connector Types",
+            "description": "Connector standards present, e.g. ['CCS2'] or ['AC Type 2']. Currently inferred.",
+            "examples": [
+              [
+                "AC Type 2"
+              ]
+            ]
+          },
+          "connector_inferred": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Inferred",
+            "description": "True when connector_types are inferred from power, not from source data.",
+            "examples": [
+              true
+            ]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status",
+            "description": "Operational status if reported.",
+            "examples": [
+              "operational"
+            ]
+          },
+          "date_verified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Verified",
+            "description": "ISO timestamp last verified (OCM)."
+          },
+          "distance_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Km",
+            "description": "Set only on /nearby results.",
+            "examples": [
+              1.42
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "latitude",
+          "longitude"
+        ],
+        "title": "Station"
+      },
+      "StationList": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total matching records (before pagination).",
+            "examples": [
+              1142
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "examples": [
+              100
+            ]
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset",
+            "examples": [
+              0
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Station"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "limit",
+          "offset",
+          "items"
+        ],
+        "title": "StationList"
+      },
+      "Stats": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "examples": [
+              3569
+            ]
+          },
+          "by_source": {
+            "items": {
+              "$ref": "#/components/schemas/SourceCount"
+            },
+            "type": "array",
+            "title": "By Source"
+          },
+          "by_province": {
+            "items": {
+              "$ref": "#/components/schemas/NameCount"
+            },
+            "type": "array",
+            "title": "By Province"
+          },
+          "by_charge_type": {
+            "items": {
+              "$ref": "#/components/schemas/NameCount"
+            },
+            "type": "array",
+            "title": "By Charge Type"
+          },
+          "with_power_kw": {
+            "type": "integer",
+            "title": "With Power Kw",
+            "description": "Records that have a known power rating."
+          },
+          "power_kw_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Kw Min"
+          },
+          "power_kw_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Kw Max"
+          },
+          "power_kw_mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Kw Mean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "by_source",
+          "by_province",
+          "by_charge_type",
+          "with_power_kw"
+        ],
+        "title": "Stats"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserPublic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "user"
+        ],
+        "title": "TokenResponse"
+      },
+      "Topup": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "external_id": {
+            "type": "string",
+            "title": "External Id"
+          },
+          "xendit_invoice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xendit Invoice Id"
+          },
+          "amount_idr": {
+            "type": "integer",
+            "title": "Amount Idr"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "examples": [
+              "paid"
+            ]
+          },
+          "invoice_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Url"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "external_id",
+          "amount_idr",
+          "status",
+          "created_at"
+        ],
+        "title": "Topup"
+      },
+      "TopupCreated": {
+        "properties": {
+          "topup_id": {
+            "type": "string",
+            "title": "Topup Id"
+          },
+          "amount_idr": {
+            "type": "integer",
+            "title": "Amount Idr"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "examples": [
+              "pending"
+            ]
+          },
+          "invoice_url": {
+            "type": "string",
+            "title": "Invoice Url",
+            "description": "Open this hosted Xendit page to pay."
+          }
+        },
+        "type": "object",
+        "required": [
+          "topup_id",
+          "amount_idr",
+          "status",
+          "invoice_url"
+        ],
+        "title": "TopupCreated"
+      },
+      "TopupRequest": {
+        "properties": {
+          "amount_idr": {
+            "type": "integer",
+            "minimum": 10000.0,
+            "title": "Amount Idr",
+            "description": "Top-up amount in IDR (Xendit min 10000).",
+            "examples": [
+              50000
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount_idr"
+        ],
+        "title": "TopupRequest"
+      },
+      "UserPublic": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "account_type": {
+            "type": "string",
+            "title": "Account Type",
+            "default": "ev_user"
+          },
+          "ev_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev Model Id"
+          },
+          "main_connector_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Connector Type"
+          },
+          "location_consent": {
+            "type": "boolean",
+            "title": "Location Consent",
+            "default": false
+          },
+          "profile_completed": {
+            "type": "boolean",
+            "title": "Profile Completed",
+            "default": false
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at"
+        ],
+        "title": "UserPublic"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WalletBalance": {
+        "properties": {
+          "balance_idr": {
+            "type": "integer",
+            "title": "Balance Idr",
+            "examples": [
+              200000
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "IDR",
+            "examples": [
+              "IDR"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "balance_idr",
+          "updated_at"
+        ],
+        "title": "WalletBalance"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "stations",
+      "description": "Query and fetch charging stations."
+    },
+    {
+      "name": "geo",
+      "description": "GeoJSON output for direct map rendering."
+    },
+    {
+      "name": "meta",
+      "description": "Stats and filter look-ups (sources, provinces, cities)."
+    },
+    {
+      "name": "ev-models",
+      "description": "EV model catalogue (battery / range) for range-aware routing."
+    },
+    {
+      "name": "wallet",
+      "description": "Wallet balance + Xendit top-up (payment)."
+    },
+    {
+      "name": "auth",
+      "description": "Accounts + authentication (username/password + Google)."
+    },
+    {
+      "name": "system",
+      "description": "Health/diagnostics."
+    }
+  ]
+}

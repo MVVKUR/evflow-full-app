@@ -1,0 +1,35 @@
+.DS_Store
+*.log
+*.tsbuildinfo
+coverage/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Python/backend
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+backend-ev-flow/.venv/
+backend-ev-flow/venv/
+backend-ev-flow/output/
+backend-ev-flow/data/raw/
+backend-ev-flow/data/processed/
+backend-ev-flow/.claude/
+backend-ev-flow/ev_dataset 2.zip
+backend-ev-flow/Screenshot *.png
+
+# Frontend
+node_modules/
+group4-evflow-app/node_modules/
+group4-evflow-app/.expo/
+group4-evflow-app/apps/*/dist/
+group4-evflow-app/apps/*/build/
+group4-evflow-app/apps/*/web-build/
+group4-evflow-app/android/
+group4-evflow-app/ios/

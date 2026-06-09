@@ -1,0 +1,49 @@
+{
+  "name": "group4-evflow-app",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "mobile": "npm run start --workspace @evflow/mobile",
+    "mobile:lan": "npm run start:lan --workspace @evflow/mobile",
+    "mobile:tunnel": "npm run start:tunnel --workspace @evflow/mobile",
+    "mobile:android": "npm run android --workspace @evflow/mobile",
+    "mobile:ios": "npm run ios --workspace @evflow/mobile",
+    "web": "npm run dev --workspace @evflow/web",
+    "build:web": "npm run build --workspace @evflow/web",
+    "typecheck": "tsc --noEmit --pretty"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.9.10",
+    "esbuild": "^0.28.0",
+    "fast-xml-parser": "^5.8.0",
+    "postcss": "^8.5.15",
+    "send": "^0.19.2",
+    "tar": "^7.5.15",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.2"
+  },
+  "dependencies": {
+    "@expo-google-fonts/space-grotesk": "0.4.1",
+    "@react-native-community/slider": "5.0.1",
+    "@react-native-picker/picker": "2.11.1",
+    "expo": "~54.0.35",
+    "expo-camera": "17.0.10",
+    "expo-font": "14.0.12",
+    "html5-qrcode": "^2.3.8",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-web": "^0.21.2",
+    "react-native-webview": "13.15.0",
+    "react-router": "^6.30.1",
+    "react-router-dom": "^6.30.1",
+    "react-router-native": "^6.30.1"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}

@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "EVFlow",
+    "slug": "evflow",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "evflow",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.evflow.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "EVFlow uses your location to show nearby charging stations on the map."
+      }
+    },
+    "android": {
+      "package": "com.evflow.app",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "adaptiveIcon": {
+        "backgroundColor": "#0f172a"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
