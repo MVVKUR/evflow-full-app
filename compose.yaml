@@ -1,0 +1,83 @@
+# EVFlow fullstack: PostGIS + FastAPI backend + nginx-served web frontend.
+#
+#   podman compose up -d --build
+#   podman compose exec api alembic upgrade head        # once: schema
+#   podman compose exec api python -m scripts.seed_db   # once: station data
+#   open http://localhost:8080                          # web (API proxied at /api/v1)
+#
+# Optional secrets/tuning: copy backend-ev-flow/.env.deploy.example to .env
+# next to this file (compose reads it for the ${...} defaults below).
+#
+# The web bundle is built with VITE_EVFLOW_API_BASE_URL=/ so the browser calls
+# /api/v1/... on the web origin and nginx forwards it to the api container —
+# no CORS setup, no hardcoded API host. Override the build arg to point a
+# build at an external API instead.
+#
+# For the LXC/OpenVZ VPS deployment (host networking), keep using
+# backend-ev-flow/podman-compose.yml — see backend-ev-flow/DEPLOY.md.
+
+services:
+  db:
+    image: docker.io/postgis/postgis:16-3.4
+    container_name: evflow-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evflow
+      POSTGRES_PASSWORD: evflow
+      POSTGRES_DB: evflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evflow -d evflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: ./backend-ev-flow
+      dockerfile: Containerfile
+    image: evflow-api:latest
+    container_name: evflow-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
+      CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-*}"
+      DATABASE_URL: "postgresql+psycopg://evflow:evflow@db:5432/evflow"
+      XENDIT_SECRET_KEY: "${XENDIT_SECRET_KEY:-}"
+      XENDIT_BASE_URL: "${XENDIT_BASE_URL:-https://api.xendit.co}"
+      XENDIT_CALLBACK_TOKEN: "${XENDIT_CALLBACK_TOKEN:-}"
+      JWT_SECRET: "${JWT_SECRET:-}"
+      JWT_EXPIRE_MINUTES: "${JWT_EXPIRE_MINUTES:-10080}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      GOOGLE_REDIRECT_URI: "${GOOGLE_REDIRECT_URI:-}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:8080}"
+    volumes:
+      # Station data (+ optional routing graph) mounted read-only from the host.
+      # :Z relabels for SELinux hosts and is harmless elsewhere.
+      - ./backend-ev-flow/data:/app/data:ro,Z
+
+  web:
+    build:
+      context: ./frontend-evflow-app
+      dockerfile: Containerfile
+      args:
+        VITE_EVFLOW_API_BASE_URL: "${VITE_EVFLOW_API_BASE_URL:-/}"
+    image: evflow-web:latest
+    container_name: evflow-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+    environment:
+      EVFLOW_API_UPSTREAM: "http://api:8000"
+
+volumes:
+  pgdata:

@@ -4,7 +4,15 @@ export const LOCAL_BACKEND_PORT = 8000;
 
 export function normalizeApiBaseUrl(baseUrl: string | undefined) {
   const trimmed = baseUrl?.trim();
-  return trimmed ? trimmed.replace(/\/+$/, '') : DEFAULT_EVFLOW_API_BASE_URL;
+  if (!trimmed) {
+    return DEFAULT_EVFLOW_API_BASE_URL;
+  }
+  // "/" means same-origin: the API is served on the web origin (e.g. behind a
+  // reverse proxy), so requests use relative paths like /api/v1/...
+  if (trimmed === '/') {
+    return '';
+  }
+  return trimmed.replace(/\/+$/, '');
 }
 
 let lastLoggedBaseUrl: string | null = null;

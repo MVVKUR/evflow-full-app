@@ -1,0 +1,15 @@
+# Keep the build context small.
+node_modules/
+**/node_modules/
+.expo/
+**/.expo/
+apps/*/dist/
+apps/*/build/
+apps/*/web-build/
+android/
+ios/
+.git/
+*.log
+*.tsbuildinfo
+.env
+.env.*

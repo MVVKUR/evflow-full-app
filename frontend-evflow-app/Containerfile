@@ -1,0 +1,36 @@
+# EVFlow web — build the Vite app and serve it with nginx.
+# Build:  podman build -t evflow-web:latest -f Containerfile .
+#
+# VITE_EVFLOW_API_BASE_URL build arg controls which API the bundle calls:
+#   "/" (default)  same-origin — nginx proxies /api/ to EVFLOW_API_UPSTREAM
+#   full URL       e.g. https://ev-flow-api.opensoft.id for a static-host build
+FROM docker.io/library/node:22-alpine AS build
+
+WORKDIR /app
+
+# Workspace manifests first so the npm ci layer caches across source changes.
+COPY package.json package-lock.json ./
+COPY apps/web/package.json apps/web/
+COPY apps/mobile/package.json apps/mobile/
+COPY packages/features/package.json packages/features/
+COPY packages/maps/package.json packages/maps/
+COPY packages/shared/package.json packages/shared/
+COPY packages/ui/package.json packages/ui/
+RUN npm ci
+
+COPY . .
+
+ARG VITE_EVFLOW_API_BASE_URL=/
+ENV VITE_EVFLOW_API_BASE_URL=$VITE_EVFLOW_API_BASE_URL
+RUN npm run build:web
+
+FROM docker.io/library/nginx:1.27-alpine AS runtime
+
+# Where nginx forwards /api/ requests; the nginx image entrypoint substitutes
+# this into the config template at container start.
+ENV EVFLOW_API_UPSTREAM=http://api:8000
+
+COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+
+EXPOSE 80

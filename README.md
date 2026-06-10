@@ -48,6 +48,22 @@ npm install
 npm run web
 ```
 
+## Run with Podman (full stack in containers)
+
+`compose.yaml` at the repo root builds and runs PostGIS, the FastAPI backend, and the nginx-served web frontend:
+
+```bash
+podman compose up -d --build
+podman compose exec api alembic upgrade head        # once: schema
+podman compose exec api python -m scripts.seed_db   # once: station data
+open http://localhost:8080                          # web UI
+curl http://localhost:8080/api/v1/stats             # API via the nginx proxy
+```
+
+The web bundle is built with `VITE_EVFLOW_API_BASE_URL=/`, meaning same-origin: the browser calls `/api/v1/...` on the web origin and nginx forwards it to the `api` container, so no CORS configuration or hardcoded API host is needed. Secrets/tuning are optional — copy `backend-ev-flow/.env.deploy.example` to `.env` next to `compose.yaml`.
+
+The VPS deployment with host networking is unchanged: use `backend-ev-flow/podman-compose.yml` (see `backend-ev-flow/DEPLOY.md`).
+
 ## Root Commands
 
 ```bash
