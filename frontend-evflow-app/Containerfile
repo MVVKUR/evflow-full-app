@@ -26,11 +26,12 @@ RUN npm run build:web
 
 FROM docker.io/library/nginx:1.27-alpine AS runtime
 
-# Where nginx forwards /api/ requests; the nginx image entrypoint substitutes
-# this into the config template at container start.
+# Where nginx listens and forwards /api/ requests; the nginx image entrypoint
+# substitutes these into the config template at container start.
+ENV NGINX_LISTEN_PORT=80
 ENV EVFLOW_API_UPSTREAM=http://api:8000
 
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 80 8080

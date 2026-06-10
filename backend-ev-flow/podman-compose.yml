@@ -1,18 +1,18 @@
-# EV-FLOW backend: Podman deployment (host networking, LXC/OpenVZ-friendly).
+# EV-FLOW deployment (host networking, LXC/OpenVZ-friendly).
 #
-#   cp .env.deploy.example .env      # optional: CORS_ALLOW_ORIGINS, WEB_CONCURRENCY
-#   podman compose up -d --build db api
+#   cp .env.deploy.example .env      # optional: CORS_ALLOW_ORIGINS, WEB_CONCURRENCY, WEB_PORT
+#   podman compose up -d --build db api web
 #   podman compose exec api alembic upgrade head
 #   podman compose exec api python -m scripts.seed_db
 #
-# The API binds 0.0.0.0:8000 on the host. Put HTTPS in front with a Cloudflare Tunnel
-# pointing at http://localhost:8000 (see DEPLOY.md). The frontend then hits
-# https://<your-domain>/api/v1/...
+# The API binds 0.0.0.0:8000 on the host and the web UI binds 0.0.0.0:8080 by
+# default. Put HTTPS in front with a Cloudflare Tunnel pointing at
+# http://localhost:8080 (see DEPLOY.md); nginx proxies /api/ to the API.
 #
 # Why network_mode: host? Container-type VPSes (LXC/OpenVZ) block the iptables NAT that
 # Podman's default bridge network needs, so `compose up` fails with an ip_tables error.
 # Host mode skips the bridge entirely and works on both LXC and normal VMs.
-# Both db and api use host networking so the API reaches Postgres on localhost:5432.
+# The API reaches Postgres on localhost:5432, and web reaches the API on localhost:8000.
 
 services:
   db:
@@ -52,6 +52,25 @@ services:
       # Station data (+ optional routing graph) live on the host, mounted read-only.
       # :Z relabels for SELinux hosts (Fedora/RHEL) and is harmless elsewhere.
       - ./data:/app/data:ro,Z
+
+  web:
+    build:
+      context: ../frontend-evflow-app
+      dockerfile: Containerfile
+      args:
+        VITE_EVFLOW_API_BASE_URL: "/"
+    image: ev-flow-web:latest
+    container_name: ev-flow-web
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - api
+    environment:
+      # Host networking has no compose DNS alias for "api", so proxy to the host port.
+      EVFLOW_API_UPSTREAM: "http://127.0.0.1:8000"
+      # Avoid binding privileged port 80 in rootless Podman. Override with WEB_PORT=80
+      # only when your host allows it.
+      NGINX_LISTEN_PORT: "${WEB_PORT:-8080}"
 
 volumes:
   pgdata:

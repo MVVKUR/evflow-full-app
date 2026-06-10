@@ -62,7 +62,9 @@ curl http://localhost:8080/api/v1/stats             # API via the nginx proxy
 
 The web bundle is built with `VITE_EVFLOW_API_BASE_URL=/`, meaning same-origin: the browser calls `/api/v1/...` on the web origin and nginx forwards it to the `api` container, so no CORS configuration or hardcoded API host is needed. Secrets/tuning are optional — copy `backend-ev-flow/.env.deploy.example` to `.env` next to `compose.yaml`.
 
-The VPS deployment with host networking is unchanged: use `backend-ev-flow/podman-compose.yml` (see `backend-ev-flow/DEPLOY.md`).
+For LXC/OpenVZ VPSes where Podman's bridge networking fails with `ip_tables`, use
+`backend-ev-flow/podman-compose.yml`; it runs the API and web frontend with host networking
+(see `backend-ev-flow/DEPLOY.md`).
 
 ## Root Commands
 

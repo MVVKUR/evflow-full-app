@@ -1,6 +1,6 @@
 # Deploying EV-FLOW (Podman)
 
-Runs the FastAPI backend as a single slim container (~350 MB, no analysis/geo stack) with
+Runs PostGIS, the FastAPI backend, and the nginx-served web frontend with
 **host networking**, fronted by a **Cloudflare Tunnel** for HTTPS.
 
 ## What the frontend hits
@@ -8,6 +8,7 @@ Runs the FastAPI backend as a single slim container (~350 MB, no analysis/geo st
 Once the tunnel is up, the public base URL is your tunnel hostname:
 
 ```
+https://<your-domain>/                 web frontend
 https://<your-domain>/api/v1/...      e.g. https://ev-flow-api.opensoft.id/api/v1/stations.geojson
 https://<your-domain>/docs            Swagger UI
 https://<your-domain>/openapi.json    machine-readable contract
@@ -20,8 +21,9 @@ Full endpoint contract + examples: [FRONTEND_API.md](FRONTEND_API.md).
 Many cheap VPSes are **LXC/OpenVZ containers**, not full VMs. Their kernel blocks the
 iptables NAT that Podman's default bridge network needs, so `compose up` fails with an
 `ip_tables: Operation not permitted` error. `network_mode: host` (in `podman-compose.yml`)
-skips the bridge entirely, so the API just binds `0.0.0.0:8000` on the host. Works on LXC and
-normal VMs alike. (Check your box with `systemd-detect-virt`.)
+skips the bridge entirely. Postgres binds `localhost:5432`, the API binds `:8000`, and the
+web UI binds `:8080` by default. Works on LXC and normal VMs alike. (Check your box with
+`systemd-detect-virt`.)
 
 ## Prerequisites (on the VPS)
 
@@ -46,17 +48,19 @@ mkdir -p data/raw data/processed
 cp .env.deploy.example .env        # CORS_ALLOW_ORIGINS, WEB_CONCURRENCY
 
 # 3. Build + run, then migrate and seed
-podman compose up -d --build db api
+podman compose up -d --build db api web
 podman compose exec api alembic upgrade head        # create the schema
 podman compose exec api python -m scripts.seed_db   # load + dedupe stations (~1147)
 
 # 4. Check it locally on the VPS
-curl -s http://localhost:8000/health        # {"status":"ok","stations_loaded":~1147,...}
+curl -s http://localhost:8000/health        # direct API
+curl -s http://localhost:8080/health        # via web nginx proxy
+curl -I http://localhost:8080               # web UI
 podman logs -f ev-flow-api
 ```
 
-> Security note: port 5432 should remain closed to the public. Only the API is exposed via
-> the Cloudflare Tunnel; Postgres is reachable only on the host (localhost:5432).
+> Security note: ports 5432 and 8000 should remain closed to the public. Expose the web
+> service through the Cloudflare Tunnel on 8080; nginx forwards `/api/` to the API locally.
 
 > Manage it with `podman compose up -d` / `down` / `ps`, or directly:
 > `podman logs -f ev-flow-api`, `podman restart ev-flow-api`.
@@ -72,9 +76,11 @@ No open ports, no iptables, ideal for LXC. In the Cloudflare Zero Trust dashboar
 | Subdomain / Domain | e.g. `ev-flow-api` / `opensoft.id` |
 | Path | **leave empty** (so all routes pass through) |
 | Service Type | **HTTP** |
-| Service URL | **`localhost:8000`** |
+| Service URL | **`localhost:8080`** |
 
-The frontend then uses `https://ev-flow-api.opensoft.id`.
+The frontend and API then share the same public origin, e.g. `https://ev-flow-api.opensoft.id`.
+If you host the frontend somewhere else, run only `db api` and point the tunnel at
+`localhost:8000` as an API-only deployment.
 
 ## Updating
 

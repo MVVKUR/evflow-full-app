@@ -1,7 +1,7 @@
-# EVFlow web. ${EVFLOW_API_UPSTREAM} is substituted by the nginx image
-# entrypoint at container start (nginx's own $vars are left untouched).
+# EVFlow web. ${NGINX_LISTEN_PORT} and ${EVFLOW_API_UPSTREAM} are substituted by
+# the nginx image entrypoint at container start (nginx's own $vars are left untouched).
 server {
-    listen 80;
+    listen ${NGINX_LISTEN_PORT};
     server_name _;
 
     root /usr/share/nginx/html;
