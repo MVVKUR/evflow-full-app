@@ -71,7 +71,7 @@ async function getAuthErrorMessage(response: Response) {
   const fallback = getFallbackAuthErrorMessage(response.status);
 
   try {
-    const payload = await response.json();
+    const payload = await response.clone().json();
     const detail = payload?.detail;
 
     if (typeof detail === 'string') {
@@ -84,6 +84,16 @@ async function getAuthErrorMessage(response: Response) {
         .find((message): message is string => typeof message === 'string' && Boolean(message));
 
       return firstMessage ?? fallback;
+    }
+  } catch {
+    // Keep the status-specific fallback below, then try a plain-text body.
+  }
+
+  try {
+    const text = (await response.text()).trim();
+
+    if (text && text !== 'Internal Server Error') {
+      return text;
     }
   } catch {
     // Keep the status-specific fallback below.
@@ -105,5 +115,17 @@ function getFallbackAuthErrorMessage(status: number) {
     return 'Please check the highlighted fields and try again.';
   }
 
-  return 'Authentication request failed. Please try again.';
+  if (status === 404) {
+    return 'Authentication endpoint was not found. Rebuild and restart the API container.';
+  }
+
+  if (status === 500) {
+    return 'Authentication service failed. Run database migrations, then try again.';
+  }
+
+  if (status === 502 || status === 503 || status === 504) {
+    return 'Authentication service is unavailable. Check that the API container is running.';
+  }
+
+  return `Authentication request failed with status ${status}.`;
 }
