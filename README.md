@@ -29,13 +29,15 @@ python -m scripts.seed_db
 
 ## Frontend
 
-The frontend defaults to the deployed API at `https://ev-flow-api.opensoft.id`.
+API base URL resolution:
 
-For local backend testing, set one of:
+- **Dev** (`npm run web`, `expo start`): defaults to the local backend — `http://localhost:8000` on web; on mobile the dev-machine host is derived from the Metro bundle URL, so physical devices use your LAN IP automatically (the dev backend listens on `0.0.0.0` for this). In `expo start --tunnel` mode the bundle host is a public tunnel that cannot reach your machine, so mobile falls back to the deployed API unless the override below is set. The resolved URL is logged to the console.
+- **Production builds**: default to the deployed API at `https://ev-flow-api.opensoft.id`.
+- **Override** (either direction, e.g. to use the deployed API in dev without a local backend):
 
 ```bash
-VITE_EVFLOW_API_BASE_URL=http://localhost:8000
-EXPO_PUBLIC_EVFLOW_API_BASE_URL=http://localhost:8000
+VITE_EVFLOW_API_BASE_URL=https://ev-flow-api.opensoft.id          # web
+EXPO_PUBLIC_EVFLOW_API_BASE_URL=https://ev-flow-api.opensoft.id   # mobile
 ```
 
 Install and run:
@@ -49,6 +51,8 @@ npm run web
 ## Root Commands
 
 ```bash
+npm install            # once: installs root tooling (concurrently)
+npm run dev            # start backend (uvicorn :8000) + web frontend together
 npm run backend:test
 npm run frontend:typecheck
 npm run frontend:build

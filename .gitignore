@@ -33,3 +33,6 @@ frontend-evflow-app/apps/*/build/
 frontend-evflow-app/apps/*/web-build/
 frontend-evflow-app/android/
 frontend-evflow-app/ios/
+
+# Local browser-test artifacts
+.playwright-mcp/
