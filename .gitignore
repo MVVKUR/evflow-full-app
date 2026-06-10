@@ -26,10 +26,10 @@ backend-ev-flow/Screenshot *.png
 
 # Frontend
 node_modules/
-group4-evflow-app/node_modules/
-group4-evflow-app/.expo/
-group4-evflow-app/apps/*/dist/
-group4-evflow-app/apps/*/build/
-group4-evflow-app/apps/*/web-build/
-group4-evflow-app/android/
-group4-evflow-app/ios/
+frontend-evflow-app/node_modules/
+frontend-evflow-app/.expo/
+frontend-evflow-app/apps/*/dist/
+frontend-evflow-app/apps/*/build/
+frontend-evflow-app/apps/*/web-build/
+frontend-evflow-app/android/
+frontend-evflow-app/ios/

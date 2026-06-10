@@ -5,8 +5,8 @@ Monorepo for the EVFlow backend and frontend. The folders remain separate deploy
 ## Structure
 
 ```text
-backend-ev-flow/      FastAPI + PostGIS backend
-group4-evflow-app/    React, React Native, and Vite frontend
+backend-ev-flow/        FastAPI + PostGIS backend
+frontend-evflow-app/    React, React Native, and Vite frontend
 ```
 
 ## Backend
@@ -41,7 +41,7 @@ EXPO_PUBLIC_EVFLOW_API_BASE_URL=http://localhost:8000
 Install and run:
 
 ```bash
-cd group4-evflow-app
+cd frontend-evflow-app
 npm install
 npm run web
 ```

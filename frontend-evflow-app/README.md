@@ -140,10 +140,6 @@ npm run build:web
 
 Deploy `apps/web/dist` to a static host such as Vercel, Netlify, Cloudflare Pages, or GitHub Pages.
 
-## Git Remote
+## Repository
 
-The repository is intended to be pushed to:
-
-```bash
-git@github.com:nkwxn/group4-evflow-app.git
-```
+This app lives in the `evflow-fullstack` monorepo alongside the FastAPI backend (`backend-ev-flow/`). See the repository root README for fullstack setup.
