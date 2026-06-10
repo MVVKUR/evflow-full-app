@@ -14,6 +14,10 @@ type RegistrationScreenProps = {
 };
 
 const batteryThresholds = [10, 15, 20, 25, 30, 35, 40] as const;
+const defaultConnectorTypes: ConnectorTypeApiItem[] = [
+  { name: 'CCS2', count: 0 },
+  { name: 'AC Type 2', count: 0 }
+];
 
 export function RegistrationScreen({ onBack, onLogin, onRegister }: RegistrationScreenProps) {
   const insets = useAppSafeAreaInsets();
@@ -28,6 +32,7 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
   const [connectorTypes, setConnectorTypes] = useState<ConnectorTypeApiItem[]>([]);
   const [connectorTypesLoading, setConnectorTypesLoading] = useState(true);
   const [connectorTypesError, setConnectorTypesError] = useState<string | null>(null);
+  const [usingDefaultConnectorTypes, setUsingDefaultConnectorTypes] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -64,20 +69,31 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
 
       try {
         const response = await fetchConnectorTypes();
+        const options = response.length > 0 ? response : defaultConnectorTypes;
 
         if (mounted) {
-          setConnectorTypes(response);
+          setConnectorTypes(options);
+          setUsingDefaultConnectorTypes(response.length === 0);
           setSelectedConnectorType((current) => {
-            if (response.some((connectorType) => connectorType.name === current)) {
+            if (options.some((connectorType) => connectorType.name === current)) {
               return current;
             }
 
-            return response[0]?.name ?? '';
+            return options[0]?.name ?? '';
           });
         }
       } catch (error) {
         if (mounted) {
           setConnectorTypesError(error instanceof Error ? error.message : 'Unable to load connector types.');
+          setConnectorTypes(defaultConnectorTypes);
+          setUsingDefaultConnectorTypes(true);
+          setSelectedConnectorType((current) => {
+            if (defaultConnectorTypes.some((connectorType) => connectorType.name === current)) {
+              return current;
+            }
+
+            return defaultConnectorTypes[0]?.name ?? '';
+          });
         }
       } finally {
         if (mounted) {
@@ -228,7 +244,8 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
             })}
           </View>
           {connectorTypesLoading ? <Text style={styles.helperText}>Loading connector types...</Text> : null}
-          {connectorTypesError ? <Text style={styles.helperText}>Connector types unavailable.</Text> : null}
+          {!connectorTypesLoading && usingDefaultConnectorTypes ? <Text style={styles.helperText}>Using default connector types.</Text> : null}
+          {connectorTypesError && !usingDefaultConnectorTypes ? <Text style={styles.helperText}>Connector types unavailable.</Text> : null}
         </View>
 
         <Pressable
