@@ -24,7 +24,7 @@ jobs:
           # Full history so Sonar can attribute new code correctly
           fetch-depth: 0
 
-      - uses: SonarSource/sonarqube-scan-action@v5
+      - uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
