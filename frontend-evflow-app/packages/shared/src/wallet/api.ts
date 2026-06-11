@@ -51,6 +51,16 @@ export async function createWalletTopup(amountIdr: number, fetcher: typeof fetch
   return response.json() as Promise<TopupCreatedApiResponse>;
 }
 
+export async function fetchWalletTopup(topupId: string, fetcher: typeof fetch = fetch) {
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/wallet/topups/${topupId}`);
+
+  if (!response.ok) {
+    throw new Error(`EVFlow wallet top-up status request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<TopupApiItem>;
+}
+
 export async function fetchWalletTopups(limit = 20, fetcher: typeof fetch = fetch) {
   const query = toQueryString({ limit });
   const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/wallet/topups${query}`);

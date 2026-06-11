@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocation, useNavigate } from 'react-router';
-import { createWalletTopup, fetchWalletBalance } from '@evflow/shared';
+import { createWalletTopup, fetchWalletBalance, fetchWalletTopup } from '@evflow/shared';
 import { walletScreenStyles as styles } from '@evflow/ui';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 
@@ -50,6 +50,13 @@ export function TopUpWalletScreen({ bottomOffset = 0, topInset = 0 }: TopUpWalle
 
     createWalletTopup(parsedAmount)
       .then((topup) => {
+        // Send the user to the Xendit checkout; the waiting screen polls until it is paid
+        // and also offers a button to reopen the page if a popup blocker ate this one.
+        if (topup.invoice_url) {
+          Linking.openURL(topup.invoice_url).catch((err) => {
+            console.error('Unable to open the payment page', err);
+          });
+        }
         navigate('/ev-driver/wallet/topup/success', {
           state: {
             amountIdr: topup.amount_idr,
@@ -141,35 +148,113 @@ export function TopUpWalletScreen({ bottomOffset = 0, topInset = 0 }: TopUpWalle
 export function TopUpSuccessScreen({ bottomOffset = 0, topInset = 0 }: TopUpWalletScreenProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const state = location.state as { amountIdr?: number } | null;
-  const amount = state?.amountIdr ?? 0;
+  const state = location.state as { amountIdr?: number; invoiceUrl?: string; topupId?: string } | null;
+  // In-app flow passes the id via navigation state; the Xendit success redirect
+  // lands here with ?topup_id=... and no state.
+  const topupId = state?.topupId ?? parseTopupIdFromSearch(location.search);
+  const invoiceUrl = state?.invoiceUrl ?? null;
+  const [paid, setPaid] = useState(false);
+  const [amount, setAmount] = useState(state?.amountIdr ?? 0);
+
+  useEffect(() => {
+    if (!topupId || paid) {
+      return;
+    }
+
+    let mounted = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = () => {
+      fetchWalletTopup(topupId)
+        .then((topup) => {
+          if (!mounted) {
+            return;
+          }
+          setAmount(topup.amount_idr);
+          if (topup.status === 'paid') {
+            setPaid(true);
+          } else {
+            timer = setTimeout(poll, 3000);
+          }
+        })
+        .catch((err) => {
+          console.error('Unable to check top-up status', err);
+          if (mounted) {
+            timer = setTimeout(poll, 5000);
+          }
+        });
+    };
+
+    poll();
+
+    return () => {
+      mounted = false;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [topupId, paid]);
+
+  const waiting = Boolean(topupId) && !paid;
 
   return (
     <View style={styles.page}>
-      <WalletFlowHeader title="Top Up Success" topInset={topInset} titleStyle={styles.topupSuccessHeaderTitle} onBack={() => navigate('/ev-driver/wallet/topup')} />
+      <WalletFlowHeader
+        title={waiting ? 'Menunggu Pembayaran' : 'Top Up Success'}
+        topInset={topInset}
+        titleStyle={styles.topupSuccessHeaderTitle}
+        onBack={() => navigate('/ev-driver/wallet/topup')}
+      />
 
       <View style={[styles.topupSuccessContent, { paddingBottom: 32 + bottomOffset }]}>
         <View style={styles.topupSuccessMarkWrap}>
-          <View style={styles.topupSuccessMark}>
-            <Text style={styles.topupSuccessCheck}>✓</Text>
-          </View>
-          <View style={styles.topupConfettiDotLarge} />
-          <View style={styles.topupConfettiDotSmall} />
-          <View style={styles.topupConfettiDotTiny} />
+          {waiting ? (
+            <ActivityIndicator color="#00b8b0" size="large" />
+          ) : (
+            <>
+              <View style={styles.topupSuccessMark}>
+                <Text style={styles.topupSuccessCheck}>✓</Text>
+              </View>
+              <View style={styles.topupConfettiDotLarge} />
+              <View style={styles.topupConfettiDotSmall} />
+              <View style={styles.topupConfettiDotTiny} />
+            </>
+          )}
         </View>
 
-        <Text style={styles.topupSuccessTitle}>Top Up Successful</Text>
+        <Text style={styles.topupSuccessTitle}>{waiting ? 'Menunggu Pembayaran' : 'Top Up Successful'}</Text>
         <Text style={styles.topupSuccessAmount}>{formatCurrency(amount)}</Text>
-        <Text style={styles.topupSuccessSubtitle}>Your wallet has been topped up successfully.</Text>
+        <Text style={styles.topupSuccessSubtitle}>
+          {waiting
+            ? 'Selesaikan pembayaran di halaman Xendit. Saldo akan terisi otomatis setelah pembayaran diterima.'
+            : 'Your wallet has been topped up successfully.'}
+        </Text>
+
+        {waiting && invoiceUrl ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              Linking.openURL(invoiceUrl).catch((err) => console.error('Unable to open the payment page', err));
+            }}
+            style={styles.topupPrimaryButton}
+          >
+            <Text style={styles.topupPrimaryButtonText}>Buka Halaman Pembayaran</Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.topupSuccessSpacer} />
 
         <Pressable accessibilityRole="button" onPress={() => navigate('/ev-driver/wallet')} style={styles.topupDoneButton}>
-          <Text style={styles.topupDoneButtonText}>Done</Text>
+          <Text style={styles.topupDoneButtonText}>{waiting ? 'Kembali ke Wallet' : 'Done'}</Text>
         </Pressable>
       </View>
     </View>
   );
+}
+
+function parseTopupIdFromSearch(search: string) {
+  const match = /[?&]topup_id=([^&]+)/.exec(search);
+  return match ? decodeURIComponent(match[1]) : undefined;
 }
 
 type WalletFlowHeaderProps = {

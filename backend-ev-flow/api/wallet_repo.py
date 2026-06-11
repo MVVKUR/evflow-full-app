@@ -14,8 +14,9 @@ def get_wallet() -> dict:
     return {"balance_idr": int(r["balance_idr"]), "updated_at": r["updated_at"]}
 
 
-def create_topup(amount_idr: int, external_id: str, invoice_id: str, invoice_url: str) -> dict:
-    topup_id = str(uuid.uuid4())
+def create_topup(amount_idr: int, external_id: str, invoice_id: str, invoice_url: str,
+                 topup_id: str | None = None) -> dict:
+    topup_id = topup_id or str(uuid.uuid4())
     with engine.begin() as c:
         c.execute(text("""
             INSERT INTO topups (id, external_id, xendit_invoice_id, amount_idr, status, invoice_url)
@@ -40,6 +41,15 @@ def mark_paid_and_credit(invoice_id: str) -> bool:
         c.execute(text("UPDATE wallet SET balance_idr = balance_idr + :amt, updated_at = now() WHERE id = 1"),
                   {"amt": int(row[0])})
     return True
+
+
+def get_topup(topup_id: str) -> dict | None:
+    with engine.connect() as c:
+        r = c.execute(text("""
+            SELECT id, external_id, xendit_invoice_id, amount_idr, status, invoice_url, created_at, paid_at
+            FROM topups WHERE id = :id
+        """), {"id": topup_id}).mappings().first()
+    return None if r is None else {**dict(r), "id": str(r["id"])}
 
 
 def list_topups(limit: int = 20) -> list[dict]:
