@@ -1,12 +1,10 @@
 # SonarQube analysis on every push to main and on pull requests.
 #
-# Required repo secrets (Settings → Secrets and variables → Actions):
-#   SONAR_HOST_URL  e.g. https://sonar.example.com — must be reachable from
-#                   GitHub's runners, so a SonarQube on your laptop won't work;
-#                   use the VPS deployment or a self-hosted runner.
-#   SONAR_TOKEN     a project analysis token (My Account → Security → Generate)
+# Required repo secret (Settings → Secrets and variables → Actions →
+# "Repository secrets", NOT Variables/Codespaces/Dependabot):
+#   SONAR_TOKEN  a global analysis token (My Account → Security → Generate)
 #
-# Until those are set, run sonarqube/scan.sh locally instead.
+# The host URL is public anyway, so it is hardcoded below.
 
 name: SonarQube
 
@@ -24,7 +22,13 @@ jobs:
           # Full history so Sonar can attribute new code correctly
           fetch-depth: 0
 
+      - name: Check SONAR_TOKEN is configured
+        if: ${{ secrets.SONAR_TOKEN == '' }}
+        run: |
+          echo "::error::SONAR_TOKEN secret is empty. Add it under repo Settings → Secrets and variables → Actions → 'Repository secrets' (the Secrets tab, not Variables)."
+          exit 1
+
       - uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_HOST_URL: https://sonarcube.opensoft.id
