@@ -23,10 +23,13 @@ jobs:
           fetch-depth: 0
 
       - name: Check SONAR_TOKEN is configured
-        if: ${{ secrets.SONAR_TOKEN == '' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          echo "::error::SONAR_TOKEN secret is empty. Add it under repo Settings → Secrets and variables → Actions → 'Repository secrets' (the Secrets tab, not Variables)."
-          exit 1
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::SONAR_TOKEN secret is empty. Add it under repo Settings → Secrets and variables → Actions → 'Repository secrets' (the Secrets tab, not Variables)."
+            exit 1
+          fi
 
       - uses: SonarSource/sonarqube-scan-action@v6
         env:
