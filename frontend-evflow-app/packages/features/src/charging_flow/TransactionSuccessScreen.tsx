@@ -24,7 +24,15 @@ export function TransactionSuccessScreen() {
     };
   }, []);
 
-  const amountPaid = state?.totalDue || 51820;
+  const amountPaid = state?.session?.deposit_idr ?? state?.totalDue ?? 0;
+  const referenceNo = state?.session?.id ?? '—';
+  const createdAt = state?.session?.created_at;
+  const dateTime = createdAt
+    ? `${new Date(createdAt).toLocaleString('id-ID', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta'
+      })} WIB`
+    : '—';
 
   return (
     <View style={styles.page}>
@@ -51,13 +59,13 @@ export function TransactionSuccessScreen() {
           <View style={styles.referenceRow}>
             <Text style={styles.referenceLabel}>Reference No.</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.referenceValue}>TXN-2026-8849X</Text>
+              <Text style={styles.referenceValue} numberOfLines={1}>{referenceNo}</Text>
               <ChargingFlowIcon name="copy" size={14} color="#6e7a80" />
             </View>
           </View>
           <View style={styles.referenceRow}>
             <Text style={styles.referenceLabel}>Date & Time</Text>
-            <Text style={styles.referenceValue}>31 May 2026, 01:52 WIB</Text>
+            <Text style={styles.referenceValue}>{dateTime}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.referenceRow}>

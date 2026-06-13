@@ -2,9 +2,9 @@ import { Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { walletScreenStyles as styles } from '@evflow/ui';
-import { fetchWalletBalance, fetchWalletTopups, type TopupApiItem } from '@evflow/shared';
+import { fetchWalletBalance, fetchWalletTopups, fetchChargingSessions, type TopupApiItem, type ChargingSessionApiResponse } from '@evflow/shared';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
-import { walletTransactions, type WalletTransaction } from './walletTransactions';
+import { type WalletTransaction } from './walletTransactions';
 import { downloadReceipt } from '../shared/downloadReceipt';
 import { ReceiptPdfViewer } from '../shared/ReceiptPdfViewer';
 
@@ -14,20 +14,23 @@ type WalletScreenProps = {
   topInset?: number;
 };
 
-const totalBalance = 250000;
 const historyPinOffset = 108;
 
 export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }: WalletScreenProps) {
   const navigate = useNavigate();
   const { height, width } = useWindowDimensions();
-  const [balance, setBalance] = useState(totalBalance);
+  const [balance, setBalance] = useState<number | null>(null);
   const [apiTopups, setApiTopups] = useState<TopupApiItem[]>([]);
+  const [apiSessions, setApiSessions] = useState<ChargingSessionApiResponse[]>([]);
   const [selectedTransaction, setSelectedTransaction] = useState<WalletTransaction | null>(null);
   const [isHistoryPinned, setIsHistoryPinned] = useState(false);
   const desktop = width >= 768;
   const transactions = useMemo(
-    () => [...apiTopups.map(mapTopupToTransaction), ...walletTransactions],
-    [apiTopups]
+    () =>
+      [...apiTopups.map(mapTopupToTransaction), ...apiSessions.map(mapSessionToTransaction)].sort(
+        (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+      ),
+    [apiTopups, apiSessions]
   );
 
   useEffect(() => {
@@ -51,6 +54,16 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
       })
       .catch((error) => {
         console.error('Unable to fetch wallet top-ups', error);
+      });
+
+    fetchChargingSessions()
+      .then((sessions) => {
+        if (mounted) {
+          setApiSessions(sessions);
+        }
+      })
+      .catch((error) => {
+        console.error('Unable to fetch charging sessions', error);
       });
 
     return () => {
@@ -78,7 +91,7 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
         <View style={styles.balanceCard}>
           <View>
             <Text style={styles.balanceLabel}>Total Balance</Text>
-            <Text style={styles.balanceValue}>{formatCurrency(balance)}</Text>
+            <Text style={styles.balanceValue}>{balance === null ? 'Rp …' : formatCurrency(balance)}</Text>
           </View>
           <Pressable accessibilityRole="button" onPress={() => navigate('/ev-driver/wallet/topup')} style={styles.topUpButton}>
             <Text style={styles.topUpButtonText}>Top Up</Text>
@@ -151,7 +164,7 @@ function TransactionRow({ transaction, onPress }: TransactionRowProps) {
         <Text style={styles.transactionTitle}>{transaction.title}</Text>
         <Text style={styles.transactionMeta}>
           {transaction.description}
-          {transaction.connectorType ? ` • ${transaction.connectorType}` : ' • Ref ID: 82910'}
+          {transaction.connectorType ? ` • ${transaction.connectorType}` : ` • ${transaction.referenceNo}`}
         </Text>
       </View>
 
@@ -361,4 +374,26 @@ function formatTopupStatus(status: string) {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(' ');
+}
+
+function mapSessionToTransaction(session: ChargingSessionApiResponse): WalletTransaction {
+  const completed = session.status === 'completed';
+  // Charge = a debit (negative). Completed bills actual cost; active holds the deposit.
+  const charged = completed ? (session.actual_cost_idr ?? session.deposit_idr) : session.deposit_idr;
+  const stationName = session.station_name ?? 'Charging Session';
+  const refId = `TXN-${session.id.slice(0, 8).toUpperCase()}`;
+
+  return {
+    id: session.id,
+    amount: -charged,
+    description: completed ? 'Charging settled' : 'Charging in progress',
+    connectorType: session.connector_type ?? undefined,
+    destination: stationName,
+    occurredAt: session.completed_at ?? session.created_at,
+    orderId: session.id,
+    referenceNo: refId,
+    status: 'success',
+    title: stationName,
+    type: 'charging'
+  };
 }

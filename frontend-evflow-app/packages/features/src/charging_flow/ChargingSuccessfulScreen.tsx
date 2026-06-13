@@ -1,31 +1,84 @@
-import { View, Text, Pressable, ScrollView, Image, type ImageSourcePropType } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, Pressable, ScrollView, Image, ActivityIndicator, type ImageSourcePropType } from 'react-native';
 import { useLocation, useNavigate } from 'react-router';
 import { chargingFlowStyles as styles } from '@evflow/ui';
+import { settleChargingSession, type ChargingSessionApiResponse } from '@evflow/shared';
 import { ChargingFlowIcon } from './components/ChargingFlowIcon';
 import chargingCompleteTickPng from '../assets/images/charging-complete-tick.png';
 import { useAppSafeAreaInsets } from '../shared/useAppSafeAreaInsets';
 import { ChargingFlowHeader } from './components/ChargingFlowHeader';
 import { downloadReceipt } from '../shared/downloadReceipt';
 
-const BASE_RATE = 2466;
-const ADMIN_FEE = 2500;
-const INITIAL_BALANCE = 250000;
-
 export function ChargingSuccessfulScreen() {
   const navigate = useNavigate();
   const { state } = useLocation();
   const insets = useAppSafeAreaInsets();
 
-  const purchasedKwh = state?.energy || 20;
-  const initialDeposit = state?.totalDue || (purchasedKwh * BASE_RATE + ADMIN_FEE);
-  const stationName = state?.station?.name || 'SPKLU PLN Sukses';
+  const session = state?.session as ChargingSessionApiResponse | undefined;
+  const deliveredKwhInput: number = state?.deliveredKwh ?? session?.energy_kwh ?? state?.energy ?? 0;
 
-  // Simulate stopping slightly before 100% just for the refund demonstration,
-  // or use exactly purchasedKwh if it's small.
-  const deliveredKwh = Math.max(purchasedKwh * 0.825, 0.1); 
-  const actualCost = Math.round(deliveredKwh * BASE_RATE) + ADMIN_FEE;
-  const refundAmount = Math.max(initialDeposit - actualCost, 0);
-  const updatedBalance = INITIAL_BALANCE - initialDeposit + refundAmount;
+  const [settlement, setSettlement] = useState<ChargingSessionApiResponse | null>(null);
+  const [settling, setSettling] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // settle is idempotent on the backend, so retries / re-mounts never double-credit.
+  const runSettle = useCallback(async () => {
+    if (!session?.id) {
+      setSettling(false);
+      setError('This charging session is no longer available. Please return to the map.');
+      return;
+    }
+    setSettling(true);
+    setError(null);
+    try {
+      const result = await settleChargingSession(session.id, deliveredKwhInput);
+      setSettlement(result);
+    } catch (err) {
+      console.error('Failed to settle charging session:', err);
+      setError('Could not settle the session. Please retry.');
+    } finally {
+      setSettling(false);
+    }
+  }, [session?.id, deliveredKwhInput]);
+
+  useEffect(() => { runSettle(); }, [runSettle]);
+
+  const stationName = settlement?.station_name || session?.station_name || state?.station?.name || 'SPKLU PLN Sukses';
+  const purchasedKwh = settlement?.energy_kwh ?? session?.energy_kwh ?? state?.energy ?? 0;
+  const deliveredKwh = settlement?.delivered_kwh ?? deliveredKwhInput;
+  const initialDeposit = settlement?.deposit_idr ?? session?.deposit_idr ?? 0;
+  const actualCost = settlement?.actual_cost_idr ?? 0;
+  const refundAmount = settlement?.refund_idr ?? 0;
+  const updatedBalance = settlement?.wallet_balance_idr ?? 0;
+  const referenceId = (settlement?.id ?? session?.id ?? '').slice(0, 8).toUpperCase();
+
+  if (settling) {
+    return (
+      <View style={[styles.page, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#00696F" />
+        <Text style={{ marginTop: 16, color: '#6B7A7B' }}>Settling your session…</Text>
+      </View>
+    );
+  }
+
+  if (error && !settlement) {
+    return (
+      <View style={styles.page}>
+        <ChargingFlowHeader title="Charging Successful" onBack={() => navigate(-1)} />
+        <View style={[styles.content, { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 }]}>
+          <Text style={{ color: '#ba1a1a', fontSize: 14, textAlign: 'center' }}>{error}</Text>
+          {session?.id ? (
+            <Pressable style={styles.primaryButton} onPress={runSettle}>
+              <Text style={styles.primaryButtonText}>RETRY SETTLEMENT</Text>
+            </Pressable>
+          ) : null}
+          <Pressable onPress={() => navigate('/ev-driver/map')}>
+            <Text style={styles.backLink}>BACK TO MAP DISCOVERY</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.page}>
@@ -110,13 +163,13 @@ export function ChargingSuccessfulScreen() {
             amount: `Rp ${actualCost.toLocaleString('id-ID')}`,
             date: new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Jakarta' }).format(new Date()),
             destination: stationName,
-            orderId: `EVFLOW-${Math.floor(Math.random() * 1000000)}`,
+            orderId: `EVFLOW-${referenceId}`,
             status: 'Success',
-            summaryMeta: `REF-${Math.floor(Math.random() * 1000000)}`,
+            summaryMeta: `REF-${referenceId}`,
             summaryTitle: 'Charging Payment',
             time: new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }).format(new Date()),
             total: `Rp ${actualCost.toLocaleString('id-ID')}`,
-            transactionId: `TXN-${Math.floor(Math.random() * 1000000)}`,
+            transactionId: `TXN-${referenceId}`,
             typeText: 'Charging'
           })}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>

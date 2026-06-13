@@ -194,6 +194,51 @@ class Topup(BaseModel):
     paid_at: Optional[datetime] = None
 
 
+# ---- charging sessions (Epic 4.0: real wallet debit + settlement) -----------
+class ChargingQuoteRequest(BaseModel):
+    energy_kwh: float = Field(..., gt=0, le=500, description="Requested energy in kWh.", examples=[20])
+
+
+class ChargingQuote(BaseModel):
+    energy_kwh: float
+    base_rate_idr: int = Field(..., examples=[2466])
+    admin_fee_idr: int = Field(..., examples=[2500])
+    energy_cost_idr: int = Field(..., examples=[49320])
+    total_due_idr: int = Field(..., description="Deposit charged at session start.", examples=[51820])
+    currency: str = "IDR"
+
+
+class StartSessionRequest(BaseModel):
+    station_id: str = Field(..., examples=["pln_spklu-1"])
+    energy_kwh: float = Field(..., gt=0, le=500, examples=[20])
+    station_name: Optional[str] = Field(None, examples=["SPKLU PLN UID JAKARTA RAYA"])
+    connector_type: Optional[str] = Field(None, examples=["CCS2"])
+    power_kw: Optional[float] = Field(None, examples=[150])
+
+
+class SettleRequest(BaseModel):
+    delivered_kwh: float = Field(..., ge=0, le=500, description="Energy actually delivered (kWh).", examples=[16.5])
+
+
+class ChargingSession(BaseModel):
+    id: str
+    station_id: str
+    station_name: Optional[str] = None
+    connector_type: Optional[str] = None
+    power_kw: Optional[float] = None
+    energy_kwh: float
+    base_rate_idr: int
+    admin_fee_idr: int
+    deposit_idr: int
+    delivered_kwh: Optional[float] = None
+    actual_cost_idr: Optional[int] = None
+    refund_idr: Optional[int] = None
+    status: str = Field(..., examples=["active", "completed"])
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    wallet_balance_idr: int = Field(..., description="Wallet balance after this operation.", examples=[198180])
+
+
 # ---- authentication / accounts (Epic 5.0) ------------------------------------
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, examples=["budi"])

@@ -12,7 +12,7 @@ const fastChargeTarget = 80;
 const fastChargeDurationMs = 6000;
 const slowChargeDurationMs = 10000;
 const simulationTickMs = 100;
-const pricePerKwh = 2466; // Matching BASE_RATE
+const FALLBACK_BASE_RATE_IDR = 2466; // only used if navigated here without a backend session
 
 export function ChargingStatusScreen() {
   const navigate = useNavigate();
@@ -26,6 +26,8 @@ export function ChargingStatusScreen() {
   const slowDeliveryPowerKw = Math.max(Math.floor(fastDeliveryPowerKw * 0.26), 1);
   const stationName = state?.station?.name || 'SPKLU PLN Sukses - Thamrin';
   const connectorType = state?.connector?.type || 'Connector 02';
+  // Authoritative tariff the backend actually charged (deposit was computed from it).
+  const pricePerKwh = state?.session?.base_rate_idr ?? FALLBACK_BASE_RATE_IDR;
 
   useEffect(() => {
     fetchSpeedTiers().then(setSpeedTiers).catch(console.error);
@@ -63,11 +65,12 @@ export function ChargingStatusScreen() {
     }
 
     const timeout = setTimeout(() => {
-      navigate('/charging-flow/successful', { replace: true, state });
+      // Reached the purchased target: full energy delivered.
+      navigate('/charging-flow/successful', { replace: true, state: { ...state, deliveredKwh: purchasedKwh } });
     }, 500);
 
     return () => clearTimeout(timeout);
-  }, [navigate, progress, state]);
+  }, [navigate, progress, state, purchasedKwh]);
 
   const chargingMetrics = useMemo(() => {
     const roundedProgress = Math.min(Math.round(progress), 100);
@@ -100,7 +103,7 @@ export function ChargingStatusScreen() {
       roundedProgress,
       chargingLabel
     };
-  }, [progress, purchasedKwh, fastDeliveryPowerKw, slowDeliveryPowerKw, speedTiers]);
+  }, [progress, purchasedKwh, fastDeliveryPowerKw, slowDeliveryPowerKw, speedTiers, pricePerKwh]);
 
   return (
     <View style={styles.page}>
@@ -179,7 +182,12 @@ export function ChargingStatusScreen() {
         <View style={styles.footerSpacer} />
 
         <View style={styles.footerAction}>
-          <Pressable style={styles.dangerButton} onPress={() => navigate('/charging-flow/successful', { state })}>
+          <Pressable
+            style={styles.dangerButton}
+            onPress={() => navigate('/charging-flow/successful', {
+              state: { ...state, deliveredKwh: (purchasedKwh * progress) / 100 }
+            })}
+          >
             <ChargingFlowIcon name="stop" size={20} color="#ffffff" />
             <Text style={styles.dangerButtonText}>STOP CHARGING SESSION</Text>
           </Pressable>

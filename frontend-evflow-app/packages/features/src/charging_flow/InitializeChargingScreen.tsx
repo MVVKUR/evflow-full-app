@@ -7,10 +7,11 @@ import { useAppSafeAreaInsets } from '../shared/useAppSafeAreaInsets';
 import { ChargingFlowHeader } from './components/ChargingFlowHeader';
 
 import { getUserLocation } from '../ev_driver/utils/location';
-import { fetchNearbyStations, fetchStations, fetchStation, type StationApiItem, type StationConnectorApiItem } from '@evflow/shared';
-
-const BASE_RATE = 2466;
-const ADMIN_FEE = 2500;
+import {
+  fetchNearbyStations, fetchStations, fetchStation,
+  fetchChargingQuote, startChargingSession, fetchWalletBalance, InsufficientBalanceError,
+  type StationApiItem, type StationConnectorApiItem, type ChargingQuoteApiResponse
+} from '@evflow/shared';
 
 function formatRupiah(value: number) {
   return value.toLocaleString('id-ID');
@@ -26,6 +27,18 @@ export function InitializeChargingScreen() {
   const [connector, setConnector] = useState<StationConnectorApiItem | null>(null);
   const [randomSpeed, setRandomSpeed] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+
+  const [quote, setQuote] = useState<ChargingQuoteApiResponse | null>(null);
+  const [calculating, setCalculating] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchWalletBalance()
+      .then((w) => setWalletBalance(w.balance_idr))
+      .catch((err) => console.error('Failed to fetch wallet balance:', err));
+  }, []);
 
   useEffect(() => {
     async function loadStation() {
@@ -75,8 +88,7 @@ export function InitializeChargingScreen() {
   }, []);
 
   const parsedEnergy = parseFloat(energy) || 0;
-  const energyCost = parsedEnergy * BASE_RATE;
-  const totalDue = energyCost + ADMIN_FEE;
+  const totalDue = quote?.total_due_idr ?? 0;
 
   const actualPowerKw = connector?.power_kw || randomSpeed || 150;
 
@@ -85,18 +97,57 @@ export function InitializeChargingScreen() {
     return Math.ceil((parsedEnergy / actualPowerKw) * 60);
   }, [parsedEnergy, actualPowerKw]);
 
-  const handleCalculate = () => {
-    if (parsedEnergy > 0) {
+  const handleCalculate = async () => {
+    if (parsedEnergy <= 0) return;
+    setCalculating(true);
+    setError(null);
+    try {
+      const q = await fetchChargingQuote(parsedEnergy);
+      setQuote(q);
       setIsCalculated(true);
+    } catch (err) {
+      console.error('Failed to fetch charging quote:', err);
+      setError('Could not calculate price. Please try again.');
+    } finally {
+      setCalculating(false);
     }
   };
 
   const handleEnergyChange = (value: string) => {
     setEnergy(value);
     setIsCalculated(false);
+    setQuote(null);
+    setError(null);
   };
 
-  const canConfirm = isCalculated && parsedEnergy > 0 && station && connector;
+  const handleConfirmPay = async () => {
+    if (!station || !connector || !quote) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const session = await startChargingSession({
+        stationId: station.id,
+        energyKwh: parsedEnergy,
+        stationName: station.name,
+        connectorType: connector.type,
+        powerKw: connector.power_kw ?? actualPowerKw
+      });
+      navigate('/charging-flow/success', {
+        state: { session, station, connector, actualPowerKw, energy: parsedEnergy, estimatedMinutes }
+      });
+    } catch (err) {
+      if (err instanceof InsufficientBalanceError) {
+        setError('Insufficient EV-Wallet balance. Please top up to continue.');
+      } else {
+        console.error('Failed to start charging session:', err);
+        setError('Could not start charging. Please try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const canConfirm = isCalculated && parsedEnergy > 0 && !!station && !!connector && !!quote && !submitting;
 
   if (loading) {
     return (
@@ -160,8 +211,8 @@ export function InitializeChargingScreen() {
               />
               <Text style={styles.inputUnit}>kWh</Text>
             </View>
-            <Pressable style={styles.calculateButton} onPress={handleCalculate}>
-              <Text style={styles.calculateButtonText}>Calculate</Text>
+            <Pressable style={styles.calculateButton} onPress={handleCalculate} disabled={calculating}>
+              <Text style={styles.calculateButtonText}>{calculating ? '…' : 'Calculate'}</Text>
             </Pressable>
           </View>
         </View>
@@ -173,18 +224,18 @@ export function InitializeChargingScreen() {
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Base Rate</Text>
-            <Text style={styles.summaryLabel}>Rp {formatRupiah(BASE_RATE)} / kWh</Text>
+            <Text style={styles.summaryLabel}>{quote ? `Rp ${formatRupiah(quote.base_rate_idr)} / kWh` : '—'}</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Admin Fee</Text>
-            <Text style={styles.summaryLabel}>Rp {formatRupiah(ADMIN_FEE)}</Text>
+            <Text style={styles.summaryLabel}>{quote ? `Rp ${formatRupiah(quote.admin_fee_idr)}` : '—'}</Text>
           </View>
 
           <View style={styles.divider} />
 
           <View style={styles.summaryRow}>
             <Text style={styles.totalLabel}>TOTAL DUE</Text>
-            <Text style={styles.totalValue}>{isCalculated ? `Rp ${formatRupiah(totalDue)}` : '—'}</Text>
+            <Text style={styles.totalValue}>{isCalculated && quote ? `Rp ${formatRupiah(totalDue)}` : '—'}</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={{ fontSize: 16 }}>ⓘ</Text>
@@ -212,18 +263,27 @@ export function InitializeChargingScreen() {
         <View style={styles.footerSpacer} />
 
         <View style={styles.footerAction}>
+          {error ? (
+            <Text style={{ color: '#ba1a1a', fontSize: 13, marginBottom: 8, textAlign: 'center' }}>{error}</Text>
+          ) : null}
           <Pressable
             style={[styles.primaryButton, !canConfirm && styles.disabledPrimaryButton]}
             disabled={!canConfirm}
-            onPress={() => navigate('/charging-flow/success', { state: { station, connector, actualPowerKw, energy: parsedEnergy, totalDue, estimatedMinutes } })}
+            onPress={handleConfirmPay}
           >
             <Text style={styles.primaryButtonText}>
-              {canConfirm ? `Confirm & Pay (Rp ${formatRupiah(totalDue)})` : 'Confirm & Pay'}
+              {submitting
+                ? 'Processing…'
+                : canConfirm
+                  ? `Confirm & Pay (Rp ${formatRupiah(totalDue)})`
+                  : 'Confirm & Pay'}
             </Text>
           </Pressable>
           <View style={styles.paymentMethodRow}>
             <ChargingFlowIcon name="wallet_bg" size={24} />
-            <Text style={styles.paymentMethodText}>Paying via EV-Wallet • Balance: Rp 250,000</Text>
+            <Text style={styles.paymentMethodText}>
+              Paying via EV-Wallet • Balance: {walletBalance !== null ? `Rp ${formatRupiah(walletBalance)}` : '…'}
+            </Text>
           </View>
         </View>
       </ScrollView>

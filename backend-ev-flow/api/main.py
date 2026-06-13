@@ -20,6 +20,8 @@ from . import connectors as conn
 from . import stations_repo as repo
 from . import xendit
 from . import wallet_repo as wallet
+from . import pricing
+from . import charging_repo
 from . import security
 from . import google_oauth
 from . import users_repo
@@ -28,6 +30,7 @@ from .models import (
     NearestStationRoute, Route, SourceCount, SpeedTier, Station,
     StationList, Stats,
     Topup, TopupCreated, TopupRequest, WalletBalance,
+    ChargingQuote, ChargingQuoteRequest, ChargingSession, StartSessionRequest, SettleRequest,
     LoginRequest, ProfileUpdate, RegisterRequest, TokenResponse, UserPublic,
 )
 
@@ -38,6 +41,7 @@ TAGS = [
     {"name": "meta", "description": "Stats and filter look-ups (sources, provinces, cities)."},
     {"name": "ev-models", "description": "EV model catalogue (battery / range) for range-aware routing."},
     {"name": "wallet", "description": "Wallet balance + Xendit top-up (payment)."},
+    {"name": "charging", "description": "Charging sessions: real wallet deposit debit + settlement refund."},
     {"name": "auth", "description": "Accounts + authentication (username/password + Google)."},
     {"name": "system", "description": "Health/diagnostics."},
 ]
@@ -327,6 +331,53 @@ def xendit_webhook(payload: dict, x_callback_token: Optional[str] = Header(None)
          summary="Recent top-ups")
 def wallet_topups(limit: int = Query(20, ge=1, le=100)) -> list[Topup]:
     return [Topup(**t) for t in wallet.list_topups(limit)]
+
+
+# ----------------------------------------------------------------------------- charging sessions
+@app.post("/api/v1/charging/quote", response_model=ChargingQuote, tags=["charging"],
+          summary="Price a charging session before paying")
+def charging_quote(body: ChargingQuoteRequest) -> ChargingQuote:
+    return ChargingQuote(**pricing.quote(body.energy_kwh))
+
+
+@app.post("/api/v1/charging/sessions", response_model=ChargingSession, status_code=201,
+          tags=["charging"], summary="Start a session (debits the deposit from the wallet)",
+          responses={402: {"description": "Insufficient wallet balance"}})
+def start_charging_session(body: StartSessionRequest) -> ChargingSession:
+    try:
+        session = charging_repo.start_session(
+            station_id=body.station_id, energy_kwh=body.energy_kwh,
+            station_name=body.station_name, connector_type=body.connector_type,
+            power_kw=body.power_kw)
+    except charging_repo.InsufficientBalance as e:
+        raise HTTPException(402, str(e))
+    return ChargingSession(**session)
+
+
+@app.post("/api/v1/charging/sessions/{session_id}/settle", response_model=ChargingSession,
+          tags=["charging"], summary="Settle a session (refunds unused kWh to the wallet)",
+          responses={404: {"description": "Session not found"}})
+def settle_charging_session(session_id: str, body: SettleRequest) -> ChargingSession:
+    session = charging_repo.settle_session(session_id, body.delivered_kwh)
+    if session is None:
+        raise HTTPException(404, f"charging session '{session_id}' not found")
+    return ChargingSession(**session)
+
+
+@app.get("/api/v1/charging/sessions/{session_id}", response_model=ChargingSession,
+         tags=["charging"], summary="Session detail",
+         responses={404: {"description": "Session not found"}})
+def get_charging_session(session_id: str) -> ChargingSession:
+    session = charging_repo.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, f"charging session '{session_id}' not found")
+    return ChargingSession(**session)
+
+
+@app.get("/api/v1/charging/sessions", response_model=list[ChargingSession],
+         tags=["charging"], summary="Recent charging sessions")
+def list_charging_sessions(limit: int = Query(20, ge=1, le=100)) -> list[ChargingSession]:
+    return [ChargingSession(**s) for s in charging_repo.list_sessions(limit)]
 
 
 # ----------------------------------------------------------------------------- auth endpoints
