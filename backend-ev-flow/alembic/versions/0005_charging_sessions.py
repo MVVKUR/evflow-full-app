@@ -34,11 +34,6 @@ def upgrade() -> None:
     """)
     op.execute("CREATE INDEX charging_sessions_created_ix ON charging_sessions (created_at DESC);")
 
-    # DEMO ONLY: give the single shared wallet a starting balance so the charging
-    # flow can be exercised end-to-end without first running a real Xendit top-up.
-    # Only seeds when the wallet is still empty; remove for a real deployment.
-    op.execute("UPDATE wallet SET balance_idr = 250000 WHERE id = 1 AND balance_idr = 0;")
-
 
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS charging_sessions;")
