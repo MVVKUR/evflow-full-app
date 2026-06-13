@@ -1,0 +1,37 @@
+# SonarQube analysis on every push to main and on pull requests.
+#
+# Required repo secret (Settings → Secrets and variables → Actions →
+# "Repository secrets", NOT Variables/Codespaces/Dependabot):
+#   SONAR_TOKEN  a global analysis token (My Account → Security → Generate)
+#
+# The host URL is public anyway, so it is hardcoded below.
+
+name: SonarQube
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sonarqube:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so Sonar can attribute new code correctly
+          fetch-depth: 0
+
+      - name: Check SONAR_TOKEN is configured
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::SONAR_TOKEN secret is empty. Add it under repo Settings → Secrets and variables → Actions → 'Repository secrets' (the Secrets tab, not Variables)."
+            exit 1
+          fi
+
+      - uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcube.opensoft.id

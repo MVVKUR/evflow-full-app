@@ -1,5 +1,7 @@
 # EVFlow Fullstack
 
+[![Quality Gate Status](https://sonarcube.opensoft.id/api/project_badges/measure?project=evflow-full-app&metric=alert_status)](https://sonarcube.opensoft.id/dashboard?id=evflow-full-app)
+
 Monorepo for the EVFlow backend and frontend. The folders remain separate deployable apps, but they now live in one Git repository so API/frontend changes can be versioned together.
 
 ## Structure

@@ -301,12 +301,43 @@ def ev_model(model_id: str) -> EVModel:
           responses={502: {"description": "Payment provider error"}})
 def wallet_topup(body: TopupRequest) -> TopupCreated:
     external_id = f"topup-{uuid.uuid4()}"
+    topup_id = str(uuid.uuid4())
+    # After paying (or cancelling) on the Xendit page the browser is sent back to the app.
+    frontend = (os.getenv("FRONTEND_URL", "") or "").rstrip("/")
+    success_url = f"{frontend}/ev-driver/wallet/topup/success?topup_id={topup_id}" if frontend else None
+    failure_url = f"{frontend}/ev-driver/wallet/topup" if frontend else None
     try:
-        inv = xendit.create_invoice(external_id, body.amount_idr, "EV-FLOW wallet top-up")
+        inv = xendit.create_invoice(external_id, body.amount_idr, "EV-FLOW wallet top-up",
+                                    success_redirect_url=success_url,
+                                    failure_redirect_url=failure_url)
     except xendit.XenditError as e:
         raise HTTPException(502, f"payment provider error: {e}")
-    row = wallet.create_topup(body.amount_idr, external_id, inv["id"], inv["invoice_url"])
+    row = wallet.create_topup(body.amount_idr, external_id, inv["id"], inv["invoice_url"], topup_id=topup_id)
     return TopupCreated(**row)
+
+
+@app.get("/api/v1/wallet/topups/{topup_id}", response_model=Topup, tags=["wallet"],
+         summary="One top-up's status (refreshes from Xendit while pending)",
+         responses={404: {"description": "Not found"}})
+def wallet_topup_status(topup_id: str) -> Topup:
+    """The frontend polls this after sending the user to the Xendit checkout.
+
+    While the top-up is pending we ask Xendit for the invoice status directly, so the
+    wallet is credited even when the webhook cannot reach this deployment (local dev).
+    The credit path is the same idempotent one the webhook uses.
+    """
+    row = wallet.get_topup(topup_id)
+    if row is None:
+        raise HTTPException(404, f"topup '{topup_id}' not found")
+    if row["status"] == "pending" and row.get("xendit_invoice_id"):
+        try:
+            inv = xendit.get_invoice(row["xendit_invoice_id"])
+        except xendit.XenditError:
+            inv = None  # provider hiccup: report the stored status, poller will retry
+        if inv and inv["status"] in ("PAID", "SETTLED"):
+            wallet.mark_paid_and_credit(row["xendit_invoice_id"])
+            row = wallet.get_topup(topup_id)
+    return Topup(**row)
 
 
 @app.get("/api/v1/wallet", response_model=WalletBalance, tags=["wallet"], summary="Wallet balance")
