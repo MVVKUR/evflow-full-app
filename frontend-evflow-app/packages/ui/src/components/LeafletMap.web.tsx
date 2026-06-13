@@ -12,6 +12,7 @@ type LeafletMapProps = {
   markerIconSvg?: string;
   markers?: LeafletMapMarker[];
   onMarkerPress?: (markerId: string) => void;
+  radiusKm?: number | null;
   showCurrentLocationPinpoint?: boolean;
   zoom?: number;
 };
@@ -39,6 +40,7 @@ export function LeafletMap({
   markerIconSvg,
   markers = [],
   onMarkerPress,
+  radiusKm,
   showCurrentLocationPinpoint = false,
   zoom = 13
 }: LeafletMapProps) {
@@ -47,9 +49,48 @@ export function LeafletMap({
   const mapRef = useRef<import('leaflet').Map | null>(null);
   const userMarkerRef = useRef<import('leaflet').CircleMarker | null>(null);
   const stationMarkersRef = useRef<import('leaflet').Layer[]>([]);
+  const radiusCircleRef = useRef<import('leaflet').Circle | null>(null);
+  const radiusKmRef = useRef<number | null>(radiusKm ?? null);
   const leafletRef = useRef<LeafletNamespace | null>(null);
   const pendingUserLocationRef = useRef<[number, number] | null>(null);
   const [failed, setFailed] = useState(false);
+
+  function renderRadiusCircle() {
+    if (!mapRef.current || !leafletRef.current) {
+      return;
+    }
+
+    const center = pendingUserLocationRef.current;
+    const km = radiusKmRef.current;
+
+    if (!center || !km || km <= 0) {
+      if (radiusCircleRef.current) {
+        radiusCircleRef.current.remove();
+        radiusCircleRef.current = null;
+      }
+      return;
+    }
+
+    const meters = km * 1000;
+
+    if (!radiusCircleRef.current || !mapRef.current.hasLayer(radiusCircleRef.current)) {
+      radiusCircleRef.current = leafletRef.current
+        .circle(center, {
+          color: '#00696F',
+          dashArray: '6 6',
+          fillColor: '#00C2CB',
+          fillOpacity: 0.12,
+          interactive: false,
+          opacity: 0.8,
+          radius: meters,
+          weight: 2
+        })
+        .addTo(mapRef.current);
+    } else {
+      radiusCircleRef.current.setLatLng(center);
+      radiusCircleRef.current.setRadius(meters);
+    }
+  }
 
   function renderUserLocation(coordinates: [number, number]) {
     pendingUserLocationRef.current = coordinates;
@@ -72,6 +113,8 @@ export function LeafletMap({
     } else {
       userMarkerRef.current.setLatLng(coordinates);
     }
+
+    renderRadiusCircle();
   }
 
   function renderStationMarkers(nextMarkers: LeafletMapMarker[]) {
@@ -156,6 +199,7 @@ export function LeafletMap({
           renderUserLocation(pendingUserLocationRef.current);
         }
         renderStationMarkers(markers);
+        renderRadiusCircle();
 
         window.setTimeout(() => {
           map?.invalidateSize();
@@ -173,8 +217,14 @@ export function LeafletMap({
       mapRef.current = null;
       userMarkerRef.current = null;
       stationMarkersRef.current = [];
+      radiusCircleRef.current = null;
     };
   }, [center.latitude, center.longitude, mapContainerId, zoom]);
+
+  useEffect(() => {
+    radiusKmRef.current = radiusKm ?? null;
+    renderRadiusCircle();
+  }, [radiusKm]);
 
   useEffect(() => {
     mapRef.current?.setView([center.latitude, center.longitude], zoom);

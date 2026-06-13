@@ -388,6 +388,7 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
         currentLocation={userLocation}
         markerIconSvg={stationMarkerIcon}
         markers={stationMarkers}
+        radiusKm={userLocation ? (drawerMode === 'filter' ? distanceKm : appliedDistanceKm) : null}
         onMarkerPress={(stationId) => {
           const station = stations.find((currentStation) => currentStation.id === stationId);
 

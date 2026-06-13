@@ -16,6 +16,7 @@ type LeafletMapProps = {
   markerIconSvg?: string;
   markers?: LeafletMapMarker[];
   onMarkerPress?: (markerId: string) => void;
+  radiusKm?: number | null;
   showCurrentLocationPinpoint?: boolean;
   zoom?: number;
 };
@@ -43,6 +44,7 @@ export function LeafletMap({
   markerIconSvg,
   markers = [],
   onMarkerPress,
+  radiusKm,
   showCurrentLocationPinpoint = false,
   zoom = 13
 }: LeafletMapProps) {
@@ -102,6 +104,7 @@ export function LeafletMap({
             .join('')}
           
           var userMarker = null;
+          var radiusCircle = null;
           window.setUserLocation = function(latitude, longitude) {
             var coordinates = [latitude, longitude];
 
@@ -116,6 +119,38 @@ export function LeafletMap({
             } else {
               userMarker.setLatLng(coordinates);
             }
+
+            if (radiusCircle) {
+              radiusCircle.setLatLng(coordinates);
+            }
+          };
+
+          window.setRadius = function(meters, latitude, longitude) {
+            if (!meters || meters <= 0 || latitude == null || longitude == null) {
+              if (radiusCircle) {
+                map.removeLayer(radiusCircle);
+                radiusCircle = null;
+              }
+              return;
+            }
+
+            var coordinates = [latitude, longitude];
+
+            if (!radiusCircle) {
+              radiusCircle = L.circle(coordinates, {
+                color: '#00696F',
+                dashArray: '6 6',
+                fillColor: '#00C2CB',
+                fillOpacity: 0.12,
+                interactive: false,
+                opacity: 0.8,
+                radius: meters,
+                weight: 2
+              }).addTo(map);
+            } else {
+              radiusCircle.setLatLng(coordinates);
+              radiusCircle.setRadius(meters);
+            }
           };
 
           ${
@@ -123,13 +158,18 @@ export function LeafletMap({
               ? `window.setUserLocation(${currentLocation.latitude}, ${currentLocation.longitude});`
               : ''
           }
-          
+          ${
+            currentLocation && radiusKm
+              ? `window.setRadius(${radiusKm * 1000}, ${currentLocation.latitude}, ${currentLocation.longitude});`
+              : ''
+          }
+
           // Re-center map when props change via reloading html
         </script>
       </body>
     </html>
   `,
-    [center.latitude, center.longitude, currentLocation, markerIconSvg, markers, zoom]
+    [center.latitude, center.longitude, currentLocation, markerIconSvg, markers, radiusKm, zoom]
   );
 
   useEffect(() => {
@@ -180,6 +220,16 @@ export function LeafletMap({
       true;
     `);
   }, [userLocation]);
+
+  useEffect(() => {
+    const center = userLocation ?? currentLocation ?? null;
+    const meters = radiusKm && center ? radiusKm * 1000 : 0;
+
+    webViewRef.current?.injectJavaScript(`
+      window.setRadius && window.setRadius(${meters}, ${center ? center.latitude : 'null'}, ${center ? center.longitude : 'null'});
+      true;
+    `);
+  }, [currentLocation, radiusKm, userLocation]);
 
   function handleMessage(event: WebViewMessageEvent) {
     try {
