@@ -45,19 +45,15 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    # Secrets (Xendit keys, JWT_SECRET, Google OAuth) load from the gitignored
+    # backend env file. Keep DATABASE_URL etc. in `environment` below — those
+    # override env_file and must point at the db container, not localhost.
+    env_file:
+      - ./backend-ev-flow/.env
     environment:
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
       CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-*}"
       DATABASE_URL: "postgresql+psycopg://evflow:evflow@db:5432/evflow"
-      XENDIT_SECRET_KEY: "${XENDIT_SECRET_KEY:-}"
-      XENDIT_BASE_URL: "${XENDIT_BASE_URL:-https://api.xendit.co}"
-      XENDIT_CALLBACK_TOKEN: "${XENDIT_CALLBACK_TOKEN:-}"
-      JWT_SECRET: "${JWT_SECRET:-}"
-      JWT_EXPIRE_MINUTES: "${JWT_EXPIRE_MINUTES:-10080}"
-      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
-      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
-      GOOGLE_REDIRECT_URI: "${GOOGLE_REDIRECT_URI:-}"
-      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:8080}"
     volumes:
       # Station data (+ optional routing graph) mounted read-only from the host.
       # :Z relabels for SELinux hosts and is harmless elsewhere.
