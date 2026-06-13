@@ -120,7 +120,7 @@ function getFallbackAuthErrorMessage(status: number) {
   }
 
   if (status === 500) {
-    return 'Authentication service failed. Run database migrations, then try again.';
+    return 'Authentication service failed. Check JWT_SECRET and database migrations, then try again.';
   }
 
   if (status === 502 || status === 503 || status === 504) {

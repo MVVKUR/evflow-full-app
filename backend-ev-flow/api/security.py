@@ -36,8 +36,11 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: str) -> str:
+    secret = _secret()
+    if not secret:
+        raise RuntimeError("JWT_SECRET is not set")
     payload = {"sub": str(user_id), "exp": int(time.time()) + _expire_minutes() * 60}
-    return jwt.encode(payload, _secret(), algorithm="HS256")
+    return jwt.encode(payload, secret, algorithm="HS256")
 
 
 def decode_access_token(token: str) -> str:
