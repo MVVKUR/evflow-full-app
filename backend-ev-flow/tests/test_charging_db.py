@@ -33,8 +33,8 @@ def test_start_debits_deposit_then_settle_refunds(monkeypatch):
     monkeypatch.setenv("XENDIT_CALLBACK_TOKEN", "tok123")
     from api import main, xendit
     monkeypatch.setattr(xendit, "create_invoice",
-                        lambda ext, amt, desc: {"id": f"inv-{ext}", "invoice_url": f"https://c/{ext}",
-                                                "status": "PENDING"})
+                        lambda ext, amt, desc, *a, **k: {"id": f"inv-{ext}", "invoice_url": f"https://c/{ext}",
+                                                         "status": "PENDING"})
     with TestClient(main.app) as c:
         _credit_wallet(c, 100000)
         before = c.get("/api/v1/wallet").json()["balance_idr"]
@@ -69,8 +69,8 @@ def test_settle_is_idempotent(monkeypatch):
     monkeypatch.setenv("XENDIT_CALLBACK_TOKEN", "tok123")
     from api import main, xendit
     monkeypatch.setattr(xendit, "create_invoice",
-                        lambda ext, amt, desc: {"id": f"inv-{ext}", "invoice_url": f"https://c/{ext}",
-                                                "status": "PENDING"})
+                        lambda ext, amt, desc, *a, **k: {"id": f"inv-{ext}", "invoice_url": f"https://c/{ext}",
+                                                         "status": "PENDING"})
     with TestClient(main.app) as c:
         _credit_wallet(c, 100000)
         session = c.post("/api/v1/charging/sessions",
