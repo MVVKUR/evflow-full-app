@@ -8,4 +8,5 @@ export * from './ev_models/api';
 export * from './routes/buildRoutePlanRequest';
 export * from './stations/api';
 export * from './transformers/chargerTransformer';
+export * from './validation';
 export * from './wallet/api';

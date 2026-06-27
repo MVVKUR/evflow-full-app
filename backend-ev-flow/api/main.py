@@ -31,7 +31,7 @@ from .models import (
     StationList, Stats,
     Topup, TopupCreated, TopupRequest, WalletBalance,
     ChargingQuote, ChargingQuoteRequest, ChargingSession, StartSessionRequest, SettleRequest,
-    LoginRequest, ProfileUpdate, RegisterRequest, TokenResponse, UserPublic,
+    ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, ProfileUpdate, RegisterRequest, TokenResponse, UserPublic,
 )
 
 
@@ -299,7 +299,7 @@ def ev_model(model_id: str) -> EVModel:
 @app.post("/api/v1/wallet/topup", response_model=TopupCreated, tags=["wallet"],
           summary="Create a Xendit invoice to top up the wallet",
           responses={502: {"description": "Payment provider error"}})
-def wallet_topup(body: TopupRequest) -> TopupCreated:
+def wallet_topup(body: TopupRequest, user: dict = Depends(security.current_user)) -> TopupCreated:
     external_id = f"topup-{uuid.uuid4()}"
     topup_id = str(uuid.uuid4())
     # After paying (or cancelling) on the Xendit page the browser is sent back to the app.
@@ -312,21 +312,21 @@ def wallet_topup(body: TopupRequest) -> TopupCreated:
                                     failure_redirect_url=failure_url)
     except xendit.XenditError as e:
         raise HTTPException(502, f"payment provider error: {e}")
-    row = wallet.create_topup(body.amount_idr, external_id, inv["id"], inv["invoice_url"], topup_id=topup_id)
+    row = wallet.create_topup(user["id"], body.amount_idr, external_id, inv["id"], inv["invoice_url"], topup_id=topup_id)
     return TopupCreated(**row)
 
 
 @app.get("/api/v1/wallet/topups/{topup_id}", response_model=Topup, tags=["wallet"],
          summary="One top-up's status (refreshes from Xendit while pending)",
          responses={404: {"description": "Not found"}})
-def wallet_topup_status(topup_id: str) -> Topup:
+def wallet_topup_status(topup_id: str, user: dict = Depends(security.current_user)) -> Topup:
     """The frontend polls this after sending the user to the Xendit checkout.
 
     While the top-up is pending we ask Xendit for the invoice status directly, so the
     wallet is credited even when the webhook cannot reach this deployment (local dev).
     The credit path is the same idempotent one the webhook uses.
     """
-    row = wallet.get_topup(topup_id)
+    row = wallet.get_topup(topup_id, user["id"])
     if row is None:
         raise HTTPException(404, f"topup '{topup_id}' not found")
     if row["status"] == "pending" and row.get("xendit_invoice_id"):
@@ -336,13 +336,13 @@ def wallet_topup_status(topup_id: str) -> Topup:
             inv = None  # provider hiccup: report the stored status, poller will retry
         if inv and inv["status"] in ("PAID", "SETTLED"):
             wallet.mark_paid_and_credit(row["xendit_invoice_id"])
-            row = wallet.get_topup(topup_id)
+            row = wallet.get_topup(topup_id, user["id"])
     return Topup(**row)
 
 
 @app.get("/api/v1/wallet", response_model=WalletBalance, tags=["wallet"], summary="Wallet balance")
-def wallet_balance() -> WalletBalance:
-    w = wallet.get_wallet()
+def wallet_balance(user: dict = Depends(security.current_user)) -> WalletBalance:
+    w = wallet.get_wallet(user["id"])
     return WalletBalance(balance_idr=w["balance_idr"], updated_at=w["updated_at"])
 
 
@@ -360,8 +360,8 @@ def xendit_webhook(payload: dict, x_callback_token: Optional[str] = Header(None)
 
 @app.get("/api/v1/wallet/topups", response_model=list[Topup], tags=["wallet"],
          summary="Recent top-ups")
-def wallet_topups(limit: int = Query(20, ge=1, le=100)) -> list[Topup]:
-    return [Topup(**t) for t in wallet.list_topups(limit)]
+def wallet_topups(limit: int = Query(20, ge=1, le=100), user: dict = Depends(security.current_user)) -> list[Topup]:
+    return [Topup(**t) for t in wallet.list_topups(user["id"], limit)]
 
 
 # ----------------------------------------------------------------------------- charging sessions
@@ -374,10 +374,10 @@ def charging_quote(body: ChargingQuoteRequest) -> ChargingQuote:
 @app.post("/api/v1/charging/sessions", response_model=ChargingSession, status_code=201,
           tags=["charging"], summary="Start a session (debits the deposit from the wallet)",
           responses={402: {"description": "Insufficient wallet balance"}})
-def start_charging_session(body: StartSessionRequest) -> ChargingSession:
+def start_charging_session(body: StartSessionRequest, user: dict = Depends(security.current_user)) -> ChargingSession:
     try:
         session = charging_repo.start_session(
-            station_id=body.station_id, energy_kwh=body.energy_kwh,
+            user_id=user["id"], station_id=body.station_id, energy_kwh=body.energy_kwh,
             station_name=body.station_name, connector_type=body.connector_type,
             power_kw=body.power_kw)
     except charging_repo.InsufficientBalance as e:
@@ -388,8 +388,8 @@ def start_charging_session(body: StartSessionRequest) -> ChargingSession:
 @app.post("/api/v1/charging/sessions/{session_id}/settle", response_model=ChargingSession,
           tags=["charging"], summary="Settle a session (refunds unused kWh to the wallet)",
           responses={404: {"description": "Session not found"}})
-def settle_charging_session(session_id: str, body: SettleRequest) -> ChargingSession:
-    session = charging_repo.settle_session(session_id, body.delivered_kwh)
+def settle_charging_session(session_id: str, body: SettleRequest, user: dict = Depends(security.current_user)) -> ChargingSession:
+    session = charging_repo.settle_session(user["id"], session_id, body.delivered_kwh)
     if session is None:
         raise HTTPException(404, f"charging session '{session_id}' not found")
     return ChargingSession(**session)
@@ -398,8 +398,8 @@ def settle_charging_session(session_id: str, body: SettleRequest) -> ChargingSes
 @app.get("/api/v1/charging/sessions/{session_id}", response_model=ChargingSession,
          tags=["charging"], summary="Session detail",
          responses={404: {"description": "Session not found"}})
-def get_charging_session(session_id: str) -> ChargingSession:
-    session = charging_repo.get_session(session_id)
+def get_charging_session(session_id: str, user: dict = Depends(security.current_user)) -> ChargingSession:
+    session = charging_repo.get_session(user["id"], session_id)
     if session is None:
         raise HTTPException(404, f"charging session '{session_id}' not found")
     return ChargingSession(**session)
@@ -407,8 +407,8 @@ def get_charging_session(session_id: str) -> ChargingSession:
 
 @app.get("/api/v1/charging/sessions", response_model=list[ChargingSession],
          tags=["charging"], summary="Recent charging sessions")
-def list_charging_sessions(limit: int = Query(20, ge=1, le=100)) -> list[ChargingSession]:
-    return [ChargingSession(**s) for s in charging_repo.list_sessions(limit)]
+def list_charging_sessions(limit: int = Query(20, ge=1, le=100), user: dict = Depends(security.current_user)) -> list[ChargingSession]:
+    return [ChargingSession(**s) for s in charging_repo.list_sessions(user["id"], limit)]
 
 
 # ----------------------------------------------------------------------------- auth endpoints
@@ -420,19 +420,32 @@ def register(body: RegisterRequest) -> TokenResponse:
     completed = bool(body.ev_model_id and body.main_connector_type and body.location_consent)
     user = users_repo.create_user(
         username=body.username, password_hash=security.hash_password(body.password),
-        full_name=body.full_name, ev_model_id=body.ev_model_id,
+        email=body.email, full_name=body.full_name, ev_model_id=body.ev_model_id,
         main_connector_type=body.main_connector_type, location_consent=body.location_consent,
         profile_completed=completed)
+    wallet.get_wallet(user["id"])
     return TokenResponse(access_token=security.create_access_token(user["id"]), user=UserPublic(**user))
 
 
 @app.post("/api/v1/auth/login", response_model=TokenResponse, tags=["auth"],
           responses={401: {"description": "bad credentials"}})
 def login(body: LoginRequest) -> TokenResponse:
-    user = users_repo.get_by_username(body.username)
+    user = users_repo.get_by_username_or_email(body.username.strip())
     if not user or not user.get("password_hash") or not security.verify_password(body.password, user["password_hash"]):
-        raise HTTPException(401, "invalid username or password")
+        raise HTTPException(401, "invalid username/email or password")
     return TokenResponse(access_token=security.create_access_token(user["id"]), user=UserPublic(**user))
+
+
+@app.post("/api/v1/auth/forgot-password", response_model=ForgotPasswordResponse, tags=["auth"],
+          responses={404: {"description": "account not found"}})
+def forgot_password(body: ForgotPasswordRequest) -> ForgotPasswordResponse:
+    email = body.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(422, "enter a valid email address")
+    user = users_repo.get_by_email(email) or users_repo.get_by_username(email)
+    if not user:
+        raise HTTPException(404, "no account found for that email")
+    return ForgotPasswordResponse(message="Password reset instructions have been sent to your email.")
 
 
 @app.get("/api/v1/auth/google/login", tags=["auth"], summary="Redirect to Google sign-in")

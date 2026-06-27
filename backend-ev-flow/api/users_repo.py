@@ -53,6 +53,19 @@ def get_by_username(username: str) -> Optional[dict]:
                               {"u": username}).mappings().first())
 
 
+def get_by_email(email: str) -> Optional[dict]:
+    with engine.connect() as c:
+        return _row(c.execute(text(f"SELECT {_COLS} FROM users WHERE lower(email) = lower(:email)"),
+                              {"email": email}).mappings().first())
+
+
+def get_by_username_or_email(identifier: str) -> Optional[dict]:
+    user = get_by_username(identifier)
+    if user:
+        return user
+    return get_by_email(identifier)
+
+
 def get_by_google_sub(sub: str) -> Optional[dict]:
     with engine.connect() as c:
         return _row(c.execute(text(f"SELECT {_COLS} FROM users WHERE google_sub = :s"),

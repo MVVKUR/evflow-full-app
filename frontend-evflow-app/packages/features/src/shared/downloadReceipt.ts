@@ -12,7 +12,7 @@ const PAGE_MARGIN_POINTS = 36.85;
 export async function downloadReceipt(data?: ReceiptData) {
   if (!data) {
     Alert.alert('Download Receipt', 'Receipt data unavailable.');
-    return;
+    return false;
   }
 
   const html = generateReceiptHtml(data);
@@ -31,8 +31,10 @@ export async function downloadReceipt(data?: ReceiptData) {
     });
 
     openReceiptPdf(uri, `Receipt ${data.transactionId}`);
+    return true;
   } catch (error) {
     console.error('Failed to generate receipt PDF', error);
     Alert.alert('Error', 'Unable to generate receipt PDF.');
+    return false;
   }
 }

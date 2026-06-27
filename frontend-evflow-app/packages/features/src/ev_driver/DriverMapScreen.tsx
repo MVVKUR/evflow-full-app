@@ -290,6 +290,14 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
 
   const filteredStations = useMemo(() => filterStationsByKeyword(stations, searchQuery), [searchQuery, stations]);
   const visibleStations = searchQuery.trim() ? filteredStations : stations;
+  const activeFilterLabels = useMemo(
+    () => [
+      ...appliedConnectorTypes.map((connector) => connector.name),
+      ...appliedChargingSpeeds.map((speed) => speed.label),
+      appliedDistanceKm !== defaultDistanceKm ? `${appliedDistanceKm} km` : null
+    ].filter((label): label is string => Boolean(label)),
+    [appliedChargingSpeeds, appliedConnectorTypes, appliedDistanceKm]
+  );
   const stationMarkers = useMemo(
     () =>
       visibleStations.map((station) => ({
@@ -489,6 +497,7 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
 
           {drawerMode === 'results' ? (
             <ResultsDrawer
+              activeFilterLabels={activeFilterLabels}
               expanded={expanded}
               filteredBySearch={searchQuery.trim().length > 0}
               loading={stationsLoading}
@@ -625,6 +634,7 @@ function FilterDrawer({
 }
 
 type ResultsDrawerProps = {
+  activeFilterLabels: string[];
   filteredBySearch: boolean;
   hasUserLocation: boolean;
   expanded: boolean;
@@ -640,6 +650,7 @@ type ResultsDrawerProps = {
 };
 
 function ResultsDrawer({
+  activeFilterLabels,
   expanded,
   filteredBySearch,
   hasUserLocation,
@@ -658,12 +669,21 @@ function ResultsDrawer({
   return (
     <View style={styles.drawerBody}>
       <View style={styles.resultsHeader}>
-        <Text style={styles.resultsTitle}>{filteredBySearch ? 'Search Results' : 'Nearby SPKLU Stations'}</Text>
+        <Text style={styles.resultsTitle}>{filteredBySearch ? 'Search Results' : 'Nearby SPKLU Stations'} ({stations.length})</Text>
         <Pressable accessibilityRole="button" onPress={onFilter} style={styles.filterButton}>
           <SvgAssetIcon color="#4c5960" height={14} name="filter" svg={filterSettingIcon} width={14} />
           <Text style={styles.filterButtonText}>Filter</Text>
         </Pressable>
       </View>
+      {activeFilterLabels.length > 0 ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+          {activeFilterLabels.map((label) => (
+            <View key={label} style={{ backgroundColor: '#e9fbfc', borderColor: '#b7dfe2', borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Text style={{ color: '#005f64', fontSize: 11, fontWeight: '900' }}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       <View style={[styles.expandedContent, getExpandedContentStateStyle(expanded)]}>
         {shouldShowLocationPrompt ? (

@@ -1,4 +1,6 @@
 import { EVFLOW_API_BASE_URL } from '../stations/api';
+import { getAuthHeaders } from '../auth/session';
+import { AuthRequiredError } from '../wallet/api';
 
 export type ChargingQuoteApiResponse = {
   energy_kwh: number;
@@ -59,9 +61,10 @@ export async function fetchChargingQuote(energyKwh: number, fetcher: typeof fetc
 }
 
 export async function startChargingSession(input: StartChargingSessionInput, fetcher: typeof fetch = fetch) {
+  const authHeaders = requireAuthHeaders();
   const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/charging/sessions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       station_id: input.stationId,
       energy_kwh: input.energyKwh,
@@ -82,9 +85,10 @@ export async function startChargingSession(input: StartChargingSessionInput, fet
 }
 
 export async function settleChargingSession(sessionId: string, deliveredKwh: number, fetcher: typeof fetch = fetch) {
+  const authHeaders = requireAuthHeaders();
   const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/charging/sessions/${sessionId}/settle`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({ delivered_kwh: deliveredKwh })
   });
 
@@ -96,7 +100,8 @@ export async function settleChargingSession(sessionId: string, deliveredKwh: num
 }
 
 export async function fetchChargingSession(sessionId: string, fetcher: typeof fetch = fetch) {
-  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/charging/sessions/${sessionId}`);
+  const headers = requireAuthHeaders();
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/charging/sessions/${sessionId}`, { headers });
 
   if (!response.ok) {
     throw new Error(`EVFlow charging session request failed with status ${response.status}`);
@@ -106,11 +111,22 @@ export async function fetchChargingSession(sessionId: string, fetcher: typeof fe
 }
 
 export async function fetchChargingSessions(limit = 20, fetcher: typeof fetch = fetch) {
-  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/charging/sessions?limit=${limit}`);
+  const headers = requireAuthHeaders();
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/charging/sessions?limit=${limit}`, { headers });
 
   if (!response.ok) {
     throw new Error(`EVFlow charging sessions request failed with status ${response.status}`);
   }
 
   return response.json() as Promise<ChargingSessionApiResponse[]>;
+}
+
+function requireAuthHeaders() {
+  const headers = getAuthHeaders();
+
+  if (!headers) {
+    throw new AuthRequiredError();
+  }
+
+  return headers;
 }
