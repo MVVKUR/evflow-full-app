@@ -86,30 +86,38 @@ export function ScanSpkluScreen() {
 
       <View style={styles.cameraContainer}>
         {cameraActive ? (
-          <CameraView
-            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-            barcodeScannerSettings={{
-              barcodeTypes: ['qr']
-            }}
-            style={styles.camera}
-            facing="back"
-            enableTorch={torchAvailable && torchOn}
-            onCameraReady={() => setTorchAvailable(true)}
-            onMountError={() => {
-              setTorchAvailable(false);
-              setTorchOn(false);
-            }}
-          >
-            <View style={styles.cameraOverlay}>
-              <View style={styles.cameraCutout} />
-              <Text style={styles.cameraInstructions}>
-                Position the QR code or barcode found on the SPKLU connector inside the frame to initialize payment.
-              </Text>
-              <Text style={styles.manualEntryLink} onPress={() => stopCameraAndNavigate('/charging-flow/initialize')}>
-                Can't scan? Enter Station ID manually
-              </Text>
+          <>
+            <CameraView
+              onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+              barcodeScannerSettings={{
+                barcodeTypes: ['qr']
+              }}
+              style={styles.camera}
+              facing="back"
+              enableTorch={torchAvailable && torchOn}
+              onCameraReady={() => setTorchAvailable(true)}
+              onMountError={() => {
+                setTorchAvailable(false);
+                setTorchOn(false);
+              }}
+            >
+              <View style={styles.cameraOverlay}>
+                <View style={styles.cameraCutout} />
+                <View style={styles.cameraTextContainer}>
+                  <Text style={styles.cameraInstructions}>
+                    Position the QR code or barcode found on the SPKLU connector inside the frame to initialize payment.
+                  </Text>
+                  <Text style={styles.manualEntryLink} onPress={() => stopCameraAndNavigate('/charging-flow/initialize')}>
+                    Can't scan? Enter Station ID manually
+                  </Text>
+                </View>
+              </View>
+            </CameraView>
+            <View style={styles.cameraNoticeCard}>
+              <Text style={{ fontSize: 24, color: '#01e0f0' }}>ⓘ</Text>
+              <Text style={styles.cameraNoticeText}>Make sure you have selected the correct plug profile on the previous screen.</Text>
             </View>
-          </CameraView>
+          </>
         ) : (
           <View style={[styles.camera, { backgroundColor: '#000' }]} />
         )}

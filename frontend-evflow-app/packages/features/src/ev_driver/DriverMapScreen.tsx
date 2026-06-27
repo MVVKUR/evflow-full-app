@@ -430,7 +430,7 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
         </Pressable>
       </View>
 
-        <View style={[styles.sheet, getSheetStateStyle(drawerMode, expanded, detailSheetHeight, filterSheetHeight, searchActive ? searchSheetHeight : undefined), { bottom: bottomOffset }]} {...drawerPanResponder.panHandlers}>
+        <View style={[styles.sheet, getSheetStateStyle(drawerMode, expanded, detailSheetHeight, filterSheetHeight, searchSheetHeight), { bottom: bottomOffset }]} {...drawerPanResponder.panHandlers}>
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ expanded }}
@@ -988,7 +988,7 @@ function getSearchResultsSheetHeight(screenHeight: number, topInset: number, bot
   const searchBarBottom = topInset + 24 + 66 + 12;
   const maxHeightWithSearchVisible = screenHeight - bottomOffset - searchBarBottom;
 
-  return Math.max(180, Math.floor(maxHeightWithSearchVisible));
+  return Math.max(104, Math.floor(maxHeightWithSearchVisible));
 }
 
 function filterStationsByKeyword(stations: Station[], query: string) {
