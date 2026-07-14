@@ -298,6 +298,13 @@ export const loginScreenStyles = StyleSheet.create({
     color: colors.text,
     fontWeight: '700'
   },
+  markerCredentialsInfo: {
+    color: '#1f2529',
+    fontSize: fontSizes.control,
+    lineHeight: 20,
+    marginTop: 24,
+    textAlign: 'justify'
+  },
   content: {
     alignItems: 'center',
     maxWidth: layout.authPageMaxWidth,
