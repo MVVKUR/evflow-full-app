@@ -1,4 +1,5 @@
 import { EVFLOW_API_BASE_URL } from '../stations/api';
+import { getAuthHeaders } from './session';
 
 export type RegisterRequest = {
   username: string;
@@ -23,6 +24,15 @@ export type ForgotPasswordResponse = {
   message: string;
 };
 
+export type ResetPasswordRequest = {
+  token: string;
+  new_password: string;
+};
+
+export type ResetPasswordResponse = {
+  message: string;
+};
+
 export type UserPublic = {
   id: string;
   username: string | null;
@@ -40,6 +50,13 @@ export type TokenResponse = {
   access_token: string;
   token_type: string;
   user: UserPublic;
+};
+
+export type ProfileUpdateRequest = {
+  username?: string;
+  ev_model_id?: string | null;
+  main_connector_type?: string | null;
+  location_consent?: boolean;
 };
 
 export class AuthApiError extends Error {
@@ -74,6 +91,50 @@ export async function requestPasswordReset(request: ForgotPasswordRequest, fetch
   }
 
   return response.json() as Promise<ForgotPasswordResponse>;
+}
+
+export async function resetPassword(request: ResetPasswordRequest, fetcher: typeof fetch = fetch) {
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/auth/reset-password`, {
+    body: JSON.stringify(request),
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    method: 'POST'
+  });
+
+  if (!response.ok) {
+    throw new AuthApiError(response.status, await getAuthErrorMessage(response));
+  }
+
+  return response.json() as Promise<ResetPasswordResponse>;
+}
+
+export async function getMe(fetcher: typeof fetch = fetch): Promise<UserPublic> {
+  const headers = getAuthHeaders();
+  if (!headers) {
+    throw new AuthApiError(401, 'You are not signed in.');
+  }
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/users/me`, { headers });
+  if (!response.ok) {
+    throw new AuthApiError(response.status, await getAuthErrorMessage(response));
+  }
+  return response.json() as Promise<UserPublic>;
+}
+
+export async function updateProfile(request: ProfileUpdateRequest, fetcher: typeof fetch = fetch): Promise<UserPublic> {
+  const headers = getAuthHeaders();
+  if (!headers) {
+    throw new AuthApiError(401, 'You are not signed in.');
+  }
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/users/me`, {
+    body: JSON.stringify(request),
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    method: 'PATCH'
+  });
+  if (!response.ok) {
+    throw new AuthApiError(response.status, await getAuthErrorMessage(response));
+  }
+  return response.json() as Promise<UserPublic>;
 }
 
 async function postAuth(path: string, body: RegisterRequest | LoginRequest, expectedStatus: number, fetcher: typeof fetch) {

@@ -107,15 +107,20 @@ def _load_osm() -> list[dict]:
             lat, lon = c.get("lat"), c.get("lon")
         if lat is None or lon is None:
             continue
+        # Fall back through the other identity tags OSM uses for charging
+        # stations (many SPKLU nodes carry only `brand`/`ref`, not `name`).
+        name = (tags.get("name") or tags.get("name:en") or tags.get("brand")
+                or tags.get("operator") or tags.get("network") or tags.get("ref"))
+        operator = tags.get("operator") or tags.get("brand") or tags.get("network")
         out.append({
             "id": f"osm-{el['type']}-{el['id']}",
-            "name": tags.get("name") or tags.get("operator"),
+            "name": name,
             "source": "osm",
             "latitude": float(lat), "longitude": float(lon),
             "address": tags.get("addr:full") or tags.get("addr:street"),
             "province": None,
             "city": tags.get("addr:city"),
-            "operator": tags.get("operator"),
+            "operator": operator,
             "power_kw": _num(tags.get("charging_station:output") or tags.get("socket:type2_combo:output")),
             "charge_type": None,
             "connectors": int(_num(tags.get("capacity"))) if not math.isnan(_num(tags.get("capacity"))) else None,

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Navigate, Route, Routes, useNavigate } from 'react-router';
+import { Navigate, Route, Routes, useNavigate, useLocation } from 'react-router';
 import { EVDriverContainer } from '../ev_driver/EVDriverContainer';
 import { LoginScreen } from '../login/LoginScreen';
+import { ResetPasswordScreen } from '../login/ResetPasswordScreen';
 import { ProfileSelectionScreen } from '../profile_selection/ProfileSelectionScreen';
 import { RegistrationScreen } from '../registration/RegistrationScreen';
 import { ScanSpkluScreen, InitializeChargingScreen, TransactionSuccessScreen, ChargingStatusScreen, ChargingSuccessfulScreen } from '../charging_flow';
@@ -18,6 +19,7 @@ export function AppRoutes() {
         element={<ProfileSelectionRoute selectedRole={selectedRole} onSelectRole={setSelectedRole} />}
       />
       <Route path="/register" element={<RegistrationRoute />} />
+      <Route path="/reset-password" element={<ResetPasswordRoute />} />
       <Route path="/ev-driver" element={<Navigate replace to="/ev-driver/map" />} />
       <Route path="/ev-driver/wallet/topup" element={<EVDriverContainer />} />
       <Route path="/ev-driver/wallet/topup/success" element={<EVDriverContainer />} />
@@ -56,6 +58,23 @@ function ProfileSelectionRoute({ selectedRole, onSelectRole }: ProfileSelectionR
       onBack={() => navigate('/')}
       onContinue={() => navigate('/register')}
       onSelectRole={onSelectRole}
+    />
+  );
+}
+
+function tokenFromSearch(search: string): string | null {
+  const match = /[?&]token=([^&]+)/.exec(search || '');
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function ResetPasswordRoute() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  return (
+    <ResetPasswordScreen
+      token={tokenFromSearch(location.search)}
+      onBackToLogin={() => navigate('/')}
     />
   );
 }

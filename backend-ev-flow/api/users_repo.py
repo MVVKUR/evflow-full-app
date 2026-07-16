@@ -10,7 +10,7 @@ from .db import engine
 
 _COLS = ("id, username, password_hash, google_sub, email, full_name, account_type, "
          "ev_model_id, main_connector_type, location_consent, location_consent_at, "
-         "profile_completed, created_at")
+         "profile_completed, created_at, password_changed_at")
 
 
 def _row(r) -> Optional[dict]:
@@ -70,6 +70,12 @@ def get_by_google_sub(sub: str) -> Optional[dict]:
     with engine.connect() as c:
         return _row(c.execute(text(f"SELECT {_COLS} FROM users WHERE google_sub = :s"),
                               {"s": sub}).mappings().first())
+
+
+def update_password(user_id: str, password_hash: str) -> None:
+    with engine.begin() as c:
+        c.execute(text("UPDATE users SET password_hash = :ph, password_changed_at = now() WHERE id = :id"),
+                  {"ph": password_hash, "id": user_id})
 
 
 def update_profile(user_id: str, fields: dict, profile_completed: bool) -> dict:

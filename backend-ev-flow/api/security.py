@@ -39,7 +39,8 @@ def create_access_token(user_id: str) -> str:
     secret = _secret()
     if not secret:
         raise RuntimeError("JWT_SECRET is not set")
-    payload = {"sub": str(user_id), "exp": int(time.time()) + _expire_minutes() * 60}
+    now = int(time.time())
+    payload = {"sub": str(user_id), "iat": now, "exp": now + _expire_minutes() * 60}
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
@@ -71,12 +72,22 @@ def verify_state(state: Optional[str]) -> bool:
 def current_user(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "missing bearer token")
+    secret = _secret()
+    if not secret:  # fail closed: an empty key would accept forged tokens
+        raise HTTPException(401, "invalid or expired token")
     try:
-        user_id = decode_access_token(authorization.split(" ", 1)[1])
+        payload = jwt.decode(authorization.split(" ", 1)[1], secret, algorithms=["HS256"])
+        user_id = payload["sub"]
     except Exception:
         raise HTTPException(401, "invalid or expired token")
     from . import users_repo
     user = users_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(401, "user not found")
+    # Tokens minted before the last password change are no longer valid, so a
+    # password reset logs out every previously issued session.
+    changed = user.get("password_changed_at")
+    issued = payload.get("iat")
+    if changed is not None and issued is not None and issued < changed.timestamp():
+        raise HTTPException(401, "session expired, please log in again")
     return user

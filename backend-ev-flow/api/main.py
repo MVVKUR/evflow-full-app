@@ -6,12 +6,13 @@ Spec: http://localhost:8000/openapi.json
 """
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
@@ -25,13 +26,16 @@ from . import charging_repo
 from . import security
 from . import google_oauth
 from . import users_repo
+from . import mailer
+from . import password_reset_repo
 from .models import (
     EVModel, EVModelList, GeoJSONFeatureCollection, Health, NameCount,
     NearestStationRoute, Route, SourceCount, SpeedTier, Station,
     StationList, Stats,
     Topup, TopupCreated, TopupRequest, WalletBalance,
     ChargingQuote, ChargingQuoteRequest, ChargingSession, StartSessionRequest, SettleRequest,
-    ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, ProfileUpdate, RegisterRequest, TokenResponse, UserPublic,
+    ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, ProfileUpdate, RegisterRequest,
+    ResetPasswordRequest, ResetPasswordResponse, TokenResponse, UserPublic,
 )
 
 
@@ -436,16 +440,61 @@ def login(body: LoginRequest) -> TokenResponse:
     return TokenResponse(access_token=security.create_access_token(user["id"]), user=UserPublic(**user))
 
 
+def _send_reset_email(user_id: str, email: str) -> None:
+    """Create a reset token and email the link. Runs in a background task so the
+    request latency does not depend on whether the account exists (anti-enumeration)
+    or on the SMTP round-trip. Errors are logged, never surfaced to the caller."""
+    try:
+        raw_token = password_reset_repo.create_token(user_id)
+        frontend = (os.getenv("FRONTEND_URL", "") or "").rstrip("/")
+        link = f"{frontend}/reset-password?token={raw_token}"
+        ttl = int(os.getenv("PASSWORD_RESET_TTL_MINUTES", "60"))
+        mailer.send_email(
+            to=email,
+            subject="Reset your EVFlow password",
+            text_body=(
+                "We received a request to reset your EVFlow password.\n\n"
+                f"Open this link to choose a new password (valid for {ttl} minutes):\n{link}\n\n"
+                "If you didn't request this, you can ignore this email."),
+            html_body=(
+                "<p>We received a request to reset your EVFlow password.</p>"
+                f"<p><a href=\"{link}\">Click here to choose a new password</a> "
+                f"(valid for {ttl} minutes).</p>"
+                "<p>If you didn't request this, you can ignore this email.</p>"),
+        )
+    except Exception:
+        logging.exception("failed to send password reset email")
+
+
 @app.post("/api/v1/auth/forgot-password", response_model=ForgotPasswordResponse, tags=["auth"],
-          responses={404: {"description": "account not found"}})
-def forgot_password(body: ForgotPasswordRequest) -> ForgotPasswordResponse:
+          responses={404: {"description": "no account with that email"},
+                     400: {"description": "account has no password (Google sign-in)"}})
+def forgot_password(body: ForgotPasswordRequest, background_tasks: BackgroundTasks) -> ForgotPasswordResponse:
     email = body.email.strip().lower()
     if "@" not in email:
         raise HTTPException(422, "enter a valid email address")
-    user = users_repo.get_by_email(email) or users_repo.get_by_username(email)
+    # Honest, non-misleading responses: tell the user when no account matches so a
+    # typo'd email isn't wrongly reported as sent. (Tradeoff: this reveals which
+    # emails are registered — account enumeration — which the caller has accepted.)
+    user = users_repo.get_by_email(email)
     if not user:
-        raise HTTPException(404, "no account found for that email")
-    return ForgotPasswordResponse(message="Password reset instructions have been sent to your email.")
+        raise HTTPException(404, "No account found with that email address.")
+    if not user.get("password_hash"):
+        raise HTTPException(400, "This account uses Google sign-in, so there is no password to reset.")
+    # Token creation + SMTP send run after the response so the user isn't kept
+    # waiting for the mail server.
+    background_tasks.add_task(_send_reset_email, user["id"], email)
+    return ForgotPasswordResponse(message="A password reset link has been sent to your email address.")
+
+
+@app.post("/api/v1/auth/reset-password", response_model=ResetPasswordResponse, tags=["auth"],
+          responses={400: {"description": "invalid or expired reset link"}})
+def reset_password(body: ResetPasswordRequest) -> ResetPasswordResponse:
+    user_id = password_reset_repo.consume_token(body.token)
+    if not user_id:
+        raise HTTPException(400, "this reset link is invalid or has expired")
+    users_repo.update_password(user_id, security.hash_password(body.new_password))
+    return ResetPasswordResponse(message="Your password has been reset. You can now log in.")
 
 
 @app.get("/api/v1/auth/google/login", tags=["auth"], summary="Redirect to Google sign-in")

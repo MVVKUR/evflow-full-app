@@ -263,6 +263,16 @@ class ForgotPasswordResponse(BaseModel):
     message: str
 
 
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., examples=["k3y-from-the-emailed-link"])
+    # bcrypt only uses the first 72 bytes; cap length so nothing is silently truncated.
+    new_password: str = Field(..., min_length=8, max_length=72, examples=["n3ws3cret123"])
+
+
+class ResetPasswordResponse(BaseModel):
+    message: str
+
+
 class ProfileUpdate(BaseModel):
     username: Optional[str] = Field(None, min_length=3)
     ev_model_id: Optional[str] = None
