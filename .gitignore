@@ -18,8 +18,6 @@ __pycache__/
 backend-ev-flow/.venv/
 backend-ev-flow/venv/
 backend-ev-flow/output/
-backend-ev-flow/data/raw/
-backend-ev-flow/data/processed/
 backend-ev-flow/.claude/
 backend-ev-flow/ev_dataset 2.zip
 backend-ev-flow/Screenshot *.png
