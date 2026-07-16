@@ -75,8 +75,7 @@ export const chargingFlowStyles = StyleSheet.create({
   cameraContainer: {
     flex: 1,
     backgroundColor: '#000',
-    justifyContent: 'center',
-    alignItems: 'center'
+    flexDirection: 'column'
   },
   camera: {
     flex: 1,
@@ -86,23 +85,32 @@ export const chargingFlowStyles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    overflow: 'hidden'
   },
   cameraCutout: {
-    width: 280,
-    height: 280,
+    width: 250,
+    height: 250,
     borderWidth: 2,
     borderColor: '#00e5ff',
     borderRadius: 24,
     backgroundColor: 'transparent'
+  },
+  cameraTextContainer: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: 141,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 20
   },
   cameraInstructions: {
     color: colors.white,
     textAlign: 'center',
     fontSize: fontSizes.control,
     lineHeight: 24,
-    marginTop: 32,
-    paddingHorizontal: 40
+    paddingHorizontal: 20
   },
   manualEntryLink: {
     color: '#00e5ff',
@@ -112,13 +120,9 @@ export const chargingFlowStyles = StyleSheet.create({
     marginTop: 16
   },
   cameraNoticeCard: {
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderRadius: 12,
-    padding: 16,
-    position: 'absolute',
-    bottom: 40,
-    left: 20,
-    right: 20,
+    backgroundColor: '#ffffff',
+    padding: 20,
+    paddingBottom: 32,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12
