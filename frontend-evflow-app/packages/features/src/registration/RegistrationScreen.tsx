@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { fetchConnectorTypes, fetchEvModels, register, saveAuthSession, type ConnectorTypeApiItem, type EVModelApiItem } from '@evflow/shared';
+import { fetchConnectorTypes, fetchEvModels, isValidEmail, register, saveAuthSession, validatePassword, type ConnectorTypeApiItem, type EVModelApiItem } from '@evflow/shared';
 import { registrationScreenStyles as styles } from '@evflow/ui';
 import { useAppSafeAreaInsets } from '../shared/useAppSafeAreaInsets';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
@@ -22,6 +22,7 @@ const defaultConnectorTypes: ConnectorTypeApiItem[] = [
 export function RegistrationScreen({ onBack, onLogin, onRegister }: RegistrationScreenProps) {
   const insets = useAppSafeAreaInsets();
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [selectedCarId, setSelectedCarId] = useState('');
   const [selectedConnectorType, setSelectedConnectorType] = useState('');
@@ -33,6 +34,8 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
   const [connectorTypesLoading, setConnectorTypesLoading] = useState(true);
   const [connectorTypesError, setConnectorTypesError] = useState<string | null>(null);
   const [usingDefaultConnectorTypes, setUsingDefaultConnectorTypes] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -123,16 +126,24 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
   );
   const selectedBatteryIndex = batteryThresholds.findIndex((threshold) => threshold === batteryThreshold);
   const batteryPercent = (selectedBatteryIndex / (batteryThresholds.length - 1)) * 100;
+  const usernameError = !username.trim() ? 'Username is required.' : username.trim().length < 3 ? 'Username must be at least 3 characters.' : null;
+  const emailError = !email.trim() ? 'Email is required.' : !isValidEmail(email) ? 'Enter a valid email address.' : null;
+  const passwordError = validatePassword(password);
+  const termsError = termsAccepted ? null : 'You must agree to the terms before registering.';
   const canRegister =
-    username.trim().length >= 3 &&
-    password.length >= 8 &&
+    !usernameError &&
+    !emailError &&
+    !passwordError &&
     Boolean(selectedCarId) &&
     Boolean(selectedConnectorType) &&
+    termsAccepted &&
     !submitting;
 
   const handleRegister = () => {
+    setSubmitAttempted(true);
+
     if (!canRegister) {
-      setSubmitError('Complete all fields. Password must be at least 8 characters.');
+      setSubmitError('Please fix the highlighted fields before registering.');
       return;
     }
 
@@ -140,6 +151,7 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
     setSubmitError(null);
 
     register({
+      email: email.trim().toLowerCase(),
       ev_model_id: selectedCarId,
       location_consent: permissionGranted,
       main_connector_type: selectedConnectorType,
@@ -187,6 +199,25 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
             style={styles.input}
             value={username}
           />
+          {(submitAttempted || username.length > 0) && usernameError ? <Text style={styles.errorText}>{usernameError}</Text> : null}
+        </View>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            accessibilityLabel="Email"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            onChangeText={(value) => {
+              setEmail(value);
+              setSubmitError(null);
+            }}
+            placeholder="Enter your email"
+            placeholderTextColor="#9aa4a9"
+            style={styles.input}
+            value={email}
+          />
+          {(submitAttempted || email.length > 0) && emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
         </View>
 
         <View style={styles.fieldGroup}>
@@ -204,6 +235,7 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
             style={styles.input}
             value={password}
           />
+          {(submitAttempted || password.length > 0) && passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
         </View>
 
         <View style={styles.fieldGroup}>
@@ -264,6 +296,27 @@ export function RegistrationScreen({ onBack, onLogin, onRegister }: Registration
             </Text>
           </View>
         </Pressable>
+
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: termsAccepted }}
+          onPress={() => {
+            setTermsAccepted((current) => !current);
+            setSubmitError(null);
+          }}
+          style={styles.permissionCard}
+        >
+          <View style={[styles.checkbox, termsAccepted && styles.checkedBox]}>
+            {termsAccepted ? <Text style={styles.checkText}>✓</Text> : null}
+          </View>
+          <View style={styles.permissionTextWrap}>
+            <Text style={styles.permissionTitle}>Terms & Conditions</Text>
+            <Text style={styles.permissionBody}>
+              I agree to EV-FLOW terms, charging payment simulation rules, and wallet transaction processing.
+            </Text>
+          </View>
+        </Pressable>
+        {submitAttempted && termsError ? <Text style={styles.errorText}>{termsError}</Text> : null}
 
         {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
 

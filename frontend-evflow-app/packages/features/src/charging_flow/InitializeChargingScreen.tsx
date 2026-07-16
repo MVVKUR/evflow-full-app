@@ -10,6 +10,11 @@ import { getUserLocation } from '../ev_driver/utils/location';
 import {
   fetchNearbyStations, fetchStations, fetchStation,
   fetchChargingQuote, startChargingSession, fetchWalletBalance, InsufficientBalanceError,
+  AuthRequiredError,
+  formatChargingDuration,
+  getEstimatedChargingMinutes,
+  validateRequiredKWh,
+  validateWalletBalance,
   type StationApiItem, type StationConnectorApiItem, type ChargingQuoteApiResponse
 } from '@evflow/shared';
 
@@ -33,11 +38,14 @@ export function InitializeChargingScreen() {
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [energyError, setEnergyError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchWalletBalance()
       .then((w) => setWalletBalance(w.balance_idr))
-      .catch((err) => console.error('Failed to fetch wallet balance:', err));
+      .catch((err) => {
+        setError(err instanceof AuthRequiredError ? err.message : 'Wallet balance is unavailable. Please try again.');
+      });
   }, []);
 
   useEffect(() => {
@@ -78,7 +86,7 @@ export function InitializeChargingScreen() {
           }
         }
       } catch (err) {
-        console.error('Failed to fetch station:', err);
+        setError('Could not load a charging station. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -87,18 +95,27 @@ export function InitializeChargingScreen() {
     loadStation();
   }, []);
 
-  const parsedEnergy = parseFloat(energy) || 0;
+  const parsedEnergy = Number(energy) || 0;
   const totalDue = quote?.total_due_idr ?? 0;
 
   const actualPowerKw = connector?.power_kw || randomSpeed || 150;
 
   const estimatedMinutes = useMemo(() => {
-    if (parsedEnergy <= 0) return 0;
-    return Math.ceil((parsedEnergy / actualPowerKw) * 60);
+    return getEstimatedChargingMinutes(parsedEnergy, actualPowerKw);
   }, [parsedEnergy, actualPowerKw]);
+  const formattedEstimatedTime = formatChargingDuration(estimatedMinutes);
+  const balanceError = quote ? validateWalletBalance(walletBalance, totalDue) : null;
 
   const handleCalculate = async () => {
-    if (parsedEnergy <= 0) return;
+    const nextEnergyError = validateRequiredKWh(energy);
+    setEnergyError(nextEnergyError);
+
+    if (nextEnergyError) {
+      setIsCalculated(false);
+      setQuote(null);
+      return;
+    }
+
     setCalculating(true);
     setError(null);
     try {
@@ -106,7 +123,6 @@ export function InitializeChargingScreen() {
       setQuote(q);
       setIsCalculated(true);
     } catch (err) {
-      console.error('Failed to fetch charging quote:', err);
       setError('Could not calculate price. Please try again.');
     } finally {
       setCalculating(false);
@@ -114,14 +130,27 @@ export function InitializeChargingScreen() {
   };
 
   const handleEnergyChange = (value: string) => {
-    setEnergy(value);
+    const normalized = value.replace(',', '.').replace(/[^\d.]/g, '');
+    const parts = normalized.split('.');
+    const nextValue = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : normalized;
+    setEnergy(nextValue);
     setIsCalculated(false);
     setQuote(null);
     setError(null);
+    setEnergyError(nextValue ? validateRequiredKWh(nextValue) : null);
   };
 
   const handleConfirmPay = async () => {
-    if (!station || !connector || !quote) return;
+    if (submitting || !station || !connector || !quote) return;
+    const nextEnergyError = validateRequiredKWh(energy);
+    const nextBalanceError = validateWalletBalance(walletBalance, totalDue);
+
+    if (nextEnergyError || nextBalanceError) {
+      setEnergyError(nextEnergyError);
+      setError(nextBalanceError);
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     try {
@@ -137,9 +166,10 @@ export function InitializeChargingScreen() {
       });
     } catch (err) {
       if (err instanceof InsufficientBalanceError) {
-        setError('Insufficient EV-Wallet balance. Please top up to continue.');
+        setError('Insufficient wallet balance. Please top up before paying.');
+      } else if (err instanceof AuthRequiredError) {
+        setError(err.message);
       } else {
-        console.error('Failed to start charging session:', err);
         setError('Could not start charging. Please try again.');
       }
     } finally {
@@ -147,7 +177,7 @@ export function InitializeChargingScreen() {
     }
   };
 
-  const canConfirm = isCalculated && parsedEnergy > 0 && !!station && !!connector && !!quote && !submitting;
+  const canConfirm = isCalculated && !energyError && !balanceError && !!station && !!connector && !!quote && !submitting;
 
   if (loading) {
     return (
@@ -204,7 +234,7 @@ export function InitializeChargingScreen() {
               <TextInput
                 value={energy}
                 onChangeText={handleEnergyChange}
-                keyboardType="numeric"
+                keyboardType="decimal-pad"
                 placeholder="0"
                 placeholderTextColor="#b2bdc2"
                 style={styles.inputValue}
@@ -215,6 +245,9 @@ export function InitializeChargingScreen() {
               <Text style={styles.calculateButtonText}>{calculating ? '…' : 'Calculate'}</Text>
             </Pressable>
           </View>
+          {energyError ? (
+            <Text style={{ color: '#ba1a1a', fontSize: 13, lineHeight: 18 }}>{energyError}</Text>
+          ) : null}
         </View>
 
         <View style={styles.summaryCard}>
@@ -255,16 +288,24 @@ export function InitializeChargingScreen() {
             <Text style={styles.metricLabel}>EST. TIME</Text>
             <View style={styles.metricValueRow}>
               <ChargingFlowIcon name="timer" size={20} color="#00696F" />
-              <Text style={styles.metricValue}>{isCalculated && estimatedMinutes > 0 ? `${estimatedMinutes} Mins` : '— Mins'}</Text>
+              <Text style={styles.metricValue}>{isCalculated && formattedEstimatedTime ? formattedEstimatedTime : '—'}</Text>
             </View>
           </View>
         </View>
+        {isCalculated && !formattedEstimatedTime ? (
+          <Text style={{ color: '#ba1a1a', fontSize: 13, lineHeight: 18 }}>
+            Charging time estimate is unavailable for this connector.
+          </Text>
+        ) : null}
 
         <View style={styles.footerSpacer} />
 
         <View style={styles.footerAction}>
           {error ? (
             <Text style={{ color: '#ba1a1a', fontSize: 13, marginBottom: 8, textAlign: 'center' }}>{error}</Text>
+          ) : null}
+          {!error && balanceError ? (
+            <Text style={{ color: '#ba1a1a', fontSize: 13, marginBottom: 8, textAlign: 'center' }}>{balanceError}</Text>
           ) : null}
           <Pressable
             style={[styles.primaryButton, !canConfirm && styles.disabledPrimaryButton]}

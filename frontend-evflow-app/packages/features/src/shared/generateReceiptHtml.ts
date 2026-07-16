@@ -10,6 +10,8 @@ export type ReceiptData = {
   typeText: string;
   summaryTitle: string;
   summaryMeta: string;
+  energyKwh?: string;
+  paymentMethod?: string;
 };
 
 export function generateReceiptHtml(data: ReceiptData) {
@@ -85,6 +87,16 @@ export function generateReceiptHtml(data: ReceiptData) {
               <div class="label">Order ID</div>
               <div class="value">${data.orderId}</div>
             </div>
+            ${data.energyKwh ? `
+            <div class="row">
+              <div class="label">Energy</div>
+              <div class="value">${data.energyKwh}</div>
+            </div>` : ''}
+            ${data.paymentMethod ? `
+            <div class="row">
+              <div class="label">Payment Method</div>
+              <div class="value">${data.paymentMethod}</div>
+            </div>` : ''}
           </div>
 
           <div class="card">

@@ -22,11 +22,21 @@ def _filter_clauses(filters: dict) -> tuple[list[str], dict]:
     clauses, params = [], {}
     if filters.get("source"):
         clauses.append(":source = ANY(sources)"); params["source"] = filters["source"]
-    if filters.get("connector_type"):
-        # OR within the filter: station matches if its connector_types overlaps the requested set
-        clauses.append("connector_types && :cts"); params["cts"] = list(filters["connector_type"])
-    if filters.get("speed_tier"):
-        clauses.append("speed_tier = ANY(:tiers)"); params["tiers"] = list(filters["speed_tier"])
+    connector_types = list(filters.get("connector_type") or [])
+    speed_tiers = list(filters.get("speed_tier") or [])
+    if connector_types or speed_tiers:
+        connector_checks = []
+        if connector_types:
+            connector_checks.append("connector->>'type' = ANY(:cts)")
+            params["cts"] = connector_types
+        if speed_tiers:
+            connector_checks.append("connector->>'speed_tier' = ANY(:tiers)")
+            params["tiers"] = speed_tiers
+        clauses.append(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(connectors) AS connector WHERE "
+            + " AND ".join(connector_checks)
+            + ")"
+        )
     if filters.get("province"):
         clauses.append("lower(province) = lower(:prov)"); params["prov"] = filters["province"]
     if filters.get("city"):

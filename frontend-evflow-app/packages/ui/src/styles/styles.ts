@@ -298,6 +298,13 @@ export const loginScreenStyles = StyleSheet.create({
     color: colors.text,
     fontWeight: '700'
   },
+  markerCredentialsInfo: {
+    color: '#1f2529',
+    fontSize: fontSizes.control,
+    lineHeight: 20,
+    marginTop: 24,
+    textAlign: 'justify'
+  },
   content: {
     alignItems: 'center',
     maxWidth: layout.authPageMaxWidth,
@@ -1534,10 +1541,11 @@ export const walletScreenStyles = StyleSheet.create({
     borderRadius: 20,
     boxShadow: '0 4px 10px rgba(15, 36, 45, 0.05)',
     flexDirection: 'row',
+    gap: 18,
     justifyContent: 'space-between',
     minHeight: 142,
     overflow: 'hidden',
-    paddingHorizontal: 32
+    paddingHorizontal: 24
   },
   topupBalanceLabel: {
     color: '#617089',
@@ -1547,7 +1555,7 @@ export const walletScreenStyles = StyleSheet.create({
   },
   topupBalanceValue: {
     color: '#10172b',
-    fontSize: fontSizes.display,
+    fontSize: fontSizes.title,
     fontWeight: '900',
     lineHeight: 36,
     marginTop: 16
@@ -1556,21 +1564,22 @@ export const walletScreenStyles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#0bb8ae',
     borderRadius: 16,
-    height: 84,
+    flexShrink: 0,
+    height: 76,
     justifyContent: 'center',
     position: 'relative',
-    width: 84
+    width: 76
   },
   topupCurrencyBubble: {
     alignItems: 'center',
     backgroundColor: colors.white,
     borderRadius: 18,
-    bottom: 18,
-    height: 36,
+    bottom: 12,
+    height: 32,
     justifyContent: 'center',
     position: 'absolute',
-    right: 12,
-    width: 36
+    right: 8,
+    width: 32
   },
   topupCurrencyText: {
     color: '#0bb8ae',

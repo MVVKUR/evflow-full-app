@@ -3,6 +3,7 @@ import { EVFLOW_API_BASE_URL } from '../stations/api';
 export type RegisterRequest = {
   username: string;
   password: string;
+  email?: string | null;
   full_name?: string | null;
   ev_model_id?: string | null;
   main_connector_type?: string | null;
@@ -12,6 +13,14 @@ export type RegisterRequest = {
 export type LoginRequest = {
   username: string;
   password: string;
+};
+
+export type ForgotPasswordRequest = {
+  email: string;
+};
+
+export type ForgotPasswordResponse = {
+  message: string;
 };
 
 export type UserPublic = {
@@ -49,6 +58,22 @@ export function register(request: RegisterRequest, fetcher: typeof fetch = fetch
 
 export function login(request: LoginRequest, fetcher: typeof fetch = fetch) {
   return postAuth('/api/v1/auth/login', request, 200, fetcher);
+}
+
+export async function requestPasswordReset(request: ForgotPasswordRequest, fetcher: typeof fetch = fetch) {
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/auth/forgot-password`, {
+    body: JSON.stringify(request),
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    method: 'POST'
+  });
+
+  if (!response.ok) {
+    throw new AuthApiError(response.status, await getAuthErrorMessage(response));
+  }
+
+  return response.json() as Promise<ForgotPasswordResponse>;
 }
 
 async function postAuth(path: string, body: RegisterRequest | LoginRequest, expectedStatus: number, fetcher: typeof fetch) {

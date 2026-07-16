@@ -196,7 +196,7 @@ class Topup(BaseModel):
 
 # ---- charging sessions (Epic 4.0: real wallet debit + settlement) -----------
 class ChargingQuoteRequest(BaseModel):
-    energy_kwh: float = Field(..., gt=0, le=500, description="Requested energy in kWh.", examples=[20])
+    energy_kwh: float = Field(..., gt=0, le=150, description="Requested energy in kWh.", examples=[20])
 
 
 class ChargingQuote(BaseModel):
@@ -210,7 +210,7 @@ class ChargingQuote(BaseModel):
 
 class StartSessionRequest(BaseModel):
     station_id: str = Field(..., examples=["pln_spklu-1"])
-    energy_kwh: float = Field(..., gt=0, le=500, examples=[20])
+    energy_kwh: float = Field(..., gt=0, le=150, examples=[20])
     station_name: Optional[str] = Field(None, examples=["SPKLU PLN UID JAKARTA RAYA"])
     connector_type: Optional[str] = Field(None, examples=["CCS2"])
     power_kw: Optional[float] = Field(None, examples=[150])
@@ -243,6 +243,7 @@ class ChargingSession(BaseModel):
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, examples=["budi"])
     password: str = Field(..., min_length=8, examples=["s3cret123"])
+    email: Optional[str] = Field(None, examples=["budi@example.com"])
     full_name: Optional[str] = Field(None, examples=["Budi Santoso"])
     ev_model_id: Optional[str] = Field(None, examples=["hyundai-ioniq-5"])
     main_connector_type: Optional[str] = Field(None, examples=["CCS2"])
@@ -252,6 +253,14 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., examples=["budi@example.com"])
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
 
 
 class ProfileUpdate(BaseModel):

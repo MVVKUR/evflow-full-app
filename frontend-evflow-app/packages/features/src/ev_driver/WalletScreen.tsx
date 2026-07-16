@@ -2,7 +2,7 @@ import { Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { walletScreenStyles as styles } from '@evflow/ui';
-import { fetchWalletBalance, fetchWalletTopups, fetchChargingSessions, type TopupApiItem, type ChargingSessionApiResponse } from '@evflow/shared';
+import { AuthRequiredError, fetchWalletBalance, fetchWalletTopups, fetchChargingSessions, formatTransactionDate, type TopupApiItem, type ChargingSessionApiResponse } from '@evflow/shared';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import { type WalletTransaction } from './walletTransactions';
 import { downloadReceipt } from '../shared/downloadReceipt';
@@ -15,6 +15,14 @@ type WalletScreenProps = {
 };
 
 const historyPinOffset = 108;
+type TransactionSort = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc' | 'status';
+const sortOptions: { value: TransactionSort; label: string }[] = [
+  { value: 'date_desc', label: 'Newest first' },
+  { value: 'date_asc', label: 'Oldest first' },
+  { value: 'amount_desc', label: 'Amount high' },
+  { value: 'amount_asc', label: 'Amount low' },
+  { value: 'status', label: 'Status' }
+];
 
 export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }: WalletScreenProps) {
   const navigate = useNavigate();
@@ -24,14 +32,15 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
   const [apiSessions, setApiSessions] = useState<ChargingSessionApiResponse[]>([]);
   const [selectedTransaction, setSelectedTransaction] = useState<WalletTransaction | null>(null);
   const [isHistoryPinned, setIsHistoryPinned] = useState(false);
+  const [sortOrder, setSortOrder] = useState<TransactionSort>('date_desc');
+  const [sortOpen, setSortOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const desktop = width >= 768;
   const transactions = useMemo(
-    () =>
-      [...apiTopups.map(mapTopupToTransaction), ...apiSessions.map(mapSessionToTransaction)].sort(
-        (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
-      ),
-    [apiTopups, apiSessions]
+    () => sortTransactions([...apiTopups.map(mapTopupToTransaction), ...apiSessions.map(mapSessionToTransaction)], sortOrder),
+    [apiTopups, apiSessions, sortOrder]
   );
+  const selectedSortLabel = sortOptions.find((option) => option.value === sortOrder)?.label ?? 'Sort';
 
   useEffect(() => {
     let mounted = true;
@@ -43,7 +52,9 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
         }
       })
       .catch((error) => {
-        console.error('Unable to fetch wallet balance', error);
+        if (mounted) {
+          setLoadError(error instanceof AuthRequiredError ? error.message : 'Unable to load wallet balance.');
+        }
       });
 
     fetchWalletTopups()
@@ -53,7 +64,9 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
         }
       })
       .catch((error) => {
-        console.error('Unable to fetch wallet top-ups', error);
+        if (mounted) {
+          setLoadError(error instanceof AuthRequiredError ? error.message : 'Unable to load wallet top-ups.');
+        }
       });
 
     fetchChargingSessions()
@@ -63,7 +76,9 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
         }
       })
       .catch((error) => {
-        console.error('Unable to fetch charging sessions', error);
+        if (mounted) {
+          setLoadError(error instanceof AuthRequiredError ? error.message : 'Unable to load charging sessions.');
+        }
       });
 
     return () => {
@@ -100,19 +115,26 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
 
         <View style={styles.historyHeader}>
           <Text style={styles.historyTitle}>Transaction History</Text>
-          <View style={styles.filterButton}>
+          <Pressable accessibilityRole="button" onPress={() => setSortOpen((current) => !current)} style={styles.filterButton}>
             <SvgAssetIcon color="#1f2529" height={12} name="sort" width={18} />
-          </View>
+          </Pressable>
         </View>
+        <Text style={{ color: '#53606a', fontSize: 12, fontWeight: '700', marginTop: -10 }}>Sorted: {selectedSortLabel}</Text>
+        {sortOpen ? <SortMenu selected={sortOrder} onSelect={(nextSort) => {
+          setSortOrder(nextSort);
+          setSortOpen(false);
+        }} /> : null}
 
         <View style={styles.transactionList}>
-          {transactions.map((transaction) => (
+          {loadError ? <Text style={styles.transactionMeta}>{loadError}</Text> : null}
+          {!loadError && transactions.length === 0 ? <Text style={styles.transactionMeta}>No transactions yet.</Text> : null}
+          {!loadError ? transactions.map((transaction) => (
             <TransactionRow
               key={transaction.id}
               transaction={transaction}
               onPress={() => setSelectedTransaction(transaction)}
             />
-          ))}
+          )) : null}
         </View>
       </ScrollView>
 
@@ -121,9 +143,9 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
           <View style={[styles.pinnedHistoryInner, { paddingTop: topInset }]}>
             <View style={styles.historyHeader}>
               <Text style={styles.historyTitle}>Transaction History</Text>
-              <View style={styles.filterButton}>
+              <Pressable accessibilityRole="button" onPress={() => setSortOpen((current) => !current)} style={styles.filterButton}>
                 <SvgAssetIcon color="#1f2529" height={12} name="sort" width={18} />
-              </View>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -137,6 +159,28 @@ export function WalletScreen({ bottomInset = 0, bottomOffset = 0, topInset = 0 }
         transaction={selectedTransaction}
         onClose={() => setSelectedTransaction(null)}
       />
+    </View>
+  );
+}
+
+type SortMenuProps = {
+  selected: TransactionSort;
+  onSelect: (sort: TransactionSort) => void;
+};
+
+function SortMenu({ selected, onSelect }: SortMenuProps) {
+  return (
+    <View style={{ backgroundColor: '#ffffff', borderColor: '#e0e6ea', borderRadius: 8, borderWidth: 1, gap: 2, padding: 6 }}>
+      {sortOptions.map((option) => (
+        <Pressable
+          accessibilityRole="button"
+          key={option.value}
+          onPress={() => onSelect(option.value)}
+          style={{ backgroundColor: selected === option.value ? '#e9fbfc' : '#ffffff', borderRadius: 6, minHeight: 36, justifyContent: 'center', paddingHorizontal: 10 }}
+        >
+          <Text style={{ color: '#151c2a', fontSize: 13, fontWeight: selected === option.value ? '900' : '700' }}>{option.label}</Text>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -193,17 +237,23 @@ type TransactionDetailModalProps = {
 
 function TransactionDetailModal({ bottomInset, desktop, screenHeight, topInset, transaction, onClose }: TransactionDetailModalProps) {
   const [detailsExpanded, setDetailsExpanded] = useState(true);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   if (!transaction) {
     return null;
   }
 
+  const currentTransaction = transaction;
   const success = transaction.status === 'success';
   const receiptData = {
     amount: formatDetailAmount(transaction.amount),
     date: formatDate(transaction.occurredAt),
     destination: transaction.destination,
     orderId: transaction.orderId,
+    energyKwh: transaction.energyKwh ? `${transaction.energyKwh.toFixed(2)} kWh` : undefined,
+    paymentMethod: transaction.paymentMethod ?? (transaction.type === 'topup' ? 'Xendit' : 'EV-Wallet'),
     status: success ? 'Success' : 'Failed',
     summaryMeta: transaction.referenceNo,
     summaryTitle: transaction.type === 'topup' ? 'Wallet Topup' : 'Charging Payment',
@@ -213,8 +263,21 @@ function TransactionDetailModal({ bottomInset, desktop, screenHeight, topInset, 
     typeText: transaction.type === 'topup' ? 'Top Up' : 'Charging'
   };
 
-  function handleDownloadInvoice() {
-    downloadReceipt(receiptData);
+  async function handleDownloadInvoice() {
+    if (downloading) {
+      return;
+    }
+
+    setDownloading(true);
+    setDownloadMessage(null);
+    const downloaded = await downloadReceipt(receiptData);
+    setDownloadMessage(downloaded ? 'Invoice downloaded.' : 'Invoice download failed. Please try again.');
+    setDownloading(false);
+  }
+
+  async function handleCopyReference() {
+    const copied = await copyToClipboard(currentTransaction.referenceNo);
+    setCopyMessage(copied ? 'Copied.' : 'Copy failed. Please copy manually.');
   }
 
   return (
@@ -254,6 +317,14 @@ function TransactionDetailModal({ bottomInset, desktop, screenHeight, topInset, 
                 <Text style={styles.detailSummaryMeta}>{transaction.referenceNo}</Text>
               </View>
             </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleCopyReference}
+              style={{ alignItems: 'center', alignSelf: 'flex-start', borderColor: '#d8e1e7', borderRadius: 8, borderWidth: 1, minHeight: 36, justifyContent: 'center', marginTop: 12, paddingHorizontal: 12 }}
+            >
+              <Text style={{ color: '#00696f', fontSize: 13, fontWeight: '900' }}>Copy Reference</Text>
+            </Pressable>
+            {copyMessage ? <Text style={{ color: copyMessage === 'Copied.' ? '#006c4f' : '#b32126', fontSize: 12, fontWeight: '700', marginTop: 8 }}>{copyMessage}</Text> : null}
 
             <Pressable
               accessibilityRole="button"
@@ -283,8 +354,9 @@ function TransactionDetailModal({ bottomInset, desktop, screenHeight, topInset, 
 
           <View style={[styles.invoiceFooter, { paddingBottom: 24 + bottomInset }]}>
             <Pressable accessibilityRole="button" style={styles.invoiceButton} onPress={handleDownloadInvoice}>
-              <Text style={styles.invoiceButtonText}>Download Invoice</Text>
+              <Text style={styles.invoiceButtonText}>{downloading ? 'Downloading...' : 'Download Invoice'}</Text>
             </Pressable>
+            {downloadMessage ? <Text style={{ color: downloadMessage.includes('failed') ? '#b32126' : '#006c4f', fontSize: 12, fontWeight: '700', marginTop: 8, textAlign: 'center' }}>{downloadMessage}</Text> : null}
           </View>
         </View>
 
@@ -335,20 +407,18 @@ function formatDetailAmount(amount: number) {
 }
 
 function formatTime(isoDate: string) {
-  return new Intl.DateTimeFormat('en-GB', {
+  return formatTransactionDate(isoDate, {
     hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Jakarta'
-  }).format(new Date(isoDate));
+    minute: '2-digit'
+  });
 }
 
 function formatDate(isoDate: string) {
-  return new Intl.DateTimeFormat('en-GB', {
+  return formatTransactionDate(isoDate, {
     day: '2-digit',
     month: 'short',
-    year: 'numeric',
-    timeZone: 'Asia/Jakarta'
-  }).format(new Date(isoDate));
+    year: 'numeric'
+  });
 }
 
 function mapTopupToTransaction(topup: TopupApiItem): WalletTransaction {
@@ -365,6 +435,7 @@ function mapTopupToTransaction(topup: TopupApiItem): WalletTransaction {
     status: success ? 'success' : 'failed',
     title: success ? 'Top Up - Xendit' : `Top Up - ${formatTopupStatus(topup.status)}`,
     type: 'topup',
+    paymentMethod: 'Xendit',
     invoiceUrl: topup.invoice_url ?? undefined
   };
 }
@@ -394,6 +465,60 @@ function mapSessionToTransaction(session: ChargingSessionApiResponse): WalletTra
     referenceNo: refId,
     status: 'success',
     title: stationName,
-    type: 'charging'
+    type: 'charging',
+    energyKwh: session.energy_kwh,
+    paymentMethod: 'EV-Wallet'
   };
+}
+
+function sortTransactions(transactions: WalletTransaction[], sortOrder: TransactionSort) {
+  return [...transactions].sort((a, b) => {
+    if (sortOrder === 'date_asc') {
+      return new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime();
+    }
+
+    if (sortOrder === 'amount_desc') {
+      return Math.abs(b.amount) - Math.abs(a.amount);
+    }
+
+    if (sortOrder === 'amount_asc') {
+      return Math.abs(a.amount) - Math.abs(b.amount);
+    }
+
+    if (sortOrder === 'status') {
+      return a.status.localeCompare(b.status) || new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime();
+    }
+
+    return new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime();
+  });
+}
+
+async function copyToClipboard(value: string) {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // Fall through to the textarea fallback.
+  }
+
+  try {
+    if (typeof document === 'undefined') {
+      return false;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    return copied;
+  } catch {
+    return false;
+  }
 }

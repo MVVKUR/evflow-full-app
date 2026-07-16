@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocation, useNavigate } from 'react-router';
-import { createWalletTopup, fetchWalletBalance, fetchWalletTopup } from '@evflow/shared';
+import { AuthRequiredError, createWalletTopup, fetchWalletBalance, fetchWalletTopup } from '@evflow/shared';
 import { walletScreenStyles as styles } from '@evflow/ui';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 
@@ -31,7 +31,9 @@ export function TopUpWalletScreen({ bottomOffset = 0, topInset = 0 }: TopUpWalle
         }
       })
       .catch((err) => {
-        console.error('Unable to fetch wallet balance', err);
+        if (mounted) {
+          setError(err instanceof AuthRequiredError ? err.message : 'Unable to load wallet balance.');
+        }
       });
 
     return () => {
@@ -53,8 +55,8 @@ export function TopUpWalletScreen({ bottomOffset = 0, topInset = 0 }: TopUpWalle
         // Send the user to the Xendit checkout; the waiting screen polls until it is paid
         // and also offers a button to reopen the page if a popup blocker ate this one.
         if (topup.invoice_url) {
-          Linking.openURL(topup.invoice_url).catch((err) => {
-            console.error('Unable to open the payment page', err);
+          Linking.openURL(topup.invoice_url).catch(() => {
+            setError('Payment page could not be opened. Use the button on the next screen to try again.');
           });
         }
         navigate('/ev-driver/wallet/topup/success', {
@@ -66,8 +68,7 @@ export function TopUpWalletScreen({ bottomOffset = 0, topInset = 0 }: TopUpWalle
         });
       })
       .catch((err) => {
-        console.error('Unable to create wallet top-up', err);
-        setError('Top up could not be started. Please try again.');
+        setError(err instanceof AuthRequiredError ? err.message : 'Top up could not be started. Please try again.');
       })
       .finally(() => setSubmitting(false));
   };
@@ -178,7 +179,6 @@ export function TopUpSuccessScreen({ bottomOffset = 0, topInset = 0 }: TopUpWall
           }
         })
         .catch((err) => {
-          console.error('Unable to check top-up status', err);
           if (mounted) {
             timer = setTimeout(poll, 5000);
           }
@@ -234,7 +234,9 @@ export function TopUpSuccessScreen({ bottomOffset = 0, topInset = 0 }: TopUpWall
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              Linking.openURL(invoiceUrl).catch((err) => console.error('Unable to open the payment page', err));
+              Linking.openURL(invoiceUrl).catch(() => {
+                // Keep the user on this screen; they can tap again if the browser blocks the new tab.
+              });
             }}
             style={styles.topupPrimaryButton}
           >

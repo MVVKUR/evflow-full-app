@@ -14,4 +14,6 @@ export type WalletTransaction = {
   orderId: string;
   destination: string;
   invoiceUrl?: string;
+  energyKwh?: number;
+  paymentMethod?: string;
 };

@@ -42,6 +42,18 @@ export function clearAuthSession() {
   }
 }
 
+export function getAuthHeaders() {
+  const session = getAuthSession();
+
+  if (!session?.access_token) {
+    return null;
+  }
+
+  return {
+    Authorization: `Bearer ${session.access_token}`
+  };
+}
+
 function getSessionStorage() {
   if (typeof globalThis === 'undefined') {
     return null;
