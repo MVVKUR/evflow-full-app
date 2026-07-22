@@ -2,6 +2,10 @@
 
 React and React Native TypeScript monorepo for EVFlow. The codebase is structured so business logic, UI primitives, maps, and screens can be shared across web, Android, and iOS.
 
+For the full-stack development workflow, architecture, API, environment behavior,
+and current implementation gaps, start with the root
+[documentation index](../docs/README.md).
+
 ## Project Structure
 
 ```text
@@ -20,7 +24,7 @@ packages/
 
 ## Prerequisites
 
-- Node.js 20 or newer
+- Node.js 20.19.4 or newer on the Node 20 line, or Node.js 22.12 or newer
 - npm 10 or newer
 - Expo tooling through `npx expo`
 - Android Studio for Android emulator builds
@@ -29,8 +33,12 @@ packages/
 ## Install
 
 ```bash
-npm install
+npm ci
 ```
+
+npm is the repository's current package-manager convention: the committed
+lockfile, container build, and scripts all use it, despite the legacy Yarn value
+in `package.json` metadata.
 
 ## Run Mobile
 

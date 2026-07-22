@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, UIManager, View, useWindowDimensions, type ViewStyle } from 'react-native';
-import { colors, driverMapStyles as styles, LeafletMap } from '@evflow/ui';
+import { driverMapStyles as styles, LeafletMap } from '@evflow/ui';
 import { fetchConnectorTypes, fetchNearbyStations, fetchSpeedTiers, fetchStations, type ConnectorTypeApiItem, type SpeedTierApiItem, type StationApiItem, type StationConnectorApiItem, type StationConnectorTypeApiItem } from '@evflow/shared';
 import { getUserLocation, type LocationPermissionStatus } from './utils/location';
 import { FilterCategory, type FilterOption } from './components/FilterCategory';
-import { locationPinSvg } from './components/locationPinSvg';
+import { selectedSpkluMarkerSvg, spkluMarkerSvg } from './components/spkluMarkerSvg';
 import { PlatformSlider } from '../shared/PlatformSlider';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import { closeButtonIcon, filterSettingIcon, lightningIcon, searchIcon } from './components/driverMapIcons';
@@ -308,13 +308,10 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
       })),
     [visibleStations]
   );
-  const stationMarkerIcon = useMemo(() => colorSvg(locationPinSvg, colors.text), []);
-  // Selected pin: brand cyan with a dark outline, slightly larger, so the tapped
-  // station is unmistakable among the default dark-teal pins.
-  const selectedStationMarkerIcon = useMemo(
-    () => colorSvg(locationPinSvg, colors.primary, { height: 43, stroke: colors.text, width: 38 }),
-    []
-  );
+  const stationMarkerIcon = useMemo(() => spkluMarkerSvg(32), []);
+  // Selected badge: same artwork ringed in dark teal + white and slightly larger,
+  // so the tapped station is unmistakable among its neighbours.
+  const selectedStationMarkerIcon = useMemo(() => selectedSpkluMarkerSvg(44), []);
   const detailSheetHeight = width < 768 ? Math.floor((height - bottomOffset) / 2) : undefined;
   const filterSheetHeight = width < 768 ? getMobileFilterSheetHeight(height, topInset, bottomOffset) : undefined;
   const searchSheetHeight = getSearchResultsSheetHeight(height, topInset, bottomOffset);
@@ -987,20 +984,6 @@ function toBoundingBox(center: Coordinates, radiusKm: number) {
     center.longitude + lonDelta,
     center.latitude + latDelta
   ].join(',');
-}
-
-function colorSvg(
-  svg: string,
-  color: string,
-  { width = 30, height = 34, stroke }: { width?: number; height?: number; stroke?: string } = {}
-) {
-  const pathAttributes = stroke
-    ? `fill="${color}" stroke="${stroke}" stroke-width="24" `
-    : `fill="${color}" `;
-
-  return svg
-    .replace(/<path /g, `<path ${pathAttributes}`)
-    .replace('<svg ', `<svg width="${width}" height="${height}" style="display:block" `);
 }
 
 function getDistancePercent(distanceKm: number) {

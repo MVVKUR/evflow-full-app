@@ -141,9 +141,10 @@ export function LeafletMap({
                   ? 'evflow-station-marker evflow-station-marker--selected'
                   : 'evflow-station-marker',
                 html: iconSvg,
-                iconAnchor: isSelected ? [19, 43] : [15, 34],
-                iconSize: isSelected ? [38, 43] : [30, 34],
-                popupAnchor: isSelected ? [0, -38] : [0, -30]
+                // Circular badge: anchor at the centre, popup just above the rim.
+                iconAnchor: isSelected ? [22, 22] : [16, 16],
+                iconSize: isSelected ? [44, 44] : [32, 32],
+                popupAnchor: isSelected ? [0, -26] : [0, -20]
               }),
               // Keep the highlighted pin above its neighbours in dense areas.
               zIndexOffset: isSelected ? 1000 : 0

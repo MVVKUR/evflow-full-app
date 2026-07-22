@@ -83,10 +83,10 @@ export function LeafletMap({
             attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
           }).addTo(map);
 
-          var stationIcon = ${markerIconSvg ? `L.divIcon({ className: 'evflow-station-marker', html: ${JSON.stringify(markerIconSvg)}, iconSize: [30, 34], iconAnchor: [15, 34], popupAnchor: [0, -30] })` : 'null'};
+          var stationIcon = ${markerIconSvg ? `L.divIcon({ className: 'evflow-station-marker', html: ${JSON.stringify(markerIconSvg)}, iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -20] })` : 'null'};
           var selectedStationIcon = ${
             selectedMarkerIconSvg
-              ? `L.divIcon({ className: 'evflow-station-marker evflow-station-marker--selected', html: ${JSON.stringify(selectedMarkerIconSvg)}, iconSize: [38, 43], iconAnchor: [19, 43], popupAnchor: [0, -38] })`
+              ? `L.divIcon({ className: 'evflow-station-marker evflow-station-marker--selected', html: ${JSON.stringify(selectedMarkerIconSvg)}, iconSize: [44, 44], iconAnchor: [22, 22], popupAnchor: [0, -26] })`
               : 'null'
           };
           var stationMarkers = {};
