@@ -2176,3 +2176,332 @@ export const driverMapStyles = StyleSheet.create({
     paddingRight: 8
   }
 });
+
+export const quickLoginStyles = StyleSheet.create({
+  page: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    flexGrow: 1,
+    minHeight: '100%',
+    width: '100%'
+  },
+  contentShell: {
+    backgroundColor: colors.white,
+    flexGrow: 1,
+    maxWidth: layout.authPageMaxWidth,
+    width: '100%'
+  },
+  brandHeader: {
+    alignItems: 'center',
+    paddingTop: 56
+  },
+  logoCircle: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 32,
+    height: 64,
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { height: 3, width: 0 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    width: 64
+  },
+  appTitle: {
+    color: '#191C1E',
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    lineHeight: 30,
+    marginTop: 14
+  },
+  tagline: {
+    color: '#3D494B',
+    fontSize: fontSizes.tiny,
+    lineHeight: 16,
+    marginTop: 6,
+    maxWidth: 280,
+    textAlign: 'center'
+  },
+  section: {
+    marginTop: 36,
+    paddingHorizontal: 24
+  },
+  welcomeTitle: {
+    color: '#191C1E',
+    fontSize: 19,
+    fontWeight: '800',
+    lineHeight: 24
+  },
+  welcomeSubtitle: {
+    color: '#3D494B',
+    fontSize: 12.5,
+    lineHeight: 18,
+    marginTop: 4
+  },
+  cardList: {
+    gap: 12,
+    marginTop: 16
+  },
+  personaCard: {
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderColor: 'rgba(188, 201, 203, 0.5)',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    shadowColor: '#000000',
+    shadowOffset: { height: 2, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5
+  },
+  personaCardDisabled: {
+    opacity: 0.6
+  },
+  avatar: {
+    alignItems: 'center',
+    borderRadius: 24,
+    height: 48,
+    justifyContent: 'center',
+    width: 48
+  },
+  avatarText: {
+    color: colors.white,
+    fontSize: fontSizes.bodyLarge,
+    fontWeight: '800'
+  },
+  personaBody: {
+    flex: 1
+  },
+  personaName: {
+    color: '#191C1E',
+    fontSize: fontSizes.body,
+    fontWeight: '700',
+    lineHeight: 20
+  },
+  personaSubtitle: {
+    fontSize: 11.5,
+    fontWeight: '500',
+    lineHeight: 16,
+    marginTop: 2
+  },
+  chevron: {
+    color: '#6d797b',
+    fontSize: fontSizes.icon,
+    fontWeight: '400',
+    lineHeight: 24
+  },
+  errorText: {
+    color: '#b32126',
+    fontSize: fontSizes.caption,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 16,
+    textAlign: 'center'
+  },
+  usernameLink: {
+    color: colors.text,
+    fontSize: fontSizes.caption,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 28,
+    textAlign: 'center'
+  },
+  usernameLinkDisabled: {
+    opacity: 0.5
+  }
+});
+
+export const onboardingStyles = StyleSheet.create({
+  page: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    flex: 1,
+    minHeight: '100%',
+    width: '100%'
+  },
+  contentShell: {
+    flex: 1,
+    maxWidth: layout.authPageMaxWidth,
+    minHeight: '100%',
+    width: '100%'
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 64,
+    paddingHorizontal: 22
+  },
+  backButton: {
+    alignItems: 'center',
+    height: 40,
+    justifyContent: 'center',
+    width: 40
+  },
+  brand: {
+    color: colors.text,
+    fontSize: fontSizes.brand,
+    fontWeight: '800',
+    lineHeight: 32
+  },
+  headerSpacer: {
+    width: 40
+  },
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 16
+  },
+  title: {
+    color: '#1f2529',
+    fontSize: fontSizes.titleMedium,
+    fontWeight: '800',
+    lineHeight: 28
+  },
+  subtitle: {
+    color: '#4a555a',
+    fontSize: fontSizes.control,
+    lineHeight: 20,
+    marginTop: 6
+  },
+  loadingRow: {
+    alignItems: 'center',
+    paddingVertical: 24
+  },
+  noticeBox: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 16,
+    padding: 14
+  },
+  noticeText: {
+    color: '#4a555a',
+    fontSize: fontSizes.caption,
+    lineHeight: 18
+  },
+  retryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primary,
+    borderRadius: 7,
+    marginTop: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8
+  },
+  retryButtonText: {
+    color: colors.white,
+    fontSize: fontSizes.label,
+    fontWeight: '700'
+  },
+  brandChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 16
+  },
+  brandChip: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 8
+  },
+  brandChipSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  brandChipText: {
+    color: '#2b3337',
+    fontSize: fontSizes.label,
+    fontWeight: '600'
+  },
+  brandChipTextSelected: {
+    color: colors.white,
+    fontWeight: '700'
+  },
+  optionList: {
+    gap: 10,
+    marginTop: 16
+  },
+  optionCard: {
+    backgroundColor: colors.white,
+    borderColor: 'rgba(188, 201, 203, 0.5)',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    shadowColor: '#000000',
+    shadowOffset: { height: 2, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5
+  },
+  optionCardSelected: {
+    backgroundColor: '#effdfe',
+    borderColor: colors.primary,
+    borderWidth: 2,
+    shadowOpacity: 0
+  },
+  optionName: {
+    color: '#191C1E',
+    fontSize: fontSizes.body,
+    fontWeight: '700',
+    lineHeight: 20
+  },
+  optionMeta: {
+    color: '#4e5d63',
+    fontSize: fontSizes.caption,
+    lineHeight: 18,
+    marginTop: 2
+  },
+  fallbackCard: {
+    marginTop: 16
+  },
+  errorText: {
+    color: '#b32126',
+    fontSize: fontSizes.caption,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 12
+  },
+  footer: {
+    backgroundColor: colors.white,
+    borderTopColor: '#edf0f2',
+    borderTopWidth: 1,
+    bottom: 0,
+    left: 0,
+    padding: 20,
+    position: 'absolute',
+    right: 0,
+    shadowColor: '#000000',
+    shadowOffset: { height: -2, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10
+  },
+  continueButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 7,
+    justifyContent: 'center',
+    minHeight: 52
+  },
+  disabledButton: {
+    opacity: 0.5
+  },
+  continueText: {
+    color: colors.white,
+    fontSize: fontSizes.bodyLarge,
+    fontWeight: '500'
+  },
+  skipLink: {
+    color: colors.text,
+    fontSize: fontSizes.caption,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 14,
+    textAlign: 'center'
+  }
+});

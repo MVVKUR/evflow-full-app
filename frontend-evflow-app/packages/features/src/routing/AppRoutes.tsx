@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { Navigate, Route, Routes, useNavigate, useLocation } from 'react-router';
 import { EVDriverContainer } from '../ev_driver/EVDriverContainer';
 import { LoginScreen } from '../login/LoginScreen';
+import { QuickLoginScreen } from '../login/QuickLoginScreen';
 import { ResetPasswordScreen } from '../login/ResetPasswordScreen';
+import { VehicleSelectScreen } from '../onboarding/VehicleSelectScreen';
+import { ConnectorSelectScreen } from '../onboarding/ConnectorSelectScreen';
 import { ProfileSelectionScreen } from '../profile_selection/ProfileSelectionScreen';
 import { RegistrationScreen } from '../registration/RegistrationScreen';
 import { ScanSpkluScreen, InitializeChargingScreen, TransactionSuccessScreen, ChargingStatusScreen, ChargingSuccessfulScreen } from '../charging_flow';
@@ -13,7 +16,10 @@ export function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/" element={<LoginRoute />} />
+      <Route path="/" element={<QuickLoginScreen />} />
+      <Route path="/login" element={<LoginRoute />} />
+      <Route path="/onboarding/vehicle" element={<VehicleSelectScreen />} />
+      <Route path="/onboarding/connector" element={<ConnectorSelectScreen />} />
       <Route
         path="/profile-selection"
         element={<ProfileSelectionRoute selectedRole={selectedRole} onSelectRole={setSelectedRole} />}
@@ -74,7 +80,7 @@ function ResetPasswordRoute() {
   return (
     <ResetPasswordScreen
       token={tokenFromSearch(location.search)}
-      onBackToLogin={() => navigate('/')}
+      onBackToLogin={() => navigate('/login')}
     />
   );
 }
@@ -84,9 +90,9 @@ function RegistrationRoute() {
 
   return (
     <RegistrationScreen
-      onBack={() => navigate('/')}
+      onBack={() => navigate('/login')}
       // onBack={() => navigate('/profile-selection')}
-      onLogin={() => navigate('/')}
+      onLogin={() => navigate('/login')}
       onRegister={() => navigate('/ev-driver')}
     />
   );
