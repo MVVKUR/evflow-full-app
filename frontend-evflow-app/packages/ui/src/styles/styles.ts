@@ -2301,17 +2301,6 @@ export const quickLoginStyles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 16,
     textAlign: 'center'
-  },
-  usernameLink: {
-    color: colors.text,
-    fontSize: fontSizes.caption,
-    fontWeight: '700',
-    lineHeight: 18,
-    marginTop: 28,
-    textAlign: 'center'
-  },
-  usernameLinkDisabled: {
-    opacity: 0.5
   }
 });
 
@@ -2503,5 +2492,487 @@ export const onboardingStyles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 14,
     textAlign: 'center'
+  }
+});
+
+export const businessDashboardStyles = StyleSheet.create({
+  screen: {
+    backgroundColor: colors.background,
+    flex: 1
+  },
+  scroll: {
+    flex: 1
+  },
+  scrollContent: {
+    paddingBottom: 16
+  },
+  header: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderBottomColor: '#DBE3E5',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16
+  },
+  headerLeft: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 12
+  },
+  headerTitleGroup: {
+    flex: 1
+  },
+  headerTitle: {
+    color: '#006973',
+    fontSize: 17,
+    fontWeight: '700'
+  },
+  headerSubtitle: {
+    color: '#3D494B',
+    fontSize: fontSizes.tiny,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginTop: 2
+  },
+  headerRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8
+  },
+  headerIconCircle: {
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36
+  },
+  headerAvatar: {
+    alignItems: 'center',
+    backgroundColor: '#006973',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36
+  },
+  headerAvatarText: {
+    color: colors.white,
+    fontSize: fontSizes.label,
+    fontWeight: '700'
+  },
+  section: {
+    backgroundColor: colors.white,
+    paddingHorizontal: 20,
+    paddingTop: 20
+  },
+  card: {
+    backgroundColor: colors.background,
+    borderColor: '#DBE3E5',
+    borderRadius: 12,
+    borderWidth: 1,
+    shadowColor: '#1A252C',
+    shadowOffset: { height: 12, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12
+  },
+  summaryCard: {
+    flexBasis: '46%',
+    flexGrow: 1,
+    padding: 16
+  },
+  summaryLabel: {
+    color: '#3D494B',
+    fontSize: fontSizes.tiny,
+    fontWeight: '600',
+    letterSpacing: 0.5
+  },
+  summaryValueRow: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 8
+  },
+  summaryValue: {
+    color: '#191C1E',
+    fontSize: 26,
+    fontWeight: '700'
+  },
+  summaryUnit: {
+    color: '#3D494B',
+    fontSize: fontSizes.tiny,
+    fontWeight: '700'
+  },
+  summaryValueSmall: {
+    color: '#191C1E',
+    fontSize: fontSizes.heading,
+    fontWeight: '700',
+    marginTop: 8
+  },
+  summaryFootnote: {
+    color: '#3D494B',
+    fontSize: fontSizes.eyebrow,
+    marginTop: 6
+  },
+  summaryFootnoteAccent: {
+    color: '#006973',
+    fontSize: fontSizes.eyebrow,
+    marginTop: 6
+  },
+  alertValue: {
+    color: '#BA1A1A'
+  },
+  progressRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8
+  },
+  progressTrack: {
+    backgroundColor: '#EDEEF0',
+    borderRadius: 999,
+    height: 6,
+    width: 80
+  },
+  progressFill: {
+    backgroundColor: '#BA1A1A',
+    borderRadius: 999,
+    height: 6,
+    width: 60
+  },
+  progressCaption: {
+    color: '#3D494B',
+    fontSize: fontSizes.eyebrow
+  },
+  sectionCard: {
+    marginTop: 20,
+    overflow: 'hidden'
+  },
+  cardHeader: {
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderBottomColor: '#DBE3E5',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12
+  },
+  cardHeaderTitle: {
+    color: '#191C1E',
+    fontSize: fontSizes.tiny,
+    fontWeight: '700',
+    letterSpacing: 1
+  },
+  badge: {
+    backgroundColor: 'rgba(0, 105, 115, 0.1)',
+    borderColor: 'rgba(0, 105, 115, 0.2)',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4
+  },
+  badgeText: {
+    color: '#006973',
+    fontSize: fontSizes.eyebrow,
+    fontWeight: '700'
+  },
+  mapArea: {
+    backgroundColor: '#EDEEF0',
+    height: 200,
+    overflow: 'hidden'
+  },
+  mapWashLarge: {
+    backgroundColor: 'rgba(0, 105, 115, 0.12)',
+    borderRadius: 140,
+    height: 280,
+    left: 80,
+    position: 'absolute',
+    top: -60,
+    width: 280
+  },
+  mapWashSmall: {
+    backgroundColor: 'rgba(0, 105, 115, 0.08)',
+    borderRadius: 110,
+    bottom: -70,
+    height: 220,
+    left: -50,
+    position: 'absolute',
+    width: 220
+  },
+  mapPinLarge: {
+    backgroundColor: '#006973',
+    borderColor: 'rgba(0, 105, 115, 0.25)',
+    borderRadius: 7,
+    borderWidth: 3,
+    height: 14,
+    left: 150,
+    position: 'absolute',
+    top: 70,
+    width: 14
+  },
+  mapPinSmall: {
+    backgroundColor: '#006973',
+    borderColor: 'rgba(0, 105, 115, 0.25)',
+    borderRadius: 5,
+    borderWidth: 2,
+    height: 10,
+    left: 230,
+    position: 'absolute',
+    top: 130,
+    width: 10
+  },
+  mapCallout: {
+    backgroundColor: colors.white,
+    borderColor: '#DBE3E5',
+    borderRadius: 8,
+    borderWidth: 1,
+    left: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    position: 'absolute',
+    shadowColor: '#1A252C',
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    top: 20
+  },
+  calloutEyebrow: {
+    color: '#006973',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.5
+  },
+  calloutTitle: {
+    color: '#191C1E',
+    fontSize: fontSizes.caption,
+    fontWeight: '700',
+    marginTop: 2
+  },
+  calloutMeta: {
+    color: '#3D494B',
+    fontSize: fontSizes.eyebrow,
+    marginTop: 2
+  },
+  heatmapButton: {
+    alignItems: 'center',
+    backgroundColor: '#006973',
+    borderRadius: 10,
+    justifyContent: 'center',
+    marginTop: 12,
+    paddingVertical: 14
+  },
+  heatmapButtonText: {
+    color: colors.white,
+    fontSize: fontSizes.label,
+    fontWeight: '700',
+    letterSpacing: 0.3
+  },
+  suitabilityRow: {
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderBottomColor: '#DBE3E5',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14
+  },
+  suitabilityInfo: {
+    flex: 1
+  },
+  candidateName: {
+    color: '#191C1E',
+    fontSize: fontSizes.label,
+    fontWeight: '700'
+  },
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6
+  },
+  tagTeal: {
+    backgroundColor: 'rgba(0, 105, 115, 0.1)',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3
+  },
+  tagTealText: {
+    color: '#006973',
+    fontSize: 9,
+    fontWeight: '700'
+  },
+  tagGrey: {
+    backgroundColor: '#D8E4EE',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3
+  },
+  tagGreyText: {
+    color: '#5A666E',
+    fontSize: 9,
+    fontWeight: '700'
+  },
+  scoreColumn: {
+    alignItems: 'center'
+  },
+  scoreValue: {
+    fontSize: fontSizes.body,
+    fontWeight: '700'
+  },
+  scoreLabel: {
+    fontSize: fontSizes.micro,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginTop: 2
+  },
+  scoreTeal: {
+    color: '#006973'
+  },
+  scoreMuted: {
+    color: '#3D494A'
+  },
+  suitabilityFooter: {
+    backgroundColor: colors.white,
+    padding: 12
+  },
+  suitabilityFooterButton: {
+    alignItems: 'center',
+    backgroundColor: '#00DCE6',
+    borderRadius: 8,
+    justifyContent: 'center',
+    paddingVertical: 12
+  },
+  suitabilityFooterText: {
+    color: '#3B494A',
+    fontSize: fontSizes.caption,
+    fontWeight: '700',
+    letterSpacing: 0.5
+  },
+  insightsSection: {
+    backgroundColor: colors.white,
+    gap: 16,
+    paddingBottom: 32,
+    paddingHorizontal: 20,
+    paddingTop: 20
+  },
+  insightBanner: {
+    backgroundColor: '#051E28',
+    borderRadius: 16,
+    padding: 24
+  },
+  insightTitle: {
+    color: colors.white,
+    fontSize: 17,
+    fontWeight: '700'
+  },
+  insightBody: {
+    color: '#CDE6F4',
+    fontSize: fontSizes.label,
+    lineHeight: 19,
+    marginTop: 8
+  },
+  insightButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#4DD0E1',
+    borderRadius: 8,
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 12
+  },
+  insightButtonText: {
+    color: colors.text,
+    fontSize: fontSizes.caption,
+    fontWeight: '700'
+  },
+  utilityCard: {
+    alignItems: 'center',
+    padding: 24
+  },
+  utilityTitle: {
+    color: '#3D494B',
+    fontSize: fontSizes.tiny,
+    fontWeight: '700',
+    letterSpacing: 0.6
+  },
+  donutWrap: {
+    alignItems: 'center',
+    height: 112,
+    justifyContent: 'center',
+    marginTop: 16,
+    width: 112
+  },
+  donutOverlay: {
+    alignItems: 'center',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0
+  },
+  donutValue: {
+    color: '#191C1E',
+    fontSize: fontSizes.titleMedium,
+    fontWeight: '700'
+  },
+  utilityCaption: {
+    color: '#3D494B',
+    fontSize: fontSizes.label,
+    marginTop: 12
+  },
+  bottomNav: {
+    backgroundColor: 'rgba(248, 249, 251, 0.95)',
+    borderTopColor: '#DBE3E5',
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingTop: 10
+  },
+  navItem: {
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  navItemActive: {
+    backgroundColor: '#00DCE6'
+  },
+  navLabel: {
+    color: '#3D494B',
+    fontSize: 9,
+    fontWeight: '600',
+    marginTop: 4
+  },
+  navLabelActive: {
+    color: colors.text
+  },
+  fab: {
+    alignItems: 'center',
+    backgroundColor: '#006973',
+    borderRadius: 28,
+    height: 56,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 20,
+    shadowColor: '#1A252C',
+    shadowOffset: { height: 8, width: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    width: 56
+  },
+  pressed: {
+    opacity: 0.6
   }
 });

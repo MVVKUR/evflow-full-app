@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Navigate, Route, Routes, useNavigate, useLocation } from 'react-router';
+import { BusinessDashboardScreen } from '../business/BusinessDashboardScreen';
 import { EVDriverContainer } from '../ev_driver/EVDriverContainer';
 import { LoginScreen } from '../login/LoginScreen';
 import { QuickLoginScreen } from '../login/QuickLoginScreen';
@@ -26,6 +27,7 @@ export function AppRoutes() {
       />
       <Route path="/register" element={<RegistrationRoute />} />
       <Route path="/reset-password" element={<ResetPasswordRoute />} />
+      <Route path="/business/dashboard" element={<BusinessDashboardScreen />} />
       <Route path="/ev-driver" element={<Navigate replace to="/ev-driver/map" />} />
       <Route path="/ev-driver/wallet/topup" element={<EVDriverContainer />} />
       <Route path="/ev-driver/wallet/topup/success" element={<EVDriverContainer />} />

@@ -87,6 +87,37 @@ export type SpeedTierApiItem = {
   count: number;
 };
 
+export type StatsSourceCountApiItem = {
+  source: string;
+  count: number;
+};
+
+export type StatsNameCountApiItem = {
+  name: string;
+  count: number;
+};
+
+export type StatsApiResponse = {
+  total: number;
+  by_source: StatsSourceCountApiItem[];
+  by_province: StatsNameCountApiItem[];
+  by_charge_type: StatsNameCountApiItem[];
+  with_power_kw: number;
+  power_kw_min: number | null;
+  power_kw_max: number | null;
+  power_kw_mean: number | null;
+};
+
+export async function fetchStats(fetcher: typeof fetch = fetch) {
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/stats`);
+
+  if (!response.ok) {
+    throw new Error(`EVFlow stats request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<StatsApiResponse>;
+}
+
 export async function fetchStations(params: StationListParams = {}, fetcher: typeof fetch = fetch) {
   const query = toQueryString({
     province: params.province,

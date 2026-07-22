@@ -1,4 +1,4 @@
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, SvgXml } from 'react-native-svg';
 
 type SvgAssetIconProps = {
   color?: string;
@@ -8,7 +8,11 @@ type SvgAssetIconProps = {
   width: number;
 };
 
-export function SvgAssetIcon({ color = '#005F64', height, name, width }: SvgAssetIconProps) {
+export function SvgAssetIcon({ color = '#005F64', height, name, svg, width }: SvgAssetIconProps) {
+  if (svg) {
+    return <SvgXml height={height} width={width} xml={svg} />;
+  }
+
   if (name === 'bankTopup') {
     return (
       <Svg width={width} height={height} viewBox="0 0 20 20" fill="none">

@@ -19,9 +19,9 @@ export const DEMO_PASSWORD = 'evflow-demo-2026';
 export const demoPersonas: readonly DemoPersona[] = [
   {
     key: 'driver',
-    username: 'rizki',
-    fullName: 'Muhammad Rizki',
-    initials: 'MR',
+    username: 'demo.driver',
+    fullName: 'Demo User',
+    initials: 'DU',
     subtitle: 'EV Driver · Personal Account',
     avatarColor: '#00696F',
     subtitleColor: '#00696F'

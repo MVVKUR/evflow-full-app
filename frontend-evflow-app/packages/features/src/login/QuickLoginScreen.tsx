@@ -8,8 +8,7 @@ import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import { demoPersonas, ensureDemoSession, type DemoPersona, type DemoPersonaKey } from './demoPersonas';
 
 const NETWORK_ERROR_MESSAGE = 'Cannot reach the server. Please try again.';
-const CREDENTIAL_DRIFT_MESSAGE =
-  'This demo profile is unavailable right now. Use "Sign in with username instead" below.';
+const CREDENTIAL_DRIFT_MESSAGE = 'This demo profile is unavailable right now. Please try again later.';
 
 function getQuickLoginErrorMessage(error: unknown): string {
   if (!(error instanceof AuthApiError)) {
@@ -41,7 +40,7 @@ export function QuickLoginScreen() {
 
     ensureDemoSession(persona)
       .then(() => {
-        navigate(persona.key === 'driver' ? '/onboarding/vehicle' : '/ev-driver/map');
+        navigate(persona.key === 'driver' ? '/onboarding/vehicle' : '/business/dashboard');
       })
       .catch((err: unknown) => {
         console.error('Quick login failed', err);
@@ -78,21 +77,6 @@ export function QuickLoginScreen() {
           </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          <Text
-            accessibilityRole="link"
-            accessibilityState={{ disabled: pendingKey !== null }}
-            onPress={() => {
-              // Blocked while a persona sign-in is in flight so the pending
-              // request cannot race with manual navigation to the typed login.
-              if (!pendingKey) {
-                navigate('/login');
-              }
-            }}
-            style={[styles.usernameLink, pendingKey !== null && styles.usernameLinkDisabled]}
-          >
-            Sign in with username instead
-          </Text>
         </View>
       </View>
     </ScrollView>
