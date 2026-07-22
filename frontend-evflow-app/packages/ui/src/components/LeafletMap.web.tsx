@@ -13,6 +13,8 @@ type LeafletMapProps = {
   markers?: LeafletMapMarker[];
   onMarkerPress?: (markerId: string) => void;
   radiusKm?: number | null;
+  selectedMarkerIconSvg?: string;
+  selectedMarkerId?: string | null;
   showCurrentLocationPinpoint?: boolean;
   zoom?: number;
 };
@@ -41,6 +43,8 @@ export function LeafletMap({
   markers = [],
   onMarkerPress,
   radiusKm,
+  selectedMarkerIconSvg,
+  selectedMarkerId = null,
   showCurrentLocationPinpoint = false,
   zoom = 13
 }: LeafletMapProps) {
@@ -54,6 +58,9 @@ export function LeafletMap({
   const leafletRef = useRef<LeafletNamespace | null>(null);
   const pendingUserLocationRef = useRef<[number, number] | null>(null);
   const [failed, setFailed] = useState(false);
+  // Bumped when the Leaflet map instance is (re)created so the markers effect
+  // repaints with the freshest props instead of loadMap's stale closure.
+  const [mapRevision, setMapRevision] = useState(0);
 
   function renderRadiusCircle() {
     if (!mapRef.current || !leafletRef.current) {
@@ -124,24 +131,30 @@ export function LeafletMap({
 
     stationMarkersRef.current.forEach((marker) => marker.remove());
     stationMarkersRef.current = nextMarkers.map((marker) => {
-      const stationMarker = markerIconSvg
+      const isSelected = selectedMarkerId != null && marker.id === selectedMarkerId;
+      const iconSvg = isSelected ? selectedMarkerIconSvg ?? markerIconSvg : markerIconSvg;
+      const stationMarker = iconSvg
         ? leafletRef.current!
             .marker([marker.latitude, marker.longitude], {
               icon: leafletRef.current!.divIcon({
-                className: 'evflow-station-marker',
-                html: markerIconSvg,
-                iconAnchor: [15, 34],
-                iconSize: [30, 34],
-                popupAnchor: [0, -30]
-              })
+                className: isSelected
+                  ? 'evflow-station-marker evflow-station-marker--selected'
+                  : 'evflow-station-marker',
+                html: iconSvg,
+                iconAnchor: isSelected ? [19, 43] : [15, 34],
+                iconSize: isSelected ? [38, 43] : [30, 34],
+                popupAnchor: isSelected ? [0, -38] : [0, -30]
+              }),
+              // Keep the highlighted pin above its neighbours in dense areas.
+              zIndexOffset: isSelected ? 1000 : 0
             })
             .addTo(mapRef.current!)
         : leafletRef.current!
             .circleMarker([marker.latitude, marker.longitude], {
               color: '#ffffff',
-              fillColor: '#007a80',
+              fillColor: isSelected ? '#00E0EB' : '#007a80',
               fillOpacity: 1,
-              radius: 10,
+              radius: isSelected ? 12 : 10,
               weight: 3
             })
             .addTo(mapRef.current!);
@@ -198,7 +211,7 @@ export function LeafletMap({
         if (pendingUserLocationRef.current) {
           renderUserLocation(pendingUserLocationRef.current);
         }
-        renderStationMarkers(markers);
+        setMapRevision((revision) => revision + 1);
         renderRadiusCircle();
 
         window.setTimeout(() => {
@@ -237,7 +250,7 @@ export function LeafletMap({
       stationMarkersRef.current.forEach((marker) => marker.remove());
       stationMarkersRef.current = [];
     };
-  }, [markerIconSvg, markers, onMarkerPress]);
+  }, [mapRevision, markerIconSvg, markers, onMarkerPress, selectedMarkerIconSvg, selectedMarkerId]);
 
   useEffect(() => {
     if (currentLocation) {

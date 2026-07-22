@@ -17,6 +17,8 @@ type LeafletMapProps = {
   markers?: LeafletMapMarker[];
   onMarkerPress?: (markerId: string) => void;
   radiusKm?: number | null;
+  selectedMarkerIconSvg?: string;
+  selectedMarkerId?: string | null;
   showCurrentLocationPinpoint?: boolean;
   zoom?: number;
 };
@@ -45,10 +47,13 @@ export function LeafletMap({
   markers = [],
   onMarkerPress,
   radiusKm,
+  selectedMarkerIconSvg,
+  selectedMarkerId = null,
   showCurrentLocationPinpoint = false,
   zoom = 13
 }: LeafletMapProps) {
   const webViewRef = useRef<WebView>(null);
+  const selectedMarkerIdRef = useRef<string | null>(selectedMarkerId);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const html = useMemo(
     () => `
@@ -79,6 +84,12 @@ export function LeafletMap({
           }).addTo(map);
 
           var stationIcon = ${markerIconSvg ? `L.divIcon({ className: 'evflow-station-marker', html: ${JSON.stringify(markerIconSvg)}, iconSize: [30, 34], iconAnchor: [15, 34], popupAnchor: [0, -30] })` : 'null'};
+          var selectedStationIcon = ${
+            selectedMarkerIconSvg
+              ? `L.divIcon({ className: 'evflow-station-marker evflow-station-marker--selected', html: ${JSON.stringify(selectedMarkerIconSvg)}, iconSize: [38, 43], iconAnchor: [19, 43], popupAnchor: [0, -38] })`
+              : 'null'
+          };
+          var stationMarkers = {};
 
           ${markers
             .map(
@@ -92,6 +103,7 @@ export function LeafletMap({
                 radius: 10,
                 weight: 3
               }).addTo(map);
+          stationMarkers[${JSON.stringify(marker.id)}] = marker_${marker.id.replace(/[^a-zA-Z0-9_]/g, '_')};
           marker_${marker.id.replace(/[^a-zA-Z0-9_]/g, '_')}
             .bindPopup(${JSON.stringify(marker.label ?? 'Selected station')})
             .on('click', function() {
@@ -102,7 +114,22 @@ export function LeafletMap({
           `
             )
             .join('')}
-          
+
+          window.setSelectedMarker = function(selectedId) {
+            Object.keys(stationMarkers).forEach(function(markerId) {
+              var stationMarker = stationMarkers[markerId];
+              var isSelected = selectedId != null && markerId === selectedId;
+
+              if (stationMarker.setIcon && stationIcon) {
+                stationMarker.setIcon(isSelected && selectedStationIcon ? selectedStationIcon : stationIcon);
+                stationMarker.setZIndexOffset(isSelected ? 1000 : 0);
+              } else if (stationMarker.setStyle) {
+                stationMarker.setStyle({ fillColor: isSelected ? '#00E0EB' : '#007a80' });
+                stationMarker.setRadius && stationMarker.setRadius(isSelected ? 12 : 10);
+              }
+            });
+          };
+
           var userMarker = null;
           var radiusCircle = null;
           window.setUserLocation = function(latitude, longitude) {
@@ -169,8 +196,15 @@ export function LeafletMap({
       </body>
     </html>
   `,
-    [center.latitude, center.longitude, currentLocation, markerIconSvg, markers, radiusKm, zoom]
+    [center.latitude, center.longitude, currentLocation, markerIconSvg, markers, radiusKm, selectedMarkerIconSvg, zoom]
   );
+
+  function injectSelectedMarker() {
+    webViewRef.current?.injectJavaScript(`
+      window.setSelectedMarker && window.setSelectedMarker(${JSON.stringify(selectedMarkerIdRef.current)});
+      true;
+    `);
+  }
 
   useEffect(() => {
     if (currentLocation) {
@@ -211,6 +245,11 @@ export function LeafletMap({
   }, [currentLocation, showCurrentLocationPinpoint]);
 
   useEffect(() => {
+    selectedMarkerIdRef.current = selectedMarkerId ?? null;
+    injectSelectedMarker();
+  }, [selectedMarkerId]);
+
+  useEffect(() => {
     if (!userLocation) {
       return;
     }
@@ -245,14 +284,15 @@ export function LeafletMap({
 
   return (
     <View style={styles.container}>
-      <WebView 
+      <WebView
         ref={webViewRef}
-        source={{ html }} 
+        source={{ html }}
         originWhitelist={['*']}
-        style={styles.map} 
+        style={styles.map}
         scrollEnabled={false}
         bounces={false}
         onMessage={handleMessage}
+        onLoadEnd={injectSelectedMarker}
       />
     </View>
   );

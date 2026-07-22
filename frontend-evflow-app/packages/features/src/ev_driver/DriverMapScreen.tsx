@@ -309,6 +309,12 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
     [visibleStations]
   );
   const stationMarkerIcon = useMemo(() => colorSvg(locationPinSvg, colors.text), []);
+  // Selected pin: brand cyan with a dark outline, slightly larger, so the tapped
+  // station is unmistakable among the default dark-teal pins.
+  const selectedStationMarkerIcon = useMemo(
+    () => colorSvg(locationPinSvg, colors.primary, { height: 43, stroke: colors.text, width: 38 }),
+    []
+  );
   const detailSheetHeight = width < 768 ? Math.floor((height - bottomOffset) / 2) : undefined;
   const filterSheetHeight = width < 768 ? getMobileFilterSheetHeight(height, topInset, bottomOffset) : undefined;
   const searchSheetHeight = getSearchResultsSheetHeight(height, topInset, bottomOffset);
@@ -397,6 +403,8 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
         markerIconSvg={stationMarkerIcon}
         markers={stationMarkers}
         radiusKm={userLocation ? (drawerMode === 'filter' ? distanceKm : appliedDistanceKm) : null}
+        selectedMarkerIconSvg={selectedStationMarkerIcon}
+        selectedMarkerId={selectedStation?.id ?? null}
         onMarkerPress={(stationId) => {
           const station = stations.find((currentStation) => currentStation.id === stationId);
 
@@ -981,10 +989,18 @@ function toBoundingBox(center: Coordinates, radiusKm: number) {
   ].join(',');
 }
 
-function colorSvg(svg: string, color: string) {
+function colorSvg(
+  svg: string,
+  color: string,
+  { width = 30, height = 34, stroke }: { width?: number; height?: number; stroke?: string } = {}
+) {
+  const pathAttributes = stroke
+    ? `fill="${color}" stroke="${stroke}" stroke-width="24" `
+    : `fill="${color}" `;
+
   return svg
-    .replace(/<path /g, `<path fill="${color}" `)
-    .replace('<svg ', '<svg width="30" height="34" style="display:block" ');
+    .replace(/<path /g, `<path ${pathAttributes}`)
+    .replace('<svg ', `<svg width="${width}" height="${height}" style="display:block" `);
 }
 
 function getDistancePercent(distanceKm: number) {
