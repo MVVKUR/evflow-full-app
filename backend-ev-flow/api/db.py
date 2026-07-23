@@ -5,12 +5,13 @@ import os
 
 from sqlalchemy import create_engine
 
-# Dev-only fallback: the localhost default exists for local development and
-# tests. Production MUST set DATABASE_URL explicitly (compose files do).
-# Assembled from parts so no full credentialed connection string is hard-coded;
-# every component is overridable via the environment.
+# Dev-only fallback for local development and tests. Production MUST set
+# DATABASE_URL explicitly (compose files do). The connection string is assembled
+# from parts so no full credential is hard-coded; every component is overridable
+# via the environment. The password has NO default — a local dev database needs
+# POSTGRES_PASSWORD (or a full DATABASE_URL) set; there is no baked-in secret.
 _DB_USER = os.getenv("POSTGRES_USER", "evflow")
-_DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "evflow")
+_DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
 _DB_HOST = os.getenv("POSTGRES_HOST", "localhost")
 _DB_PORT = os.getenv("POSTGRES_PORT", "5432")
 _DB_NAME = os.getenv("POSTGRES_DB", "evflow")

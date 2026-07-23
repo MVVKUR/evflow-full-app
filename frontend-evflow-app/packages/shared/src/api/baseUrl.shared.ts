@@ -14,7 +14,7 @@ export function normalizeApiBaseUrl(baseUrl: string | undefined) {
   }
   // Strip trailing slashes without a regex (linear scan; no backtracking).
   let end = trimmed.length;
-  while (end > 0 && trimmed.charCodeAt(end - 1) === 47) {
+  while (end > 0 && trimmed[end - 1] === '/') {
     end -= 1;
   }
   return trimmed.slice(0, end);
