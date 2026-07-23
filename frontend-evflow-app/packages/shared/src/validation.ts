@@ -2,7 +2,22 @@ export const REQUIRED_KWH_MIN = 0.1;
 export const REQUIRED_KWH_MAX = 150;
 
 export function isValidEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+  // String scan instead of the ambiguous /^[^\s@]+@[^\s@]+\.[^\s@]+$/ pattern,
+  // whose overlapping quantifiers can backtracking super-linearly (ReDoS).
+  const trimmed = value.trim();
+  const at = trimmed.indexOf('@');
+  // exactly one "@", with a non-empty local part before it
+  if (at <= 0 || at !== trimmed.lastIndexOf('@')) {
+    return false;
+  }
+  const local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+  if (/\s/.test(local) || /\s/.test(domain)) {
+    return false;
+  }
+  // domain needs a dot that is neither the first nor the last character
+  const dot = domain.lastIndexOf('.');
+  return dot > 0 && dot < domain.length - 1;
 }
 
 export function validatePassword(value: string) {

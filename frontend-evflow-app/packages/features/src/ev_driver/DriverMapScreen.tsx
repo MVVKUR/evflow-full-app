@@ -971,7 +971,7 @@ function formatPowerRange(speedTier: SpeedTierApiItem) {
 }
 
 function formatKw(value: number) {
-  return Number.isInteger(value) ? String(value) : String(value);
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function toBoundingBox(center: Coordinates, radiusKm: number) {

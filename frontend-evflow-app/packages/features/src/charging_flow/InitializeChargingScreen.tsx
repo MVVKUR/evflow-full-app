@@ -18,6 +18,9 @@ import {
   type StationApiItem, type StationConnectorApiItem, type ChargingQuoteApiResponse
 } from '@evflow/shared';
 
+// Shown when a chosen connector reports no rated power, so the estimate has a value to work with.
+const DEFAULT_DISPLAY_POWER_KW = 50;
+
 function formatRupiah(value: number) {
   return value.toLocaleString('id-ID');
 }
@@ -59,29 +62,28 @@ export function InitializeChargingScreen() {
           const { latitude, longitude } = locationResult.coordinates;
           const nearby = await fetchNearbyStations({ lat: latitude, lon: longitude, radius: 30, limit: 10 });
           if (nearby.length > 0) {
-            const randomNearby = nearby[Math.floor(Math.random() * nearby.length)];
-            targetStationId = randomNearby.id;
+            // Nearest station first — results come back distance-sorted.
+            targetStationId = nearby[0].id;
           }
         }
-        
+
         if (!targetStationId) {
           const stationsResult = await fetchStations({ limit: 50 });
           if (stationsResult.items.length > 0) {
-            const randomAny = stationsResult.items[Math.floor(Math.random() * stationsResult.items.length)];
-            targetStationId = randomAny.id;
+            targetStationId = stationsResult.items[0].id;
           }
         }
-        
+
         if (targetStationId) {
           const fullStation = await fetchStation(targetStationId);
           setStation(fullStation);
-          
+
           if (fullStation.connectors && fullStation.connectors.length > 0) {
-            const randomConn = fullStation.connectors[Math.floor(Math.random() * fullStation.connectors.length)];
-            setConnector(randomConn);
-            
-            if (!randomConn.power_kw) {
-              setRandomSpeed(Math.floor(Math.random() * 80) + 1); // 1 to 80 kW
+            const primaryConn = fullStation.connectors[0];
+            setConnector(primaryConn);
+
+            if (!primaryConn.power_kw) {
+              setRandomSpeed(DEFAULT_DISPLAY_POWER_KW); // fallback rate when the connector has no rated power
             }
           }
         }
