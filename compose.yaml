@@ -43,8 +43,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Loopback-only: public access goes through the Cloudflare tunnel on the
+    # host; do not publish on all interfaces.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     # Secrets (Xendit keys, JWT_SECRET, Google OAuth) load from the gitignored
     # backend env file. Keep DATABASE_URL etc. in `environment` below — those
     # override env_file and must point at the db container, not localhost.
@@ -70,8 +72,10 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # Loopback-only: public access goes through the Cloudflare tunnel on the
+    # host; do not publish on all interfaces.
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     environment:
       EVFLOW_API_UPSTREAM: "http://api:8000"
 

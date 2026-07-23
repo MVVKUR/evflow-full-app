@@ -13,6 +13,12 @@
 # Podman's default bridge network needs, so `compose up` fails with an ip_tables error.
 # Host mode skips the bridge entirely and works on both LXC and normal VMs.
 # The API reaches Postgres on localhost:5432, and web reaches the API on localhost:8000.
+#
+# SECURITY: host networking means db (5432), api (8000) and web (8080) bind on
+# ALL interfaces — public access goes through the Cloudflare tunnel on the host;
+# the VPS firewall MUST block direct inbound access to these ports.
+# For non-LXC hosts prefer the root ../compose.yaml, which publishes on
+# 127.0.0.1 only.
 
 services:
   db:
@@ -21,6 +27,9 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
+      # Hardcoded dev-grade credentials: fine only while 5432 is firewalled off
+      # from the internet (see SECURITY note above). Rotate/override for any
+      # host where that is not guaranteed.
       POSTGRES_USER: evflow
       POSTGRES_PASSWORD: evflow
       POSTGRES_DB: evflow

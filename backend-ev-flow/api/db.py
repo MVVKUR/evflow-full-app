@@ -5,6 +5,8 @@ import os
 
 from sqlalchemy import create_engine
 
+# Dev-only fallback: the localhost default exists for local development and
+# tests. Production MUST set DATABASE_URL explicitly (compose files do).
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg://evflow:evflow@localhost:5432/evflow",

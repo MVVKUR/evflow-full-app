@@ -197,29 +197,6 @@ export function LoginScreen({ onLogin, onRegister }: LoginScreenProps) {
           </Text>
         </Text>
 
-        <View style={styles.signupSeparator} />
-
-        {/* Testing credentials information */}
-        {/* This section provides test credentials for users to log in during testing. */}
-        {/* TODO: Replace username, email, and password with real test credentials once available */}
-        <Text style={styles.markerCredentialsInfo}>
-          For testing purposes, you can use the following credentials to log in:{'\n'}
-          <ul>
-            <li>
-              User type: EV Driver{'\n'}
-              Username: testuser_driver{'\n'}
-              Email: testmail_driver@gmail.com{'\n'}
-              Password: Test@1234{'\n\n'}
-            </li>
-            <li>
-              User type: Infrastructure Planner{'\n'}
-              Username: testuser_planner{'\n'}
-              Email: testuser_planner@example.com{'\n'}
-              Password: Test@1234{'\n\n'}
-            </li>
-          </ul>
-        </Text>
-
       </View>
 
       <View style={styles.spacer} />

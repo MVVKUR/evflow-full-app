@@ -6,6 +6,7 @@ Spec: http://localhost:8000/openapi.json
 """
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import uuid
@@ -352,10 +353,15 @@ def wallet_balance(user: dict = Depends(security.current_user)) -> WalletBalance
 
 @app.post("/api/v1/webhooks/xendit", tags=["wallet"],
           summary="Xendit invoice webhook (credits the wallet on PAID)",
-          responses={401: {"description": "Invalid callback token"}})
+          responses={401: {"description": "Invalid callback token"},
+                     503: {"description": "Webhook not configured"}})
 def xendit_webhook(payload: dict, x_callback_token: Optional[str] = Header(None)):
     expected = os.getenv("XENDIT_CALLBACK_TOKEN", "")
-    if not expected or x_callback_token != expected:
+    # Fail closed: an unset or short token would let anyone credit wallets.
+    if not expected or len(expected) < 16:
+        raise HTTPException(503, "webhook not configured")
+    # Constant-time comparison (consistent with security.py's state check).
+    if not hmac.compare_digest(x_callback_token or "", expected):
         raise HTTPException(401, "invalid callback token")
     if payload.get("status") == "PAID" and payload.get("id"):
         wallet.mark_paid_and_credit(payload["id"])
@@ -371,7 +377,7 @@ def wallet_topups(limit: int = Query(20, ge=1, le=100), user: dict = Depends(sec
 # ----------------------------------------------------------------------------- charging sessions
 @app.post("/api/v1/charging/quote", response_model=ChargingQuote, tags=["charging"],
           summary="Price a charging session before paying")
-def charging_quote(body: ChargingQuoteRequest) -> ChargingQuote:
+def charging_quote(body: ChargingQuoteRequest, user: dict = Depends(security.current_user)) -> ChargingQuote:
     return ChargingQuote(**pricing.quote(body.energy_kwh))
 
 
@@ -393,6 +399,8 @@ def start_charging_session(body: StartSessionRequest, user: dict = Depends(secur
           tags=["charging"], summary="Settle a session (refunds unused kWh to the wallet)",
           responses={404: {"description": "Session not found"}})
 def settle_charging_session(session_id: str, body: SettleRequest, user: dict = Depends(security.current_user)) -> ChargingSession:
+    # delivered_kwh is client-reported pending charger-hardware integration;
+    # pricing.settlement() clamps it server-side to [0, purchased energy_kwh].
     session = charging_repo.settle_session(user["id"], session_id, body.delivered_kwh)
     if session is None:
         raise HTTPException(404, f"charging session '{session_id}' not found")

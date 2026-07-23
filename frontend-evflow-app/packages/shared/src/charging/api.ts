@@ -47,9 +47,10 @@ export class InsufficientBalanceError extends Error {
 }
 
 export async function fetchChargingQuote(energyKwh: number, fetcher: typeof fetch = fetch) {
+  const authHeaders = requireAuthHeaders();
   const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/charging/quote`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({ energy_kwh: energyKwh })
   });
 

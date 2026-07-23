@@ -1,3 +1,5 @@
+import { escapeHtml } from '@evflow/shared';
+
 export type ReceiptData = {
   status: string;
   destination: string;
@@ -15,6 +17,8 @@ export type ReceiptData = {
 };
 
 export function generateReceiptHtml(data: ReceiptData) {
+  const statusClass = data.status.toLowerCase() === 'success' ? 'success' : 'failed';
+
   return `
     <html>
       <head>
@@ -52,12 +56,12 @@ export function generateReceiptHtml(data: ReceiptData) {
             <div class="subtitle">Official Transaction Receipt</div>
           </div>
           
-          <div class="amount">${data.amount}</div>
-          <div class="type">${data.typeText}</div>
+          <div class="amount">${escapeHtml(data.amount)}</div>
+          <div class="type">${escapeHtml(data.typeText)}</div>
 
           <div class="card">
-            <div class="summary-title">${data.summaryTitle}</div>
-            <div class="summary-meta">${data.summaryMeta}</div>
+            <div class="summary-title">${escapeHtml(data.summaryTitle)}</div>
+            <div class="summary-meta">${escapeHtml(data.summaryMeta)}</div>
           </div>
 
           <div class="card">
@@ -65,44 +69,44 @@ export function generateReceiptHtml(data: ReceiptData) {
             
             <div class="row">
               <div class="label">Status</div>
-              <div class="value ${data.status.toLowerCase() === 'success' ? 'success' : 'failed'}">${data.status}</div>
+              <div class="value ${statusClass}">${escapeHtml(data.status)}</div>
             </div>
             <div class="row">
               <div class="label">Destination / Origin</div>
-              <div class="value">${data.destination}</div>
+              <div class="value">${escapeHtml(data.destination)}</div>
             </div>
             <div class="row">
               <div class="label">Time</div>
-              <div class="value">${data.time}</div>
+              <div class="value">${escapeHtml(data.time)}</div>
             </div>
             <div class="row">
               <div class="label">Date</div>
-              <div class="value">${data.date}</div>
+              <div class="value">${escapeHtml(data.date)}</div>
             </div>
             <div class="row">
               <div class="label">Transaction ID</div>
-              <div class="value">${data.transactionId}</div>
+              <div class="value">${escapeHtml(data.transactionId)}</div>
             </div>
             <div class="row">
               <div class="label">Order ID</div>
-              <div class="value">${data.orderId}</div>
+              <div class="value">${escapeHtml(data.orderId)}</div>
             </div>
             ${data.energyKwh ? `
             <div class="row">
               <div class="label">Energy</div>
-              <div class="value">${data.energyKwh}</div>
+              <div class="value">${escapeHtml(data.energyKwh)}</div>
             </div>` : ''}
             ${data.paymentMethod ? `
             <div class="row">
               <div class="label">Payment Method</div>
-              <div class="value">${data.paymentMethod}</div>
+              <div class="value">${escapeHtml(data.paymentMethod)}</div>
             </div>` : ''}
           </div>
 
           <div class="card">
             <div class="row" style="border-bottom: none; padding-bottom: 0;">
               <div class="total-label">Total Amount</div>
-              <div class="total-value">${data.total}</div>
+              <div class="total-value">${escapeHtml(data.total)}</div>
             </div>
           </div>
 

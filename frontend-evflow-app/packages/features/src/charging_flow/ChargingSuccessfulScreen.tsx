@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, Image, ActivityIndicator, type ImageSourcePropType } from 'react-native';
 import { useLocation, useNavigate } from 'react-router';
 import { chargingFlowStyles as styles } from '@evflow/ui';
-import { settleChargingSession, type ChargingSessionApiResponse } from '@evflow/shared';
+import { AuthRequiredError, settleChargingSession, type ChargingSessionApiResponse } from '@evflow/shared';
 import { ChargingFlowIcon } from './components/ChargingFlowIcon';
 import chargingCompleteTickPng from '../assets/images/charging-complete-tick.png';
 import { useAppSafeAreaInsets } from '../shared/useAppSafeAreaInsets';
@@ -35,7 +35,7 @@ export function ChargingSuccessfulScreen() {
       setSettlement(result);
     } catch (err) {
       console.error('Failed to settle charging session:', err);
-      setError('Could not settle the session. Please retry.');
+      setError(err instanceof AuthRequiredError ? err.message : 'Could not settle the session. Please retry.');
     } finally {
       setSettling(false);
     }

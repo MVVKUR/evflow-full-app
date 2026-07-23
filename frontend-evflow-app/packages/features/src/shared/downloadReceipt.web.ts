@@ -17,6 +17,8 @@ export async function downloadReceipt(data?: ReceiptData) {
 
   try {
     const element = document.createElement('div');
+    // Safe innerHTML assignment: all dynamic receipt fields are HTML-escaped
+    // upstream in generateReceiptHtml before interpolation.
     element.innerHTML = html;
     const options: any = {
       margin: PAGE_MARGIN_CM,

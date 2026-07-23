@@ -8,6 +8,9 @@
 
 name: SonarQube
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -17,7 +20,7 @@ jobs:
   sonarqube:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history so Sonar can attribute new code correctly
           fetch-depth: 0
@@ -31,7 +34,7 @@ jobs:
             exit 1
           fi
 
-      - uses: SonarSource/sonarqube-scan-action@v6
+      - uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcube.opensoft.id

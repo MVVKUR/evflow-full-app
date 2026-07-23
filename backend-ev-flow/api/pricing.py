@@ -46,6 +46,10 @@ def settlement(energy_kwh: float, delivered_kwh: float) -> dict:
 
     Charged for energy actually delivered (capped at what was purchased), plus
     the same flat admin fee. Refund = deposit - actual_cost, never negative.
+
+    `delivered_kwh` is client-reported pending charger-hardware integration,
+    so it is clamped server-side to [0, energy_kwh] — a caller can never bill
+    more than was purchased or turn a negative reading into extra refund.
     """
     purchased = quote(energy_kwh)
     billable_kwh = min(max(delivered_kwh, 0.0), energy_kwh)

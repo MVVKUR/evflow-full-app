@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient   # noqa: E402
 
 
 def _client(monkeypatch):
-    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    monkeypatch.setenv("JWT_SECRET", "unit-test-jwt-secret-0123456789abcdef")
     monkeypatch.setenv("FRONTEND_URL", "https://frontend.test")
     from api import main
     return TestClient(main.app)

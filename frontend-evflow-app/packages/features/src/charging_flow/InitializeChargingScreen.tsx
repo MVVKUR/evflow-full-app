@@ -123,7 +123,7 @@ export function InitializeChargingScreen() {
       setQuote(q);
       setIsCalculated(true);
     } catch (err) {
-      setError('Could not calculate price. Please try again.');
+      setError(err instanceof AuthRequiredError ? err.message : 'Could not calculate price. Please try again.');
     } finally {
       setCalculating(false);
     }

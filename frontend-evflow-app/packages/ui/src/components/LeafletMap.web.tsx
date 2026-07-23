@@ -1,4 +1,5 @@
 import { createElement, useEffect, useId, useRef, useState } from 'react';
+import { escapeHtml } from '@evflow/shared';
 
 type LeafletMapProps = {
   center?: {
@@ -161,7 +162,8 @@ export function LeafletMap({
             .addTo(mapRef.current!);
 
       if (marker.label) {
-        stationMarker.bindPopup(marker.label);
+        // bindPopup renders HTML, so escape the station-provided label.
+        stationMarker.bindPopup(escapeHtml(marker.label));
       }
 
       stationMarker.on('click', () => {

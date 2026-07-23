@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Location from 'expo-location';
+import { escapeHtml } from '@evflow/shared';
 import { View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { leafletMapStyles as styles } from '../styles/styles';
@@ -39,6 +40,13 @@ type Coordinates = {
   latitude: number;
   longitude: number;
 };
+
+function toInlineScriptJson(value: string): string {
+  // JSON.stringify leaves '<' unescaped, so an untrusted value containing
+  // '</script>' would terminate the WebView's inline script block. The
+  // \\u003c escape parses back to '<' inside the generated string literal.
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
 
 export function LeafletMap({
   center = defaultCenter,
@@ -103,11 +111,11 @@ export function LeafletMap({
                 radius: 10,
                 weight: 3
               }).addTo(map);
-          stationMarkers[${JSON.stringify(marker.id)}] = marker_${marker.id.replace(/[^a-zA-Z0-9_]/g, '_')};
+          stationMarkers[${toInlineScriptJson(marker.id)}] = marker_${marker.id.replace(/[^a-zA-Z0-9_]/g, '_')};
           marker_${marker.id.replace(/[^a-zA-Z0-9_]/g, '_')}
-            .bindPopup(${JSON.stringify(marker.label ?? 'Selected station')})
+            .bindPopup(${JSON.stringify(escapeHtml(marker.label ?? 'Selected station'))})
             .on('click', function() {
-              window.ReactNativeWebView && window.ReactNativeWebView.postMessage(${JSON.stringify(
+              window.ReactNativeWebView && window.ReactNativeWebView.postMessage(${toInlineScriptJson(
                 JSON.stringify({ type: 'markerPress', markerId: marker.id })
               )});
             });
