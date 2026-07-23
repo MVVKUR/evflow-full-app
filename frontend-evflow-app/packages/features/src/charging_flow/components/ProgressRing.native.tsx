@@ -29,9 +29,7 @@ export function ProgressRing({ progress, children }: ProgressRingProps) {
             strokeDasharray={`${circumference} ${circumference}`}
             strokeDashoffset={strokeDashoffset}
             strokeLinecap="butt"
-            originX={size / 2}
-            originY={size / 2}
-            rotation="-90"
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
           />
         </Svg>
       </View>

@@ -19,6 +19,25 @@ on:
 jobs:
   sonarqube:
     runs-on: ubuntu-latest
+    services:
+      # PostGIS so the DB-gated backend tests (wallet / charging / auth / stations
+      # money-path) actually run and count toward coverage instead of skipping.
+      # The API talks to it via DATABASE_URL (set in the backend test step below).
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: evflow
+          POSTGRES_PASSWORD: evflow
+          POSTGRES_DB: evflow
+        ports:
+          - 5432:5432
+        # Hold the job until Postgres accepts connections so alembic/seed/pytest
+        # do not race the container's startup.
+        options: >-
+          --health-cmd "pg_isready -U evflow"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -50,23 +69,32 @@ jobs:
           # and prone to native-build failures in CI. bcrypt and PyJWT are
           # runtime imports of api/security.py that are missing from
           # requirements.txt (pre-existing gap) — installed explicitly here.
+          # alembic runs the migrations that create the schema the DB tests need;
+          # it is a CLI dep only (nothing under api/ imports it).
           pip install \
             fastapi pydantic pyyaml httpx \
-            sqlalchemy 'psycopg[binary]' \
+            sqlalchemy 'psycopg[binary]' alembic \
             numpy networkx bcrypt PyJWT \
             'pytest>=8.0' 'pytest-cov>=5.0'
 
       - name: Run backend tests with coverage
-        # Run from the repo root with PYTHONPATH=backend-ev-flow so coverage.py
-        # (relative_files=True in backend-ev-flow/.coveragerc) emits repo-root-
-        # relative filenames (backend-ev-flow/api/...) that Sonar can map, and
-        # so `from api import ...` resolves. DB-gated tests skip cleanly when
-        # DATABASE_URL is unset, so no database is provisioned in CI; coverage
-        # comes from the non-DB tests. Passing tests + skips => pytest exit 0.
+        # DATABASE_URL points at the postgis service so the DB-gated tests
+        # (wallet / charging / auth / stations) run instead of skipping and cover
+        # the money-path modules. Migrate then seed before pytest:
+        #   1. `alembic upgrade head` (from backend-ev-flow; env.py reads
+        #      DATABASE_URL) builds the schema.
+        #   2. `python -m scripts.seed_db` loads the 2931 committed stations
+        #      (data/raw is in the repo) so stations tests have real rows.
+        # Then run pytest from the repo root with PYTHONPATH=backend-ev-flow so
+        # coverage.py (relative_files=True in .coveragerc) emits repo-root-
+        # relative filenames (backend-ev-flow/api/...) that Sonar can map and so
+        # `from api import ...` resolves.
         env:
-          PYTHONPATH: backend-ev-flow
+          DATABASE_URL: postgresql+psycopg://evflow:evflow@localhost:5432/evflow
         run: |
-          python -m pytest backend-ev-flow/tests \
+          (cd backend-ev-flow && python -m alembic upgrade head)
+          (cd backend-ev-flow && PYTHONPATH=. python -m scripts.seed_db)
+          PYTHONPATH=backend-ev-flow python -m pytest backend-ev-flow/tests \
             --cov=api \
             --cov-report=xml:backend-ev-flow/coverage.xml \
             --cov-config=backend-ev-flow/.coveragerc

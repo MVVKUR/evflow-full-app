@@ -317,9 +317,7 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
   const searchSheetHeight = getSearchResultsSheetHeight(height, topInset, bottomOffset);
 
   const activateSearchResults = () => {
-    if (!searchRestoreStateRef.current) {
-      searchRestoreStateRef.current = { drawerMode, expanded, selectedStation };
-    }
+    searchRestoreStateRef.current ??= { drawerMode, expanded, selectedStation };
 
     animateNext();
     setSearchFocused(true);

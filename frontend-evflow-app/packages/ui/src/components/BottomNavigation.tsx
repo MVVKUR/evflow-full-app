@@ -8,7 +8,8 @@ type NavigationIconOptions = {
   color: string;
 };
 
-type NavigationIcon = ReactNode | ((options: NavigationIconOptions) => ReactNode);
+// NonNullable so the optional `activeIcon?` isn't redundantly `... | undefined | undefined`.
+type NavigationIcon = NonNullable<ReactNode> | ((options: NavigationIconOptions) => ReactNode);
 
 export type NavigationItem = {
   key: string;

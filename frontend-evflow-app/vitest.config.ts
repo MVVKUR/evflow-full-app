@@ -14,7 +14,11 @@ export default defineConfig({
       // only carries the files whose new-code coverage the quality gate needs.
       include: [
         'packages/shared/src/validation.ts',
-        'packages/shared/src/api/baseUrl.shared.ts'
+        'packages/shared/src/api/baseUrl.shared.ts',
+        'packages/shared/src/api/client.ts',
+        'packages/shared/src/charging/api.ts',
+        'packages/shared/src/wallet/api.ts',
+        'packages/shared/src/html/escapeHtml.ts'
       ]
     }
   }
