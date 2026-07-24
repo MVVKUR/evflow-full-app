@@ -22,6 +22,12 @@ COPY . .
 
 ARG VITE_EVFLOW_API_BASE_URL=/
 ENV VITE_EVFLOW_API_BASE_URL=$VITE_EVFLOW_API_BASE_URL
+# One-tap demo login password, inlined into the bundle at build time. Not a real
+# secret (a frontend value always ships in the bundle; the personas auto-register
+# on the API) — kept here so the value is configurable per build rather than
+# hard-coded in source. Override with --build-arg VITE_DEMO_PASSWORD=... if needed.
+ARG VITE_DEMO_PASSWORD=evflow-demo-2026
+ENV VITE_DEMO_PASSWORD=$VITE_DEMO_PASSWORD
 RUN npm run build:web
 
 FROM docker.io/library/nginx:1.27-alpine AS runtime

@@ -1,4 +1,5 @@
 import { AuthApiError, login, register, saveAuthSession, type TokenResponse } from '@evflow/shared';
+import { DEMO_PASSWORD } from './demoCredentials';
 
 export type DemoPersonaKey = 'driver' | 'operator';
 
@@ -12,9 +13,9 @@ export type DemoPersona = {
   subtitleColor: string;
 };
 
-// Deliberately public demo credential: the quick-access personas exist purely so
-// demo-day reviewers can sign in with one tap. Never reuse this for real accounts.
-export const DEMO_PASSWORD = 'evflow-demo-2026';
+// DEMO_PASSWORD is imported from the build environment (see demoCredentials.*),
+// not hard-coded here. Re-exported so existing importers keep working.
+export { DEMO_PASSWORD };
 
 export const demoPersonas: readonly DemoPersona[] = [
   {

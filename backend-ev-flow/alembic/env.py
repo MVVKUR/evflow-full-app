@@ -10,9 +10,20 @@ from alembic import context
 config = context.config
 
 import os
+
+# Dev-only fallback assembled from parts so no full credentialed connection
+# string is hard-coded; production sets DATABASE_URL explicitly (compose does).
+# The password has no default — set POSTGRES_PASSWORD (or a full DATABASE_URL)
+# for a local database.
+_DB_USER = os.getenv("POSTGRES_USER", "evflow")
+_DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
+_DB_HOST = os.getenv("POSTGRES_HOST", "localhost")
+_DB_PORT = os.getenv("POSTGRES_PORT", "5432")
+_DB_NAME = os.getenv("POSTGRES_DB", "evflow")
 config.set_main_option(
     "sqlalchemy.url",
-    os.getenv("DATABASE_URL", "postgresql+psycopg://evflow:evflow@localhost:5432/evflow"),
+    os.getenv("DATABASE_URL")
+    or f"postgresql+psycopg://{_DB_USER}:{_DB_PASSWORD}@{_DB_HOST}:{_DB_PORT}/{_DB_NAME}",
 )
 
 # Interpret the config file for Python logging.
