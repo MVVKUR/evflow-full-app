@@ -9,17 +9,21 @@ wallet can never drift.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Optional
 
 from sqlalchemy import text
 
+from . import connectors_repo  # must not import charging_repo back (would be circular)
 from . import pricing
 from .db import engine
 
+logger = logging.getLogger(__name__)
+
 _COLS = ("id, station_id, station_name, connector_type, power_kw, energy_kwh, "
          "base_rate_idr, admin_fee_idr, deposit_idr, delivered_kwh, "
-         "actual_cost_idr, refund_idr, status, created_at, completed_at")
+         "actual_cost_idr, refund_idr, status, created_at, completed_at, connector_id")
 
 
 class InsufficientBalance(Exception):
@@ -31,7 +35,48 @@ def _row(r) -> Optional[dict]:
         return None
     d = dict(r)
     d["id"] = str(d["id"])
+    if d.get("connector_id") is not None:
+        d["connector_id"] = str(d["connector_id"])
     return d
+
+
+def _occupy_connector(c, session_id: str, station_id: str, connector_type: Optional[str]) -> None:
+    """Best-effort: claim an available connector for the session.
+
+    Runs in a SAVEPOINT inside the money transaction so ANY failure here rolls
+    back only the connector claim, never the wallet debit or session insert.
+    A station with no connector rows (or none available) simply leaves
+    connector_id NULL — charging is never blocked on connector inventory.
+    """
+    nested = None
+    try:
+        nested = c.begin_nested()
+        cid = connectors_repo.occupy(c, station_id, connector_type)
+        if cid is not None:
+            c.execute(text("UPDATE charging_sessions SET connector_id = :cid WHERE id = :id"),
+                      {"cid": cid, "id": session_id})
+        nested.commit()
+    except Exception:
+        if nested is not None and nested.is_active:
+            nested.rollback()
+        logger.warning("connector occupy failed for station %s (session %s); continuing without one",
+                       station_id, session_id, exc_info=True)
+
+
+def _release_connector(c, connector_id) -> None:
+    """Best-effort: free the session's connector on settle. Same SAVEPOINT
+    isolation as _occupy_connector — a failure never breaks the refund."""
+    if connector_id is None:
+        return
+    nested = None
+    try:
+        nested = c.begin_nested()
+        connectors_repo.release(c, str(connector_id))
+        nested.commit()
+    except Exception:
+        if nested is not None and nested.is_active:
+            nested.rollback()
+        logger.warning("connector release failed for connector %s; continuing", connector_id, exc_info=True)
 
 
 def _ensure_wallet(c, user_id: str) -> int:
@@ -78,6 +123,7 @@ def start_session(*, user_id: str, station_id: str, energy_kwh: float, station_n
         """), {"id": session_id, "uid": user_id, "sid": station_id, "sname": station_name,
                "ctype": connector_type, "pkw": power_kw, "ekwh": energy_kwh,
                "rate": q["base_rate_idr"], "fee": q["admin_fee_idr"], "dep": deposit})
+        _occupy_connector(c, session_id, station_id, connector_type)
         session = _row(c.execute(text(f"SELECT {_COLS} FROM charging_sessions WHERE id = :id"),
                                  {"id": session_id}).mappings().first())
         session["wallet_balance_idr"] = int(debited[0])
@@ -116,6 +162,7 @@ def settle_session(user_id: str, session_id: str, delivered_kwh: float) -> Optio
             session["wallet_balance_idr"] = _wallet_balance(c, user_id)
             return session
 
+        _release_connector(c, existing["connector_id"])  # best-effort, never blocks the refund
         new_balance = c.execute(text("""
             UPDATE wallet SET balance_idr = balance_idr + :amt, updated_at = now()
             WHERE user_id = :uid RETURNING balance_idr

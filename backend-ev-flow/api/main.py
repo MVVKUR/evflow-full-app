@@ -19,6 +19,7 @@ from fastapi.responses import RedirectResponse
 
 from . import __version__, evmodels
 from . import connectors as conn
+from . import connectors_repo
 from . import stations_repo as repo
 from . import xendit
 from . import wallet_repo as wallet
@@ -32,6 +33,7 @@ from . import password_reset_repo
 from .models import (
     EVModel, EVModelList, GeoJSONFeatureCollection, Health, NameCount,
     NearestStationRoute, Route, SourceCount, SpeedTier, Station,
+    StationAvailability, StationConnector, ConnectorStatusUpdate,
     StationList, Stats,
     Topup, TopupCreated, TopupRequest, WalletBalance,
     ChargingQuote, ChargingQuoteRequest, ChargingSession, StartSessionRequest, SettleRequest,
@@ -163,6 +165,39 @@ def get_station(station_id: str) -> Station:
     if row is None:
         raise HTTPException(404, f"station '{station_id}' not found")
     return _row_to_station(row)
+
+
+@app.get("/api/v1/stations/{station_id}/connectors", response_model=list[StationConnector],
+         tags=["stations"], summary="Physical connectors at a station (with live status)",
+         responses={404: {"description": "Station not found"}})
+def station_connectors(station_id: str) -> list[StationConnector]:
+    if repo.get_station(station_id) is None:
+        raise HTTPException(404, f"station '{station_id}' not found")
+    return [StationConnector(**r) for r in connectors_repo.list_by_station(station_id)]
+
+
+@app.get("/api/v1/stations/{station_id}/availability", response_model=StationAvailability,
+         tags=["stations"], summary="Connector availability counts for a station",
+         responses={404: {"description": "Station not found"}})
+def station_availability(station_id: str) -> StationAvailability:
+    if repo.get_station(station_id) is None:
+        raise HTTPException(404, f"station '{station_id}' not found")
+    return StationAvailability(**connectors_repo.availability(station_id))
+
+
+@app.patch("/api/v1/connectors/{connector_id}/status", response_model=StationConnector,
+           tags=["stations"], summary="Set a connector's status (available / in_use / out_of_service)",
+           responses={404: {"description": "Connector not found"},
+                      422: {"description": "Invalid status"}})
+def update_connector_status(connector_id: str, body: ConnectorStatusUpdate,
+                            user: dict = Depends(security.current_user)) -> StationConnector:
+    try:
+        row = connectors_repo.set_status(connector_id, body.status)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if row is None:
+        raise HTTPException(404, f"connector '{connector_id}' not found")
+    return StationConnector(**row)
 
 
 @app.get("/api/v1/stations.geojson", response_model=GeoJSONFeatureCollection, tags=["geo"],

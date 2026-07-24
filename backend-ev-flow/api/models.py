@@ -22,6 +22,32 @@ class Connector(BaseModel):
     type_inferred: bool = Field(True, description="True when the type is inferred from power, not source data.")
 
 
+class StationConnector(BaseModel):
+    """One physical connector (a real row, promoted from the stations JSONB)."""
+    id: str = Field(..., description="Connector id (uuid).")
+    station_id: str = Field(..., examples=["pln_spklu-1"])
+    type: str = Field(..., examples=["CCS2"])
+    power_kw: Optional[float] = Field(None, examples=[150.0])
+    speed_tier: Optional[str] = Field(None, examples=["fast"])
+    type_inferred: bool = Field(False, description="True when the type is inferred from power, not source data.")
+    status: str = Field(..., description="available / in_use / out_of_service.", examples=["available"])
+    updated_at: datetime
+
+
+class StationAvailability(BaseModel):
+    """Connector availability counts for one station."""
+    station_id: str = Field(..., examples=["pln_spklu-1"])
+    total: int = Field(..., examples=[4])
+    available: int = Field(..., examples=[3])
+    in_use: int = Field(..., examples=[1])
+    out_of_service: int = Field(..., examples=[0])
+
+
+class ConnectorStatusUpdate(BaseModel):
+    status: str = Field(..., description="New connector status.",
+                        examples=["available", "in_use", "out_of_service"])
+
+
 class Station(BaseModel):
     id: str = Field(..., description="Stable unique id, '<source>-<n>'.", examples=["pln_spklu-1"])
     name: Optional[str] = Field(None, examples=["SPKLU PLN UID JAKARTA RAYA"])
@@ -234,6 +260,8 @@ class ChargingSession(BaseModel):
     actual_cost_idr: Optional[int] = None
     refund_idr: Optional[int] = None
     status: str = Field(..., examples=["active", "completed"])
+    connector_id: Optional[str] = Field(
+        None, description="Physical connector claimed for this session; null if none was available.")
     created_at: datetime
     completed_at: Optional[datetime] = None
     wallet_balance_idr: int = Field(..., description="Wallet balance after this operation.", examples=[198180])

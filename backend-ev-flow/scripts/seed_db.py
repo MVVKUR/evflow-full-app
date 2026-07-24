@@ -33,10 +33,29 @@ def build_stations() -> list[dict]:
     return dedup.cluster_stations(sources.normalized_rows())
 
 
+# Mirrors the 0009 migration backfill: one connectors row per PHYSICAL connector,
+# exploding each JSONB entry's 'count'. Keeping the two queries identical means a
+# freshly seeded DB and a migrated DB end up with the same connector inventory.
+_EXPLODE_CONNECTORS = text("""
+    INSERT INTO connectors (id, station_id, type, power_kw, speed_tier, type_inferred)
+    SELECT gen_random_uuid(), s.id, c->>'type', (c->>'power_kw')::double precision,
+           c->>'speed_tier', COALESCE((c->>'type_inferred')::boolean, false)
+    FROM stations s,
+         LATERAL jsonb_array_elements(s.connectors) AS c,
+         LATERAL generate_series(1, GREATEST(COALESCE((c->>'count')::int, 1), 1)) AS n
+    WHERE jsonb_typeof(s.connectors) = 'array'
+""")
+
+
 def main() -> None:
     stations = build_stations()
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE stations;"))
+        # DELETE, not TRUNCATE: connectors FK-references stations, so TRUNCATE
+        # would need CASCADE-to-table semantics. DELETE fires the row-level FK
+        # actions instead — connectors rows cascade away and any
+        # charging_sessions.connector_id pointing at them is SET NULL, so past
+        # sessions survive a re-seed.
+        conn.execute(text("DELETE FROM stations;"))
         for s in stations:
             conn.execute(_INSERT, {
                 "id": s["id"], "lat": s["latitude"], "lon": s["longitude"],
@@ -50,7 +69,8 @@ def main() -> None:
                 "sources": list(s.get("sources") or []),
                 "status": s.get("status"), "date_verified": s.get("date_verified"),
             })
-    print(f"seeded {len(stations)} stations")
+        n_connectors = conn.execute(_EXPLODE_CONNECTORS).rowcount
+    print(f"seeded {len(stations)} stations, {n_connectors} connectors")
 
 
 if __name__ == "__main__":
