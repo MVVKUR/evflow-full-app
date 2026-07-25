@@ -1,5 +1,9 @@
 # Deploying EV-FLOW (Podman)
 
+> **Legacy host-network deployment notes.** Use the current
+> [operations guide](../docs/OPERATIONS.md) for monorepo paths, migration ordering,
+> backups, readiness, environment behavior, and host-network exposure risks.
+
 Runs PostGIS, the FastAPI backend, and the nginx-served web frontend with
 **host networking**, fronted by a **Cloudflare Tunnel** for HTTPS.
 

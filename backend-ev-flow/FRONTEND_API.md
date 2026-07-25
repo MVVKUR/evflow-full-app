@@ -1,5 +1,11 @@
 # EV-FLOW — Frontend / Map Integration Guide
 
+> **Legacy map-focused guide.** The map examples remain useful, but this file
+> predates the current per-connector, auth, password-reset, wallet, and charging
+> surface. Use [the current API guide](../docs/API.md),
+> [architecture](../docs/ARCHITECTURE.md), and the running app's `/openapi.json`
+> when this guide conflicts with source.
+
 Everything the **frontend (map) team** needs to build against this backend. This is the
 contract: base URL, conventions, every map-facing endpoint with real request/response
 examples, and an honest field-coverage table so the UI is designed around data that

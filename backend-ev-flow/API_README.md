@@ -1,5 +1,11 @@
 # EV Charging Stations API — Jakarta / Indonesia
 
+> **Legacy station overview.** This file predates the current PostGIS, auth,
+> password-reset, wallet, and charging implementation. Use
+> [the current API guide](../docs/API.md) and a running instance's `/openapi.json`
+> for the authoritative contract. Historical counts, the `source` filter, the
+> in-memory data notes, and the endpoint list below are not current.
+
 FastAPI backend serving the combined **PLN SPKLU + Open Charge Map + OpenStreetMap**
 charging-station data (3,569 stations) to a frontend.
 

@@ -2,81 +2,113 @@
 
 [![Quality Gate Status](https://sonarcube.opensoft.id/api/project_badges/measure?project=evflow-full-app&metric=alert_status)](https://sonarcube.opensoft.id/dashboard?id=evflow-full-app)
 
-Monorepo for the EVFlow backend and frontend. The folders remain separate deployable apps, but they now live in one Git repository so API/frontend changes can be versioned together.
+EVFlow combines an Indonesia EV charging-station API with shared web and mobile
+driver experiences. The repository includes PostGIS station discovery, optional
+road routing, account/profile management, user wallets, Xendit top-ups, charging
+accounting, a Vite web app, and an Expo mobile app.
 
-## Structure
+## Repository
 
 ```text
-backend-ev-flow/        FastAPI + PostGIS backend
-frontend-evflow-app/    React, React Native, and Vite frontend
+backend-ev-flow/        FastAPI, PostgreSQL/PostGIS, Alembic, data pipeline, tests
+frontend-evflow-app/    React, React Native, Expo, Vite, shared workspaces
+docs/                   Current developer and operational documentation
+sonarqube/              Optional local SonarQube stack
+compose.yaml            PostGIS + API + nginx web stack
 ```
 
-## Backend
+## Documentation
 
-The backend is a FastAPI app. See `backend-ev-flow/API_README.md` and `backend-ev-flow/FRONTEND_API.md` for the API contract.
+Start with [the documentation index](docs/README.md).
+
+- [Development setup](docs/DEVELOPMENT.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [API guide](docs/API.md)
+- [Configuration reference](docs/CONFIGURATION.md)
+- [Operations](docs/OPERATIONS.md)
+- [Project status and known gaps](docs/PROJECT_STATUS.md)
+
+## Container Quickstart
+
+Prerequisites are Podman or Docker with Compose support. Create the backend env
+file because the root Compose stack explicitly loads it:
 
 ```bash
+cp backend-ev-flow/.env.example backend-ev-flow/.env
+# Edit backend-ev-flow/.env and replace JWT_SECRET before using login flows.
+
+podman compose -f compose.yaml build
+podman compose -f compose.yaml up -d db
+until podman compose -f compose.yaml exec -T db pg_isready -U evflow -d evflow; do sleep 2; done
+podman compose -f compose.yaml run --rm api alembic upgrade head
+podman compose -f compose.yaml run --rm api python -m scripts.seed_db
+podman compose -f compose.yaml up -d api web
+```
+
+Open:
+
+- Web app: `http://localhost:8080`
+- Direct API: `http://localhost:8000`
+- Swagger UI: `http://localhost:8000/docs`
+
+Verify database-backed behavior, not only liveness:
+
+```bash
+curl -fsS http://localhost:8000/health
+curl -fsS http://localhost:8080/api/v1/stats
+```
+
+`/health` returns HTTP 200 even when its database query fails, with a zero station
+count. See [Operations](docs/OPERATIONS.md) for readiness and deployment checks.
+
+## Native Development Summary
+
+Use Python 3.12 and Node `20.19.4+` or `22.12+`.
+
+```bash
+npm ci
+npm --prefix frontend-evflow-app ci
+
 cd backend-ev-flow
-pip install -r requirements-api.txt
-uvicorn api.main:app --reload --port 8000
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements-api.txt "pytest>=8"
+cp .env.example .env
 ```
 
-Local backend station endpoints require a PostGIS database, migrations, and seed data:
+Add `DATABASE_URL`, replace `JWT_SECRET`, start or connect to PostGIS, then export
+the env file before migration and seeding:
 
 ```bash
-cd backend-ev-flow
-alembic upgrade head
-python -m scripts.seed_db
+set -a; source .env; set +a
+.venv/bin/alembic upgrade head
+.venv/bin/python -m scripts.seed_db
+cd ..
+npm run dev
 ```
 
-## Frontend
-
-API base URL resolution:
-
-- **Dev** (`npm run web`, `expo start`): defaults to the local backend — `http://localhost:8000` on web; on mobile the dev-machine host is derived from the Metro bundle URL, so physical devices use your LAN IP automatically (the dev backend listens on `0.0.0.0` for this). In `expo start --tunnel` mode the bundle host is a public tunnel that cannot reach your machine, so mobile falls back to the deployed API unless the override below is set. The resolved URL is logged to the console.
-- **Production builds**: default to the deployed API at `https://ev-flow-api.opensoft.id`.
-- **Override** (either direction, e.g. to use the deployed API in dev without a local backend):
-
-```bash
-VITE_EVFLOW_API_BASE_URL=https://ev-flow-api.opensoft.id          # web
-EXPO_PUBLIC_EVFLOW_API_BASE_URL=https://ev-flow-api.opensoft.id   # mobile
-```
-
-Install and run:
-
-```bash
-cd frontend-evflow-app
-npm install
-npm run web
-```
-
-## Run with Podman (full stack in containers)
-
-`compose.yaml` at the repo root builds and runs PostGIS, the FastAPI backend, and the nginx-served web frontend:
-
-```bash
-podman compose up -d --build
-podman compose exec api alembic upgrade head        # once: schema
-podman compose exec api python -m scripts.seed_db   # once: station data
-open http://localhost:8080                          # web UI
-curl http://localhost:8080/api/v1/stats             # API via the nginx proxy
-```
-
-The web bundle is built with `VITE_EVFLOW_API_BASE_URL=/`, meaning same-origin: the browser calls `/api/v1/...` on the web origin and nginx forwards it to the `api` container, so no CORS configuration or hardcoded API host is needed. Secrets/tuning are optional — copy `backend-ev-flow/.env.deploy.example` to `.env` next to `compose.yaml`.
-
-For LXC/OpenVZ VPSes where Podman's bridge networking fails with `ip_tables`, use
-`backend-ev-flow/podman-compose.yml`; it runs the API and web frontend with host networking
-(see `backend-ev-flow/DEPLOY.md`).
+The root development command starts Uvicorn on port 8000 and Vite on its default
+port. Full clean-checkout instructions and mobile commands are in
+[Development](docs/DEVELOPMENT.md).
 
 ## Root Commands
 
 ```bash
-npm install            # once: installs root tooling (concurrently)
-npm run dev            # start backend (uvicorn :8000) + web frontend together
+npm run dev
 npm run backend:test
 npm run frontend:typecheck
 npm run frontend:build
 npm test
+npm run build
 ```
 
-These root scripts are conveniences only; backend and frontend can still be run directly from their own folders.
+Root backend commands assume `backend-ev-flow/.venv` already exists. Root frontend
+commands assume dependencies were installed under `frontend-evflow-app`.
+
+## Current Scope
+
+The station, auth, wallet, and charging accounting backends are implemented. Some
+user-facing areas remain prototypes: Google OAuth lacks its frontend callback,
+route planning is not connected to the backend, charger/QR telemetry is simulated,
+and most business-planner metrics are static. See
+[Project Status](docs/PROJECT_STATUS.md) before planning work from historical
+specifications.
