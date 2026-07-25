@@ -1,61 +1,61 @@
-id,brand,name,make,model,battery_kwh,range_km,price_range,charging_time,power_hp,seats,top_speed_kmh,fast_charging_power_kw_dc,fast_charge_port,car_body_type,drivetrain,efficiency_wh_per_km,source_url,is_ev
-wuling-air-ev,Wuling,Wuling Air EV,Wuling,Air EV,26.7,200.0,"Rp 214 - 307,5 Juta",8.5 Jam,40 hp,4,,,,,,,https://www.oto.com/mobil-baru/wuling/ev,True
-vinfast-vf-5,VinFast,VinFast VF 5,VinFast,VF 5,29.6,260.0,"Rp 323,17 Juta",30 Menit,94 hp,5,,,,,,,https://www.oto.com/mobil-baru/vinfast/vf-5,True
-mg-4-ev,MG,MG 4 EV,MG,4 EV,51.0,425.0,Rp 345 - 419 Juta,35 Menit,168 - 201 hp,5,,,,,,,https://www.oto.com/mobil-baru/mg/4-ev,True
-byd-m6,BYD,BYD M6,BYD,M6,55.4,420.0,Rp 383 - 433 Juta,40 Menit,154 hp,6,,,,,,,https://www.oto.com/mobil-baru/byd/m6,True
-wuling-binguo-ev,Wuling,Wuling Binguo EV,Wuling,Binguo EV,31.9,333.0,Rp 279 - 332 Juta,35 Menit,67 hp,5,,,,,,,https://www.oto.com/mobil-baru/wuling/binguo-ev,True
-vinfast-vf-e34,VinFast,VinFast VF e34,VinFast,VF e34,41.9,318.0,"Rp 411,86 Juta",27 Menit,147 hp,5,,,,,,,https://www.oto.com/mobil-baru/vinfast/vf-e34,True
-wuling-cloud-ev,Wuling,Wuling Cloud EV,Wuling,Cloud EV,50.6,460.0,Rp 415 - 443 Juta,30 Menit,134 hp,5,,,,,,,https://www.oto.com/mobil-baru/wuling/cloud,True
-byd-seal,BYD,BYD Seal,BYD,Seal,82.56,580.0,Rp 639 - 750 Juta,37 Menit,313 - 530 hp,5,220.0,75.0,CCS,Sedan,RWD,133.0,https://www.oto.com/mobil-baru/byd/seal,True
-byd-dolphin,BYD,BYD Dolphin,BYD,Dolphin,44.9,410.0,Rp 369 - 429 Juta,30 Menit,95 - 204 hp,5,150.0,50.0,CCS,Hatchback,FWD,132.0,https://www.oto.com/mobil-baru/byd/dolphin,True
-chery-e5,Chery,CHERY E5,Chery,E5,61.0,430.0,"Rp 379,9 - 419,9 Juta",28 Menit,208 hp,5,,,,,,,https://www.oto.com/mobil-baru/chery/e5,True
-byd-atto-3,BYD,BYD Atto 3,BYD,Atto 3,49.92,410.0,Rp 390 - 520 Juta,45 Menit,204 hp,5,160.0,75.0,CCS,SUV,FWD,144.0,https://www.oto.com/mobil-baru/byd/atto-3,True
-neta-v-ii,Neta,Neta V-II,Neta,V-II,40.7,401.0,Rp 299 Juta,30 Menit,94 hp,5,,,,,,,https://www.oto.com/mobil-baru/neta/v-ii,True
-farizon-sv,Farizon,Farizon SV,Farizon,SV,82.88,415.0,Rp 698 Juta,45 Menit,227 hp,16,,,,,,,https://www.oto.com/mobil-baru/farizon/sv,True
-vinfast-limo-green,VinFast,VinFast Limo Green,VinFast,Limo Green,60.13,400.0,Rp 389 Juta,30 Menit,201 hp,7,,,,,,,https://www.oto.com/mobil-baru/vinfast/limo-green,True
-zeekr-7x,Zeekr,ZEEKR 7X,Zeekr,7X,100.0,605.0,"Rp 1,1 Milyar",15 Menit,637 hp,5,210.0,260.0,CCS,SUV,RWD,153.0,https://www.oto.com/mobil-baru/zeekr/7x,True
-suzuki-e-vitara,Suzuki,Suzuki e-Vitara,Suzuki,e-Vitara,61.0,400.0,Rp 755 - 758 Juta,60 Menit,172 hp,5,,,,,,,https://www.oto.com/mobil-baru/suzuki/e-vitara,True
-mg-s5-ev,MG,MG S5 EV,MG,S5 EV,49.0,420.0,"Rp 333,9 - 455,9 Juta",35 Menit,168 hp,5,,,,,,,https://www.oto.com/mobil-baru/mg/s5-ev,True
-byd-atto-4,BYD,BYD Atto 4,BYD,Atto 4,82.5,700.0,"Rp 26,6 - 31,6 Juta",30 Menit,308 hp,5,,,,,,,https://www.oto.com/mobil-baru/byd/atto-4,True
-geely-star-wish,Geely,Geely Star Wish,Geely,Star Wish,40.0,310.0,"Rp 26,6 - 31,6 Juta",30 Menit,115 hp,5,,,,,,,https://www.oto.com/mobil-baru/geely/star-wish,True
-byd-denza-z9-gt,BYD,BYD Denza Z9 GT,BYD,Denza Z9 GT,101.0,630.0,"Rp 26,6 - 31,6 Juta",20 Menit,951 hp,5,,,,,,,https://www.oto.com/mobil-baru/byd/denza-z9-gt,True
-wuling-e200,Wuling,Wuling E200,Wuling,E200,24.0,250.0,Rp 480 Juta,10 Jam,39 hp,2,,,,,,,https://www.oto.com/mobil-baru/wuling/e200,True
-jaecoo-j6,Jaecoo,JAECOO J6,Jaecoo,J6,69.8,501.0,"Rp 26,6 - 31,6 Juta",30 Menit,279 hp,5,,,,,,,https://www.oto.com/mobil-baru/jaecoo/j6,True
-changan-lumin,Changan,Changan Lumin,Changan,Lumin,28.08,301.0,Rp 178 Juta,9.5 Jam,47 hp,4,,,,,,,https://www.oto.com/mobil-baru/changan/lumin,True
-mercedes-benz-g-class-electric,Mercedes,Mercedes Benz G-Class Electric,Mercedes,Benz G-Class Electric,116.0,473.0,"Rp 5,9 Milyar",32 Menit,587 hp,5,,,,,,,https://www.oto.com/mobil-baru/mercedes-benz/g-class-electric,True
-dfsk-seres-e1,Dfsk,DFSK Seres E1,Dfsk,Seres E1,13.8,180.0,Rp 189 - 219 Juta,4 - 4.5 Jam,34 - 40 hp,4,,,,,,,https://www.oto.com/mobil-baru/dfsk/seres-e1,True
-byd-denza-d9,BYD,BYD Denza D9,BYD,Denza D9,103.36,600.0,Rp 950 Juta,45 Menit,308 hp,7,,,,,,,https://www.oto.com/mobil-baru/byd/denza-d9,True
-rolls-royce-spectre,Rolls Royce,Rolls Royce Spectre,Rolls Royce,Spectre,102.0,520.0,"Rp 26,6 - 31,6 Juta",34 Menit,577 hp,4,,,,,,,https://www.oto.com/mobil-baru/rolls-royce/spectre,True
-porsche-taycan,Porsche,Porsche Taycan,Porsche,Taycan,89.0,434.0,"Rp 26,6 - 31,6 Juta",22.5 Menit,408 - 764 hp,4,230.0,195.0,CCS,Sedan,RWD,164.0,https://www.oto.com/mobil-baru/porsche/taycan,True
-hyundai-ioniq-5,Hyundai,Hyundai Ioniq 5,Hyundai,Ioniq 5,58.0,384.0,"Rp 809 - 933,6 Juta",18 Menit,168 - 214 hp,5,185.0,150.0,CCS,SUV,RWD,136.0,https://www.oto.com/mobil-baru/hyundai/ioniq-5,True
-mg-zs-ev,MG,MG ZS EV,MG,ZS EV,50.3,403.0,"Rp 376 - 417,5 Juta",30 Menit,177 hp,5,175.0,82.0,CCS,SUV,FWD,155.0,https://www.oto.com/mobil-baru/mg/zs-ev,True
-hyundai-kona-electric,Hyundai,Hyundai Kona Electric,Hyundai,Kona Electric,48.9,305.0,"Rp 565,3 - 689,6 Juta",43 Menit,154 - 214 hp,5,160.0,50.0,CCS,SUV,FWD,128.0,https://www.oto.com/mobil-baru/hyundai/kona-electric,True
-dfsk-gelora-electric,Dfsk,DFSK Gelora Electric,Dfsk,Gelora Electric,42.0,300.0,"Rp 582,1 Juta",2.5 Jam,80 hp,2,,,,,,,https://www.oto.com/mobil-baru/dfsk/gelora-electric,True
-tesla-model-x,Tesla,Tesla Model X,Tesla,Model X,100.0,543.0,"Rp 26,6 - 31,6 Juta",15 Menit (Supercharger),670 - 1020 hp,5,250.0,140.0,CCS,SUV,AWD,165.0,https://www.oto.com/mobil-baru/tesla/model-x,True
-hyundai-ioniq-6,Hyundai,Hyundai Ioniq 6,Hyundai,Ioniq 6,77.4,519.0,"Rp 1,237 Milyar",18 Menit,322 hp,5,185.0,200.0,CCS,Sedan,RWD,136.0,https://www.oto.com/mobil-baru/hyundai/ioniq-6,True
-citroen-e-c3,Citroen,Citroen E-C3,Citroen,E-C3,29.2,320.0,"Rp 380,5 Juta",57 Menit,56 hp,5,135.0,60.0,CCS,Hatchback,FWD,135.0,https://www.oto.com/mobil-baru/citroen/e-c3,True
-gac-aion-y-plus,Gac,GAC Aion Y Plus,Gac,Aion Y Plus,50.6,410.0,Rp 419 - 479 Juta,45 Menit,201 hp,5,,,,,,,https://www.oto.com/mobil-baru/gac/aion-y-plus,True
-lexus-rz,Lexus,Lexus RZ,Lexus,RZ,71.4,400.0,"Rp 26,6 - 31,6 Juta",30 Menit,308 hp,5,160.0,100.0,CCS,SUV,FWD,149.0,https://www.oto.com/mobil-baru/lexus/rz,True
-volkswagen-id-buzz,Volkswagen,Volkswagen ID Buzz,Volkswagen,ID Buzz,77.0,400.0,"Rp 1,495 - 1,55 Milyar",30 Menit,204 - 281 hp,5,,,,,,,https://www.oto.com/mobil-baru/volkswagen/id-buzz,True
-tesla-model-s,Tesla,Tesla Model S,Tesla,Model S,100.0,600.0,"Rp 26,6 - 31,6 Juta",15 Menit (Supercharger),670 - 1020 hp,5,250.0,140.0,CCS,Liftback Sedan,AWD,150.0,https://www.oto.com/mobil-baru/tesla/model-s,True
-gac-aion-hyptec-ht,Gac,GAC Aion Hyptec HT,Gac,Aion Hyptec HT,83.0,600.0,"Rp 691 - 843,5 Juta",15 Menit,335 hp,5,,,,,,,https://www.oto.com/mobil-baru/gac/aion-hyptec-ht,True
-tesla-model-3,Tesla,Tesla Model 3,Tesla,Model 3,54.0,513.0,"Rp 26,6 - 31,6 Juta",15 Menit (Supercharger),283 - 490 hp,5,201.0,124.0,CCS,Sedan,AWD,119.0,https://www.oto.com/mobil-baru/tesla/model-3,True
-neta-x,Neta,Neta X,Neta,X,63.56,480.0,Rp 428 - 448 Juta,30 Menit,161 hp,5,,,,,,,https://www.oto.com/mobil-baru/neta/x,True
-mg-cyberster,MG,MG Cyberster,MG,Cyberster,77.0,503.0,"Rp 1,705 Milyar",26 Menit,537 hp,2,200.0,85.0,CCS,Cabriolet,AWD,168.0,https://www.oto.com/mobil-baru/mg/cyberster,True
-vinfast-vf-6,VinFast,VinFast VF 6,VinFast,VF 6,59.6,399.0,"Rp 385 - 439,6 Juta",24 Menit,201 hp,5,,,,,,,https://www.oto.com/mobil-baru/vinfast/vf-6,True
-bmw-i5,BMW,BMW i5,BMW,i5,81.2,516.0,"Rp 2,225 - 2,83 Milyar",30 Menit,340 - 601 hp,5,230.0,136.0,CCS,Sedan,AWD,172.0,https://www.oto.com/mobil-baru/bmw/i5,True
-kia-ev9,Kia,Kia EV9,Kia,EV9,99.8,497.0,"Rp 1,568 - 1,985 Milyar",24 Menit,380 hp,7,190.0,160.0,CCS,SUV,RWD,165.0,https://www.oto.com/mobil-baru/kia/ev9,True
-lexus-ux,Lexus,Lexus UX,Lexus,UX,54.35,300.0,"Rp 26,6 - 31,6 Juta",80 Menit,181 - 201 hp,5,160.0,35.0,CHAdeMO,SUV,FWD,145.0,https://www.oto.com/mobil-baru/lexus/ux,True
-mercedes-benz-eqs,Mercedes,Mercedes Benz EQS,Mercedes,Benz EQS,107.8,770.0,"Rp 3,135 - 4,11 Milyar",31 Menit,333 hp,5,,,,,,,https://www.oto.com/mobil-baru/mercedes-benz/eqs,True
-nissan-leaf,Nissan,Nissan Leaf,Nissan,Leaf,40.0,311.0,Rp 740 Juta,60 Menit,148 hp,5,,,,,,,https://www.oto.com/mobil-baru/nissan/leaf,True
-gwm-ora-03-bev,Gwm,GWM Ora 03 BEV,Gwm,Ora 03 BEV,47.7,400.0,Rp 379 Juta,45 Menit,104 hp,5,,,,,,,https://www.oto.com/mobil-baru/gwm/ora-03-bev,True
-bmw-ix,BMW,BMW iX,BMW,iX,76.6,372.0,"Rp 2,628 Milyar",35 Menit,408 hp,5,250.0,150.0,CCS,SUV,AWD,209.0,https://www.oto.com/mobil-baru/bmw/ix,True
-honda-e-n1,Honda,Honda e:N1,Honda,e:N1,68.8,412.0,"Rp 26,6 - 31,6 Juta",45 Menit,201 hp,5,160.0,60.0,CCS,SUV,FWD,150.0,https://www.oto.com/mobil-baru/honda/en1,True
-toyota-bz4x,Toyota,Toyota bZ4X,Toyota,bZ4X,71.4,500.0,"Rp 1,19 Milyar",30 Menit,201 hp,5,160.0,100.0,CCS,SUV,AWD,154.0,https://www.oto.com/mobil-baru/toyota/bz4x,True
-bmw-i7,BMW,BMW i7,BMW,i7,101.7,625.0,"Rp 3,415 Milyar",34 Menit,544 hp,5,250.0,159.0,CCS,Sedan,AWD,208.0,https://www.oto.com/mobil-baru/bmw/i7,True
-bmw-ix1,BMW,BMW iX1,BMW,iX1,64.7,438.0,"Rp 1,379 Milyar",29 Menit,313 hp,5,170.0,94.0,CCS,SUV,FWD,150.0,https://www.oto.com/mobil-baru/bmw/ix1,True
-bmw-i5-touring,BMW,BMW i5 Touring,BMW,i5 Touring,81.2,506.0,"Rp 2,275 Milyar",30 Menit,340 hp,5,,,,,,,https://www.oto.com/mobil-baru/bmw/i5-touring,True
-mitsubishi-l100-ev,Mitsubishi,Mitsubishi L100 EV,Mitsubishi,L100 EV,20.1,180.0,"Rp 323,3 Juta",42 Menit,41 hp,2,,,,,,,https://www.oto.com/mobil-baru/mitsubishi/l100-ev,True
-volvo-ex30,Volvo,Volvo EX30,Volvo,EX30,49.0,476.0,"Rp 930 Juta - 1,1 Milyar",26 Menit,272 hp,5,180.0,114.0,CCS,SUV,AWD,152.0,https://www.oto.com/mobil-baru/volvo/ex30,True
-vinfast-vf-7,VinFast,VinFast VF 7,VinFast,VF 7,75.3,431.0,Rp 499 - 599 Juta,28 Menit,201 - 348 hp,5,,,,,,,https://www.oto.com/mobil-baru/vinfast/vf-7,True
-hyundai-ioniq-5-n,Hyundai,Hyundai Ioniq 5 N,Hyundai,Ioniq 5 N,84.0,448.0,"Rp 1,5 Milyar",18 Menit,641 hp,5,260.0,205.0,CCS,SUV,AWD,179.0,https://www.oto.com/mobil-baru/hyundai/ioniq-5-n,True
+id,brand,name,make,model,battery_kwh,range_km,price_range,charging_time_minutes,power_hp,seats,top_speed_kmh,fast_charging_power_kw_dc,fast_charge_port,car_body_type,drivetrain,efficiency_wh_per_km,source_url,is_ev
+wuling-air-ev,Wuling,Wuling Air EV,Wuling,Air EV,26.7,200.0,"Rp 214 - 307,5 Juta",510.0,40 hp,4,100.0,20.0,GB/T,Hatchback,RWD,115.0,https://www.oto.com/mobil-baru/wuling/ev,True
+vinfast-vf-5,VinFast,VinFast VF 5,VinFast,VF 5,29.6,260.0,"Rp 323,17 Juta",30.0,94 hp,5,130.0,60.0,CCS,SUV,FWD,135.0,https://www.oto.com/mobil-baru/vinfast/vf-5,True
+mg-4-ev,MG,MG 4 EV,MG,4 EV,51.0,425.0,Rp 345 - 419 Juta,35.0,168 - 201 hp,5,160.0,135.0,CCS,Hatchback,RWD,160.0,https://www.oto.com/mobil-baru/mg/4-ev,True
+byd-m6,BYD,BYD M6,BYD,M6,55.4,420.0,Rp 383 - 433 Juta,40.0,154 hp,6,180.0,115.0,CCS,MPV,FWD,155.0,https://www.oto.com/mobil-baru/byd/m6,True
+wuling-binguo-ev,Wuling,Wuling Binguo EV,Wuling,Binguo EV,31.9,333.0,Rp 279 - 332 Juta,35.0,67 hp,5,130.0,50.0,GB/T,Hatchback,FWD,125.0,https://www.oto.com/mobil-baru/wuling/binguo-ev,True
+vinfast-vf-e34,VinFast,VinFast VF e34,VinFast,VF e34,41.9,318.0,"Rp 411,86 Juta",27.0,147 hp,5,130.0,60.0,CCS,SUV,FWD,145.0,https://www.oto.com/mobil-baru/vinfast/vf-e34,True
+wuling-cloud-ev,Wuling,Wuling Cloud EV,Wuling,Cloud EV,50.6,460.0,Rp 415 - 443 Juta,30.0,134 hp,5,150.0,50.0,GB/T,Hatchback,FWD,135.0,https://www.oto.com/mobil-baru/wuling/cloud,True
+byd-seal,BYD,BYD Seal,BYD,Seal,82.56,580.0,Rp 639 - 750 Juta,37.0,313 - 530 hp,5,220.0,75.0,CCS,Sedan,RWD,133.0,https://www.oto.com/mobil-baru/byd/seal,True
+byd-dolphin,BYD,BYD Dolphin,BYD,Dolphin,44.9,410.0,Rp 369 - 429 Juta,30.0,95 - 204 hp,5,150.0,50.0,CCS,Hatchback,FWD,132.0,https://www.oto.com/mobil-baru/byd/dolphin,True
+chery-e5,Chery,CHERY E5,Chery,E5,61.0,430.0,"Rp 379,9 - 419,9 Juta",28.0,208 hp,5,172.0,80.0,CCS,SUV,FWD,150.0,https://www.oto.com/mobil-baru/chery/e5,True
+byd-atto-3,BYD,BYD Atto 3,BYD,Atto 3,49.92,410.0,Rp 390 - 520 Juta,45.0,204 hp,5,160.0,75.0,CCS,SUV,FWD,144.0,https://www.oto.com/mobil-baru/byd/atto-3,True
+neta-v-ii,Neta,Neta V-II,Neta,V-II,40.7,401.0,Rp 299 Juta,30.0,94 hp,5,125.0,45.0,CCS,SUV,FWD,120.0,https://www.oto.com/mobil-baru/neta/v-ii,True
+farizon-sv,Farizon,Farizon SV,Farizon,SV,82.88,415.0,Rp 698 Juta,45.0,227 hp,16,120.0,80.0,GB/T,Van,RWD,200.0,https://www.oto.com/mobil-baru/farizon/sv,True
+vinfast-limo-green,VinFast,VinFast Limo Green,VinFast,Limo Green,60.13,400.0,Rp 389 Juta,30.0,201 hp,7,130.0,60.0,CCS,SUV,FWD,135.0,https://www.oto.com/mobil-baru/vinfast/limo-green,True
+zeekr-7x,Zeekr,ZEEKR 7X,Zeekr,7X,100.0,605.0,"Rp 1,1 Milyar",15.0,637 hp,5,210.0,260.0,CCS,SUV,RWD,153.0,https://www.oto.com/mobil-baru/zeekr/7x,True
+suzuki-e-vitara,Suzuki,Suzuki e-Vitara,Suzuki,e-Vitara,61.0,400.0,Rp 755 - 758 Juta,60.0,172 hp,5,150.0,70.0,CCS,SUV,FWD,140.0,https://www.oto.com/mobil-baru/suzuki/e-vitara,True
+mg-s5-ev,MG,MG S5 EV,MG,S5 EV,49.0,420.0,"Rp 333,9 - 455,9 Juta",35.0,168 hp,5,170.0,90.0,CCS,SUV,RWD,145.0,https://www.oto.com/mobil-baru/mg/s5-ev,True
+byd-atto-4,BYD,BYD Atto 4,BYD,Atto 4,82.5,700.0,"Rp 26,6 - 31,6 Juta",30.0,308 hp,5,180.0,110.0,CCS,Sedan,RWD,140.0,https://www.oto.com/mobil-baru/byd/atto-4,True
+geely-star-wish,Geely,Geely Star Wish,Geely,Star Wish,40.0,310.0,"Rp 26,6 - 31,6 Juta",30.0,115 hp,5,130.0,50.0,GB/T,Hatchback,RWD,120.0,https://www.oto.com/mobil-baru/geely/star-wish,True
+byd-denza-z9-gt,BYD,BYD Denza Z9 GT,BYD,Denza Z9 GT,101.0,630.0,"Rp 26,6 - 31,6 Juta",20.0,951 hp,5,240.0,270.0,CCS,Station Estate,AWD,180.0,https://www.oto.com/mobil-baru/byd/denza-z9-gt,True
+wuling-e200,Wuling,Wuling E200,Wuling,E200,24.0,250.0,Rp 480 Juta,600.0,39 hp,2,100.0,20.0,GB/T,Hatchback,FWD,105.0,https://www.oto.com/mobil-baru/wuling/e200,True
+jaecoo-j6,Jaecoo,JAECOO J6,Jaecoo,J6,69.8,501.0,"Rp 26,6 - 31,6 Juta",30.0,279 hp,5,150.0,85.0,CCS,SUV,AWD,160.0,https://www.oto.com/mobil-baru/jaecoo/j6,True
+changan-lumin,Changan,Changan Lumin,Changan,Lumin,28.08,301.0,Rp 178 Juta,570.0,47 hp,4,101.0,25.0,GB/T,Hatchback,FWD,110.0,https://www.oto.com/mobil-baru/changan/lumin,True
+mercedes-benz-g-class-electric,Mercedes-Benz,Mercedes Benz G-Class Electric,Mercedes-Benz,Benz G-Class Electric,116.0,473.0,"Rp 5,9 Milyar",32.0,587 hp,5,180.0,200.0,CCS,SUV,AWD,277.0,https://www.oto.com/mobil-baru/mercedes-benz/g-class-electric,True
+dfsk-seres-e1,Dfsk,DFSK Seres E1,Dfsk,Seres E1,13.8,180.0,Rp 189 - 219 Juta,255.0,34 - 40 hp,4,100.0,20.0,GB/T,Hatchback,RWD,115.0,https://www.oto.com/mobil-baru/dfsk/seres-e1,True
+byd-denza-d9,BYD,BYD Denza D9,BYD,Denza D9,103.36,600.0,Rp 950 Juta,45.0,308 hp,7,180.0,166.0,CCS,MPV,FWD,185.0,https://www.oto.com/mobil-baru/byd/denza-d9,True
+rolls-royce-spectre,Rolls-Royce,Rolls Royce Spectre,Rolls-Royce,Royce Spectre,102.0,520.0,"Rp 26,6 - 31,6 Juta",34.0,577 hp,4,250.0,126.0,CCS,Coupe,AWD,192.0,https://www.oto.com/mobil-baru/rolls-royce/spectre,True
+porsche-taycan,Porsche,Porsche Taycan,Porsche,Taycan,89.0,434.0,"Rp 26,6 - 31,6 Juta",22.5,408 - 764 hp,4,230.0,195.0,CCS,Sedan,RWD,164.0,https://www.oto.com/mobil-baru/porsche/taycan,True
+hyundai-ioniq-5,Hyundai,Hyundai Ioniq 5,Hyundai,Ioniq 5,58.0,384.0,"Rp 809 - 933,6 Juta",18.0,168 - 214 hp,5,185.0,150.0,CCS,SUV,RWD,136.0,https://www.oto.com/mobil-baru/hyundai/ioniq-5,True
+mg-zs-ev,MG,MG ZS EV,MG,ZS EV,50.3,403.0,"Rp 376 - 417,5 Juta",30.0,177 hp,5,175.0,82.0,CCS,SUV,FWD,155.0,https://www.oto.com/mobil-baru/mg/zs-ev,True
+hyundai-kona-electric,Hyundai,Hyundai Kona Electric,Hyundai,Kona Electric,48.9,305.0,"Rp 565,3 - 689,6 Juta",43.0,154 - 214 hp,5,160.0,50.0,CCS,SUV,FWD,128.0,https://www.oto.com/mobil-baru/hyundai/kona-electric,True
+dfsk-gelora-electric,Dfsk,DFSK Gelora Electric,Dfsk,Gelora Electric,42.0,300.0,"Rp 582,1 Juta",150.0,80 hp,2,100.0,40.0,GB/T,Van,RWD,165.0,https://www.oto.com/mobil-baru/dfsk/gelora-electric,True
+tesla-model-x,Tesla,Tesla Model X,Tesla,Model X,100.0,543.0,"Rp 26,6 - 31,6 Juta",15.0,670 - 1020 hp,5,250.0,140.0,CCS,SUV,AWD,165.0,https://www.oto.com/mobil-baru/tesla/model-x,True
+hyundai-ioniq-6,Hyundai,Hyundai Ioniq 6,Hyundai,Ioniq 6,77.4,519.0,"Rp 1,237 Milyar",18.0,322 hp,5,185.0,200.0,CCS,Sedan,RWD,136.0,https://www.oto.com/mobil-baru/hyundai/ioniq-6,True
+citroen-e-c3,Citroen,Citroen E-C3,Citroen,E-C3,29.2,320.0,"Rp 380,5 Juta",57.0,56 hp,5,135.0,60.0,CCS,Hatchback,FWD,135.0,https://www.oto.com/mobil-baru/citroen/e-c3,True
+gac-aion-y-plus,Gac,GAC Aion Y Plus,Gac,Aion Y Plus,50.6,410.0,Rp 419 - 479 Juta,45.0,201 hp,5,150.0,80.0,CCS,MPV,FWD,140.0,https://www.oto.com/mobil-baru/gac/aion-y-plus,True
+lexus-rz,Lexus,Lexus RZ,Lexus,RZ,71.4,400.0,"Rp 26,6 - 31,6 Juta",30.0,308 hp,5,160.0,100.0,CCS,SUV,FWD,149.0,https://www.oto.com/mobil-baru/lexus/rz,True
+volkswagen-id-buzz,Volkswagen,Volkswagen ID Buzz,Volkswagen,ID Buzz,77.0,400.0,"Rp 1,495 - 1,55 Milyar",30.0,204 - 281 hp,5,160.0,145.0,CCS,Small Passenger Van,AWD,182.0,https://www.oto.com/mobil-baru/volkswagen/id-buzz,True
+tesla-model-s,Tesla,Tesla Model S,Tesla,Model S,100.0,600.0,"Rp 26,6 - 31,6 Juta",15.0,670 - 1020 hp,5,250.0,140.0,CCS,Liftback Sedan,AWD,150.0,https://www.oto.com/mobil-baru/tesla/model-s,True
+gac-aion-hyptec-ht,Gac,GAC Aion Hyptec HT,Gac,Aion Hyptec HT,83.0,600.0,"Rp 691 - 843,5 Juta",15.0,335 hp,5,183.0,140.0,CCS,SUV,RWD,155.0,https://www.oto.com/mobil-baru/gac/aion-hyptec-ht,True
+tesla-model-3,Tesla,Tesla Model 3,Tesla,Model 3,54.0,513.0,"Rp 26,6 - 31,6 Juta",15.0,283 - 490 hp,5,201.0,124.0,CCS,Sedan,AWD,119.0,https://www.oto.com/mobil-baru/tesla/model-3,True
+neta-x,Neta,Neta X,Neta,X,63.56,480.0,Rp 428 - 448 Juta,30.0,161 hp,5,150.0,100.0,CCS,SUV,FWD,145.0,https://www.oto.com/mobil-baru/neta/x,True
+mg-cyberster,MG,MG Cyberster,MG,Cyberster,77.0,503.0,"Rp 1,705 Milyar",26.0,537 hp,2,200.0,85.0,CCS,Cabriolet,AWD,168.0,https://www.oto.com/mobil-baru/mg/cyberster,True
+vinfast-vf-6,VinFast,VinFast VF 6,VinFast,VF 6,59.6,399.0,"Rp 385 - 439,6 Juta",24.0,201 hp,5,175.0,90.0,CCS,SUV,FWD,150.0,https://www.oto.com/mobil-baru/vinfast/vf-6,True
+bmw-i5,BMW,BMW i5,BMW,i5,81.2,516.0,"Rp 2,225 - 2,83 Milyar",30.0,340 - 601 hp,5,230.0,136.0,CCS,Sedan,AWD,172.0,https://www.oto.com/mobil-baru/bmw/i5,True
+kia-ev9,Kia,Kia EV9,Kia,EV9,99.8,497.0,"Rp 1,568 - 1,985 Milyar",24.0,380 hp,7,190.0,160.0,CCS,SUV,RWD,165.0,https://www.oto.com/mobil-baru/kia/ev9,True
+lexus-ux,Lexus,Lexus UX,Lexus,UX,54.35,300.0,"Rp 26,6 - 31,6 Juta",80.0,181 - 201 hp,5,160.0,35.0,CHAdeMO,SUV,FWD,145.0,https://www.oto.com/mobil-baru/lexus/ux,True
+mercedes-benz-eqs,Mercedes-Benz,Mercedes Benz EQS,Mercedes-Benz,Benz EQS,107.8,770.0,"Rp 3,135 - 4,11 Milyar",31.0,333 hp,5,210.0,200.0,CCS,Sedan,RWD,165.0,https://www.oto.com/mobil-baru/mercedes-benz/eqs,True
+nissan-leaf,Nissan,Nissan Leaf,Nissan,Leaf,40.0,311.0,Rp 740 Juta,60.0,148 hp,5,144.0,50.0,CHAdeMO,Hatchback,FWD,171.0,https://www.oto.com/mobil-baru/nissan/leaf,True
+gwm-ora-03-bev,Gwm,GWM Ora 03 BEV,Gwm,Ora 03 BEV,47.7,400.0,Rp 379 Juta,45.0,104 hp,5,152.0,64.0,CCS,Hatchback,FWD,140.0,https://www.oto.com/mobil-baru/gwm/ora-03-bev,True
+bmw-ix,BMW,BMW iX,BMW,iX,76.6,372.0,"Rp 2,628 Milyar",35.0,408 hp,5,250.0,150.0,CCS,SUV,AWD,209.0,https://www.oto.com/mobil-baru/bmw/ix,True
+honda-e-n1,Honda,Honda e:N1,Honda,e:N1,68.8,412.0,"Rp 26,6 - 31,6 Juta",45.0,201 hp,5,160.0,60.0,CCS,SUV,FWD,150.0,https://www.oto.com/mobil-baru/honda/en1,True
+toyota-bz4x,Toyota,Toyota bZ4X,Toyota,bZ4X,71.4,500.0,"Rp 1,19 Milyar",30.0,201 hp,5,160.0,100.0,CCS,SUV,AWD,154.0,https://www.oto.com/mobil-baru/toyota/bz4x,True
+bmw-i7,BMW,BMW i7,BMW,i7,101.7,625.0,"Rp 3,415 Milyar",34.0,544 hp,5,250.0,159.0,CCS,Sedan,AWD,208.0,https://www.oto.com/mobil-baru/bmw/i7,True
+bmw-ix1,BMW,BMW iX1,BMW,iX1,64.7,438.0,"Rp 1,379 Milyar",29.0,313 hp,5,170.0,94.0,CCS,SUV,FWD,150.0,https://www.oto.com/mobil-baru/bmw/ix1,True
+bmw-i5-touring,BMW,BMW i5 Touring,BMW,i5 Touring,81.2,506.0,"Rp 2,275 Milyar",30.0,340 hp,5,193.0,205.0,CCS,Station Estate,RWD,165.0,https://www.oto.com/mobil-baru/bmw/i5-touring,True
+mitsubishi-l100-ev,Mitsubishi,Mitsubishi L100 EV,Mitsubishi,L100 EV,20.1,180.0,"Rp 323,3 Juta",42.0,41 hp,2,100.0,30.0,CHAdeMO,Van,RWD,145.0,https://www.oto.com/mobil-baru/mitsubishi/l100-ev,True
+volvo-ex30,Volvo,Volvo EX30,Volvo,EX30,49.0,476.0,"Rp 930 Juta - 1,1 Milyar",26.0,272 hp,5,180.0,114.0,CCS,SUV,AWD,152.0,https://www.oto.com/mobil-baru/volvo/ex30,True
+vinfast-vf-7,VinFast,VinFast VF 7,VinFast,VF 7,75.3,431.0,Rp 499 - 599 Juta,28.0,201 - 348 hp,5,175.0,150.0,CCS,SUV,FWD,160.0,https://www.oto.com/mobil-baru/vinfast/vf-7,True
+hyundai-ioniq-5-n,Hyundai,Hyundai Ioniq 5 N,Hyundai,Ioniq 5 N,84.0,448.0,"Rp 1,5 Milyar",18.0,641 hp,5,260.0,205.0,CCS,SUV,AWD,179.0,https://www.oto.com/mobil-baru/hyundai/ioniq-5-n,True

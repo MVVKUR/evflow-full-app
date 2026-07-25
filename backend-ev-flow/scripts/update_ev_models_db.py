@@ -50,7 +50,7 @@ def update_db() -> int:
                 battery_kwh               double precision,
                 range_km                  double precision,
                 price_range               text,
-                charging_time             text,
+                charging_time_minutes     double precision,
                 power_hp                  text,
                 seats                     integer,
                 top_speed_kmh             double precision,
@@ -69,11 +69,11 @@ def update_db() -> int:
         upsert_stmt = text("""
             INSERT INTO ev_models (
                 id, brand, name, make, model, battery_kwh, range_km, price_range,
-                charging_time, power_hp, seats, top_speed_kmh, fast_charging_power_kw_dc,
+                charging_time_minutes, power_hp, seats, top_speed_kmh, fast_charging_power_kw_dc,
                 fast_charge_port, car_body_type, drivetrain, efficiency_wh_per_km, source_url
             ) VALUES (
                 :id, :brand, :name, :make, :model, :battery_kwh, :range_km, :price_range,
-                :charging_time, :power_hp, :seats, :top_speed_kmh, :fast_charging_power_kw_dc,
+                :charging_time_minutes, :power_hp, :seats, :top_speed_kmh, :fast_charging_power_kw_dc,
                 :fast_charge_port, :car_body_type, :drivetrain, :efficiency_wh_per_km, :source_url
             )
             ON CONFLICT (id) DO UPDATE SET
@@ -84,7 +84,7 @@ def update_db() -> int:
                 battery_kwh = EXCLUDED.battery_kwh,
                 range_km = EXCLUDED.range_km,
                 price_range = EXCLUDED.price_range,
-                charging_time = EXCLUDED.charging_time,
+                charging_time_minutes = EXCLUDED.charging_time_minutes,
                 power_hp = EXCLUDED.power_hp,
                 seats = EXCLUDED.seats,
                 top_speed_kmh = EXCLUDED.top_speed_kmh,
@@ -112,7 +112,7 @@ def update_db() -> int:
                     "battery_kwh": _float(row.get("battery_kwh")),
                     "range_km": _float(row.get("range_km")),
                     "price_range": row.get("price_range") or None,
-                    "charging_time": row.get("charging_time") or None,
+                    "charging_time_minutes": _float(row.get("charging_time_minutes")),
                     "power_hp": row.get("power_hp") or None,
                     "seats": _int(row.get("seats")),
                     "top_speed_kmh": _float(row.get("top_speed_kmh")),

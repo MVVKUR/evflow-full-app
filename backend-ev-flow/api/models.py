@@ -189,7 +189,7 @@ class EVModel(BaseModel):
     max_dc_charge_kw: Optional[float] = Field(None, description="Max DC fast charge power (kW).", examples=[50.0])
     fast_charge_port: Optional[str] = Field(None, examples=["CCS2"])
     price_range: Optional[str] = Field(None, examples=["Rp 214 - 307,5 Juta"])
-    charging_time: Optional[str] = Field(None, examples=["8.5 Jam"])
+    charging_time_minutes: Optional[float] = Field(None, description="Charging time in minutes.", examples=[510.0])
     source_url: Optional[str] = Field(None)
     match_method: Optional[str] = Field(None, examples=["normalized_fuzzy_match"])
     match_confidence: Optional[float] = Field(None, examples=[0.85])

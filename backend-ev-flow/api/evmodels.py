@@ -48,7 +48,7 @@ def _load_from_db() -> List[Dict[str, Any]]:
         with engine.connect() as conn:
             rows = conn.execute(text("""
                 SELECT id, name, make, model, brand, battery_kwh, range_km, efficiency_wh_per_km,
-                       efficiency_source, max_dc_charge_kw, fast_charge_port, price_range, charging_time, source_url
+                       efficiency_source, max_dc_charge_kw, fast_charge_port, price_range, charging_time_minutes, source_url
                 FROM ev_models
                 ORDER BY name ASC;
             """)).mappings().all()
@@ -115,7 +115,7 @@ def _parse_fallback(row: dict) -> Optional[dict]:
         "max_dc_charge_kw": _min_num(row.get("fast_charging_power_kw_dc")),
         "fast_charge_port": (row.get("fast_charge_port") or "").strip() or None,
         "price_range": (row.get("price_range") or row.get("Vehicle Price Range") or "").strip() or None,
-        "charging_time": (row.get("charging_time") or row.get("Charging time") or "").strip() or None,
+        "charging_time_minutes": _min_num(row.get("charging_time_minutes") or row.get("charging_time") or row.get("Charging time")),
         "source_url": (row.get("source_url") or row.get("Source URL") or "").strip() or None,
     }
 

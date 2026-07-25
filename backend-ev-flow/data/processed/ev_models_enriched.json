@@ -16,7 +16,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 214 - 307,5 Juta",
-    "charging_time": "8.5 Jam",
+    "charging_time_minutes": 510.0,
     "source_url": "https://www.oto.com/mobil-baru/wuling/ev",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -55,7 +55,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 323,17 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/vinfast/vf-5",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -94,7 +94,7 @@
     "max_dc_charge_kw": 68.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 345 - 419 Juta",
-    "charging_time": "35 Menit",
+    "charging_time_minutes": 35.0,
     "source_url": "https://www.oto.com/mobil-baru/mg/4-ev",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -157,7 +157,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 383 - 433 Juta",
-    "charging_time": "40 Menit",
+    "charging_time_minutes": 40.0,
     "source_url": "https://www.oto.com/mobil-baru/byd/m6",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -196,7 +196,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 279 - 332 Juta",
-    "charging_time": "35 Menit",
+    "charging_time_minutes": 35.0,
     "source_url": "https://www.oto.com/mobil-baru/wuling/binguo-ev",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -235,7 +235,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 411,86 Juta",
-    "charging_time": "27 Menit",
+    "charging_time_minutes": 27.0,
     "source_url": "https://www.oto.com/mobil-baru/vinfast/vf-e34",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -274,7 +274,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 415 - 443 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/wuling/cloud",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -313,7 +313,7 @@
     "max_dc_charge_kw": 75.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 639 - 750 Juta",
-    "charging_time": "37 Menit",
+    "charging_time_minutes": 37.0,
     "source_url": "https://www.oto.com/mobil-baru/byd/seal",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -376,7 +376,7 @@
     "max_dc_charge_kw": 50.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 369 - 429 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/byd/dolphin",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -439,7 +439,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 379,9 - 419,9 Juta",
-    "charging_time": "28 Menit",
+    "charging_time_minutes": 28.0,
     "source_url": "https://www.oto.com/mobil-baru/chery/e5",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -478,7 +478,7 @@
     "max_dc_charge_kw": 75.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 390 - 520 Juta",
-    "charging_time": "45 Menit",
+    "charging_time_minutes": 45.0,
     "source_url": "https://www.oto.com/mobil-baru/byd/atto-3",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -541,7 +541,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 299 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/neta/v-ii",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -580,7 +580,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 698 Juta",
-    "charging_time": "45 Menit",
+    "charging_time_minutes": 45.0,
     "source_url": "https://www.oto.com/mobil-baru/farizon/sv",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -619,7 +619,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 389 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/vinfast/limo-green",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -658,7 +658,7 @@
     "max_dc_charge_kw": 260.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 1,1 Milyar",
-    "charging_time": "15 Menit",
+    "charging_time_minutes": 15.0,
     "source_url": "https://www.oto.com/mobil-baru/zeekr/7x",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -721,7 +721,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 755 - 758 Juta",
-    "charging_time": "60 Menit",
+    "charging_time_minutes": 60.0,
     "source_url": "https://www.oto.com/mobil-baru/suzuki/e-vitara",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -760,7 +760,7 @@
     "max_dc_charge_kw": 80.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 333,9 - 455,9 Juta",
-    "charging_time": "35 Menit",
+    "charging_time_minutes": 35.0,
     "source_url": "https://www.oto.com/mobil-baru/mg/s5-ev",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -823,7 +823,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/byd/atto-4",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -862,7 +862,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/geely/star-wish",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -901,7 +901,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "20 Menit",
+    "charging_time_minutes": 20.0,
     "source_url": "https://www.oto.com/mobil-baru/byd/denza-z9-gt",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -940,7 +940,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 480 Juta",
-    "charging_time": "10 Jam",
+    "charging_time_minutes": 600.0,
     "source_url": "https://www.oto.com/mobil-baru/wuling/e200",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -979,7 +979,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/jaecoo/j6",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -1018,7 +1018,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 178 Juta",
-    "charging_time": "9.5 Jam",
+    "charging_time_minutes": 570.0,
     "source_url": "https://www.oto.com/mobil-baru/changan/lumin",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -1057,7 +1057,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 5,9 Milyar",
-    "charging_time": "32 Menit",
+    "charging_time_minutes": 32.0,
     "source_url": "https://www.oto.com/mobil-baru/mercedes-benz/g-class-electric",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -1096,7 +1096,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 189 - 219 Juta",
-    "charging_time": "4 - 4.5 Jam",
+    "charging_time_minutes": 255.0,
     "source_url": "https://www.oto.com/mobil-baru/dfsk/seres-e1",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -1135,7 +1135,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 950 Juta",
-    "charging_time": "45 Menit",
+    "charging_time_minutes": 45.0,
     "source_url": "https://www.oto.com/mobil-baru/byd/denza-d9",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -1174,7 +1174,7 @@
     "max_dc_charge_kw": 126.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "34 Menit",
+    "charging_time_minutes": 34.0,
     "source_url": "https://www.oto.com/mobil-baru/rolls-royce/spectre",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1237,7 +1237,7 @@
     "max_dc_charge_kw": 195.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "22.5 Menit",
+    "charging_time_minutes": 22.5,
     "source_url": "https://www.oto.com/mobil-baru/porsche/taycan",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1300,7 +1300,7 @@
     "max_dc_charge_kw": 150.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 809 - 933,6 Juta",
-    "charging_time": "18 Menit",
+    "charging_time_minutes": 18.0,
     "source_url": "https://www.oto.com/mobil-baru/hyundai/ioniq-5",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1363,7 +1363,7 @@
     "max_dc_charge_kw": 82.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 376 - 417,5 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/mg/zs-ev",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1426,7 +1426,7 @@
     "max_dc_charge_kw": 50.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 565,3 - 689,6 Juta",
-    "charging_time": "43 Menit",
+    "charging_time_minutes": 43.0,
     "source_url": "https://www.oto.com/mobil-baru/hyundai/kona-electric",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1489,7 +1489,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 582,1 Juta",
-    "charging_time": "2.5 Jam",
+    "charging_time_minutes": 150.0,
     "source_url": "https://www.oto.com/mobil-baru/dfsk/gelora-electric",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -1528,7 +1528,7 @@
     "max_dc_charge_kw": 140.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "15 Menit (Supercharger)",
+    "charging_time_minutes": 15.0,
     "source_url": "https://www.oto.com/mobil-baru/tesla/model-x",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1591,7 +1591,7 @@
     "max_dc_charge_kw": 200.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 1,237 Milyar",
-    "charging_time": "18 Menit",
+    "charging_time_minutes": 18.0,
     "source_url": "https://www.oto.com/mobil-baru/hyundai/ioniq-6",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1654,7 +1654,7 @@
     "max_dc_charge_kw": 60.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 380,5 Juta",
-    "charging_time": "57 Menit",
+    "charging_time_minutes": 57.0,
     "source_url": "https://www.oto.com/mobil-baru/citroen/e-c3",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1717,7 +1717,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 419 - 479 Juta",
-    "charging_time": "45 Menit",
+    "charging_time_minutes": 45.0,
     "source_url": "https://www.oto.com/mobil-baru/gac/aion-y-plus",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -1756,7 +1756,7 @@
     "max_dc_charge_kw": 100.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/lexus/rz",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1819,7 +1819,7 @@
     "max_dc_charge_kw": 145.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 1,495 - 1,55 Milyar",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/volkswagen/id-buzz",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1882,7 +1882,7 @@
     "max_dc_charge_kw": 140.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "15 Menit (Supercharger)",
+    "charging_time_minutes": 15.0,
     "source_url": "https://www.oto.com/mobil-baru/tesla/model-s",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -1945,7 +1945,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 691 - 843,5 Juta",
-    "charging_time": "15 Menit",
+    "charging_time_minutes": 15.0,
     "source_url": "https://www.oto.com/mobil-baru/gac/aion-hyptec-ht",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -1984,7 +1984,7 @@
     "max_dc_charge_kw": 124.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "15 Menit (Supercharger)",
+    "charging_time_minutes": 15.0,
     "source_url": "https://www.oto.com/mobil-baru/tesla/model-3",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2047,7 +2047,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 428 - 448 Juta",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/neta/x",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -2086,7 +2086,7 @@
     "max_dc_charge_kw": 85.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 1,705 Milyar",
-    "charging_time": "26 Menit",
+    "charging_time_minutes": 26.0,
     "source_url": "https://www.oto.com/mobil-baru/mg/cyberster",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2149,7 +2149,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 385 - 439,6 Juta",
-    "charging_time": "24 Menit",
+    "charging_time_minutes": 24.0,
     "source_url": "https://www.oto.com/mobil-baru/vinfast/vf-6",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -2188,7 +2188,7 @@
     "max_dc_charge_kw": 136.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 2,225 - 2,83 Milyar",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/bmw/i5",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2251,7 +2251,7 @@
     "max_dc_charge_kw": 160.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 1,568 - 1,985 Milyar",
-    "charging_time": "24 Menit",
+    "charging_time_minutes": 24.0,
     "source_url": "https://www.oto.com/mobil-baru/kia/ev9",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2314,7 +2314,7 @@
     "max_dc_charge_kw": 35.0,
     "fast_charge_port": "CHAdeMO",
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "80 Menit",
+    "charging_time_minutes": 80.0,
     "source_url": "https://www.oto.com/mobil-baru/lexus/ux",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2377,7 +2377,7 @@
     "max_dc_charge_kw": 130.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 3,135 - 4,11 Milyar",
-    "charging_time": "31 Menit",
+    "charging_time_minutes": 31.0,
     "source_url": "https://www.oto.com/mobil-baru/mercedes-benz/eqs",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2440,7 +2440,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 740 Juta",
-    "charging_time": "60 Menit",
+    "charging_time_minutes": 60.0,
     "source_url": "https://www.oto.com/mobil-baru/nissan/leaf",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -2479,7 +2479,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 379 Juta",
-    "charging_time": "45 Menit",
+    "charging_time_minutes": 45.0,
     "source_url": "https://www.oto.com/mobil-baru/gwm/ora-03-bev",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -2518,7 +2518,7 @@
     "max_dc_charge_kw": 150.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 2,628 Milyar",
-    "charging_time": "35 Menit",
+    "charging_time_minutes": 35.0,
     "source_url": "https://www.oto.com/mobil-baru/bmw/ix",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2581,7 +2581,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 26,6 - 31,6 Juta",
-    "charging_time": "45 Menit",
+    "charging_time_minutes": 45.0,
     "source_url": "https://www.oto.com/mobil-baru/honda/en1",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -2620,7 +2620,7 @@
     "max_dc_charge_kw": 100.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 1,19 Milyar",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/toyota/bz4x",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2683,7 +2683,7 @@
     "max_dc_charge_kw": 159.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 3,415 Milyar",
-    "charging_time": "34 Menit",
+    "charging_time_minutes": 34.0,
     "source_url": "https://www.oto.com/mobil-baru/bmw/i7",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2746,7 +2746,7 @@
     "max_dc_charge_kw": 94.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 1,379 Milyar",
-    "charging_time": "29 Menit",
+    "charging_time_minutes": 29.0,
     "source_url": "https://www.oto.com/mobil-baru/bmw/ix1",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2809,7 +2809,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 2,275 Milyar",
-    "charging_time": "30 Menit",
+    "charging_time_minutes": 30.0,
     "source_url": "https://www.oto.com/mobil-baru/bmw/i5-touring",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -2848,7 +2848,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 323,3 Juta",
-    "charging_time": "42 Menit",
+    "charging_time_minutes": 42.0,
     "source_url": "https://www.oto.com/mobil-baru/mitsubishi/l100-ev",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -2887,7 +2887,7 @@
     "max_dc_charge_kw": 114.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 930 Juta - 1,1 Milyar",
-    "charging_time": "26 Menit",
+    "charging_time_minutes": 26.0,
     "source_url": "https://www.oto.com/mobil-baru/volvo/ex30",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",
@@ -2950,7 +2950,7 @@
     "max_dc_charge_kw": null,
     "fast_charge_port": null,
     "price_range": "Rp 499 - 599 Juta",
-    "charging_time": "28 Menit",
+    "charging_time_minutes": 28.0,
     "source_url": "https://www.oto.com/mobil-baru/vinfast/vf-7",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv"
@@ -2989,7 +2989,7 @@
     "max_dc_charge_kw": 205.0,
     "fast_charge_port": "CCS",
     "price_range": "Rp 1,5 Milyar",
-    "charging_time": "18 Menit",
+    "charging_time_minutes": 18.0,
     "source_url": "https://www.oto.com/mobil-baru/hyundai/ioniq-5-n",
     "source_datasets": [
       "indonesia_ev_specs_pricing_2026.csv",

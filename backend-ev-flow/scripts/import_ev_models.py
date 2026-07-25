@@ -56,6 +56,20 @@ def _parse_range_bounds(val: Any) -> Tuple[Optional[float], Optional[float], Opt
     return val_min, val_min, val_max
 
 
+def _parse_charging_time_minutes(val: Any) -> Optional[float]:
+    if val is None:
+        return None
+    s = str(val).strip().lower()
+    if not s or s == "nan":
+        return None
+    is_hours = "jam" in s or "hour" in s or "hr" in s
+    nums = _parse_numbers(val)
+    if not nums:
+        return None
+    val_num = sum(nums) / len(nums) if len(nums) <= 2 else nums[0]
+    return round(val_num * 60.0, 1) if is_hours else round(nums[0], 1)
+
+
 def _normalize_token(text: str) -> str:
     t = text.lower()
     t = re.sub(r"\b(ev|electric|vehicle|car|long|range|standard|plus|pro|max)\b", "", t)
@@ -200,7 +214,7 @@ def build_enriched_models(rows_2026: List[Dict[str, str]], rows_2025: List[Dict[
             "max_dc_charge_kw": max_dc_charge_kw,
             "fast_charge_port": fast_charge_port,
             "price_range": (r2026.get("Vehicle Price Range") or "").strip() or None,
-            "charging_time": (r2026.get("Charging time") or "").strip() or None,
+            "charging_time_minutes": _parse_charging_time_minutes(r2026.get("Charging time") or r2026.get("Charging Time (0-80% / 10-80%)")),
             "source_url": (r2026.get("Source URL") or "").strip() or None,
             "source_datasets": source_datasets,
             "source_payload": {
@@ -225,19 +239,19 @@ def save_to_json(enriched_models: List[Dict[str, Any]]) -> None:
 def save_to_db(enriched_models: List[Dict[str, Any]]) -> int:
     try:
         from sqlalchemy import create_engine, text
-        database_url = os.getenv("DATABASE_URL", "postgresql://evflow:evflow_pass@localhost:5432/evflow")
+        database_url = os.getenv("DATABASE_URL", "postgresql+psycopg://evflow:evflow_pass@localhost:5432/evflow")
         engine = create_engine(database_url)
 
         upsert_stmt = text("""
             INSERT INTO ev_models (
                 id, name, make, model, brand, battery_kwh, battery_kwh_min, battery_kwh_max,
                 range_km, range_km_min, range_km_max, efficiency_wh_per_km, efficiency_source,
-                max_dc_charge_kw, fast_charge_port, price_range, charging_time, source_url,
+                max_dc_charge_kw, fast_charge_port, price_range, charging_time_minutes, source_url,
                 source_datasets, source_payload, match_method, match_confidence, updated_at
             ) VALUES (
                 :id, :name, :make, :model, :brand, :battery_kwh, :battery_kwh_min, :battery_kwh_max,
                 :range_km, :range_km_min, :range_km_max, :efficiency_wh_per_km, :efficiency_source,
-                :max_dc_charge_kw, :fast_charge_port, :price_range, :charging_time, :source_url,
+                :max_dc_charge_kw, :fast_charge_port, :price_range, :charging_time_minutes, :source_url,
                 :source_datasets, :source_payload, :match_method, :match_confidence, NOW()
             ) ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
@@ -255,7 +269,7 @@ def save_to_db(enriched_models: List[Dict[str, Any]]) -> int:
                 max_dc_charge_kw = EXCLUDED.max_dc_charge_kw,
                 fast_charge_port = EXCLUDED.fast_charge_port,
                 price_range = EXCLUDED.price_range,
-                charging_time = EXCLUDED.charging_time,
+                charging_time_minutes = EXCLUDED.charging_time_minutes,
                 source_url = EXCLUDED.source_url,
                 source_datasets = EXCLUDED.source_datasets,
                 source_payload = EXCLUDED.source_payload,
@@ -285,7 +299,7 @@ def save_to_db(enriched_models: List[Dict[str, Any]]) -> int:
                     "max_dc_charge_kw": m["max_dc_charge_kw"],
                     "fast_charge_port": m["fast_charge_port"],
                     "price_range": m["price_range"],
-                    "charging_time": m["charging_time"],
+                    "charging_time_minutes": m["charging_time_minutes"],
                     "source_url": m["source_url"],
                     "source_datasets": m["source_datasets"],
                     "source_payload": payload_json,
