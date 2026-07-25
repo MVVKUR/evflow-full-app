@@ -39,11 +39,42 @@ python -m api.export_openapi
 | GET | `/api/v1/route/nearest-station` | Nearest charger reachable by road + route; `ev_model_id`+`current_soc` (or `max_range_km`) flags battery reachability |
 | GET | `/api/v1/ev-models` | EV model catalogue (battery/range) from Kaggle dataset; `/{id}` for one |
 | GET | `/api/v1/stats` | Totals, by-source, by-province, by-charge-type, power summary |
+| POST | `/api/v1/route-plans` | Simulate energy consumption & recommend optimal SPKLU stop (Epic 2.0) |
+| GET | `/api/v1/geocoding/search` | Search places and SPKLU stations for destination picker (Epic 2.0) |
 | GET | `/api/v1/sources` | Sources with counts |
 | GET | `/api/v1/provinces` | Provinces with counts (filter dropdown) |
 | GET | `/api/v1/cities?province=` | Cities with counts |
 | GET | `/api/v1/connectors` | Connector types with counts (inferred) — AC 1.2.1 filter |
 | GET | `/api/v1/speed-tiers` | Speed-tier definitions with counts — AC 1.2.1 filter |
+
+## Epic 2.0: Route Planning & Energy Model
+
+### Endpoints
+- `POST /api/v1/route-plans`: Simulates energy consumption for an origin, destination, and current SoC. Returns direct route or recommended SPKLU charging stop. Vehicle battery capacity is automatically fetched from the authenticated user's selected EV profile model.
+- `GET /api/v1/geocoding/search?q=...&lat=...&lon=...`: Place and station search proxy with 5-minute non-sensitive caching.
+
+### Physics-Based Energy Calculation
+Derived from **Ebrahimi et al. (2026), ScienceDirect**:
+```
+available_energy_kwh = battery_kwh × current_soc_pct / 100
+base_trip_energy_kwh = distance_km × efficiency_wh_per_km / 1000
+estimated_trip_energy_kwh = base_trip_energy_kwh × route_adjustment_factor + auxiliary_energy_kwh
+estimated_arrival_soc_pct = 100 × (available_energy_kwh - estimated_trip_energy_kwh) / battery_kwh
+```
+
+### Data Import & Migrations
+- Migration: `alembic upgrade head` (Revision `0010_enrich_ev_models`)
+- Importer: `python scripts/import_ev_models.py` (idempotent upsert enriching 2026 local dataset with 2025 specs and derived efficiency)
+
+### Data Management & Privacy
+- Coordinates are rounded to 4 decimal places before provider calls.
+- No raw precise GPS coordinates or battery SoC levels are saved in database logs or analytics.
+
+### Known Limitations
+- Single-stop optimization for Iteration 2.
+- Availability status is operational/known, not live dynamic telemetry.
+- Connectors and intake power are inferred where source datasets omit detailed attributes.
+
 
 ### Filter params (on `/stations` and `/stations.geojson`)
 - `source` = `pln_spklu` | `open_charge_map` | `osm`

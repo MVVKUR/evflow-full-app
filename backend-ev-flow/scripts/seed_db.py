@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text          # noqa: E402
 
-from api import dedup, sources  # noqa: E402
+from api import dedup, security, sources  # noqa: E402
 from api.db import engine            # noqa: E402
 
 _INSERT = text("""
@@ -47,6 +47,33 @@ _EXPLODE_CONNECTORS = text("""
 """)
 
 
+def seed_demo_users(conn) -> None:
+    pw_hash = security.hash_password("evflow-demo-2026")
+    conn.execute(text("""
+        INSERT INTO users (id, username, password_hash, full_name, account_type, profile_completed)
+        VALUES
+            ('a0000000-0000-0000-0000-000000000001'::uuid, 'demo.driver', :ph, 'Demo User', 'ev_user', true),
+            ('a0000000-0000-0000-0000-000000000002'::uuid, 'fleet.operator', :ph, 'Fleet Operator', 'business_planner', true)
+        ON CONFLICT (username) DO UPDATE SET
+            password_hash = EXCLUDED.password_hash,
+            full_name = EXCLUDED.full_name,
+            account_type = EXCLUDED.account_type,
+            profile_completed = EXCLUDED.profile_completed;
+    """), {"ph": pw_hash})
+
+    conn.execute(text("""
+        INSERT INTO wallet (id, user_id, balance_idr)
+        SELECT (SELECT COALESCE(MAX(id), 0) FROM wallet) + row_number() over (), u.id, 500000
+        FROM users u
+        WHERE u.username IN ('demo.driver', 'fleet.operator')
+          AND NOT EXISTS (SELECT 1 FROM wallet w WHERE w.user_id = u.id);
+    """))
+    conn.execute(text("""
+        UPDATE wallet SET balance_idr = GREATEST(balance_idr, 500000), updated_at = now()
+        WHERE user_id IN (SELECT id FROM users WHERE username IN ('demo.driver', 'fleet.operator'));
+    """))
+
+
 def main() -> None:
     stations = build_stations()
     with engine.begin() as conn:
@@ -70,7 +97,8 @@ def main() -> None:
                 "status": s.get("status"), "date_verified": s.get("date_verified"),
             })
         n_connectors = conn.execute(_EXPLODE_CONNECTORS).rowcount
-    print(f"seeded {len(stations)} stations, {n_connectors} connectors")
+        seed_demo_users(conn)
+    print(f"seeded {len(stations)} stations, {n_connectors} connectors, and 2 demo users")
 
 
 if __name__ == "__main__":

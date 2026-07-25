@@ -173,15 +173,26 @@ class NearestStationRoute(BaseModel):
 # ---- EV model catalogue (Kaggle Indonesia-EV-2026; seed of Epic 6.0) --------
 class EVModel(BaseModel):
     id: str = Field(..., examples=["wuling-air-ev"])
+    brand: Optional[str] = Field(None, examples=["Wuling"])
     name: str = Field(..., examples=["Wuling Air EV"])
     make: Optional[str] = Field(None, examples=["Wuling"])
     model: Optional[str] = Field(None, examples=["Air EV"])
     battery_kwh: Optional[float] = Field(None, description="Usable battery capacity (kWh).", examples=[26.7])
+    battery_kwh_min: Optional[float] = Field(None, examples=[26.7])
+    battery_kwh_max: Optional[float] = Field(None, examples=[26.7])
     range_km: Optional[float] = Field(
         None, description="Manufacturer range (km); the lower bound where a range is given.", examples=[200.0])
+    range_km_min: Optional[float] = Field(None, examples=[200.0])
+    range_km_max: Optional[float] = Field(None, examples=[300.0])
+    efficiency_wh_per_km: Optional[float] = Field(None, description="Efficiency (Wh/km).", examples=[133.5])
+    efficiency_source: Optional[str] = Field(None, examples=["derived_local_specs"])
+    max_dc_charge_kw: Optional[float] = Field(None, description="Max DC fast charge power (kW).", examples=[50.0])
+    fast_charge_port: Optional[str] = Field(None, examples=["CCS2"])
     price_range: Optional[str] = Field(None, examples=["Rp 214 - 307,5 Juta"])
     charging_time: Optional[str] = Field(None, examples=["8.5 Jam"])
     source_url: Optional[str] = Field(None)
+    match_method: Optional[str] = Field(None, examples=["normalized_fuzzy_match"])
+    match_confidence: Optional[float] = Field(None, examples=[0.85])
 
 
 class EVModelList(BaseModel):
@@ -189,6 +200,7 @@ class EVModelList(BaseModel):
     limit: int = Field(..., examples=[100])
     offset: int = Field(..., examples=[0])
     items: list[EVModel]
+
 
 
 # ---- wallet / top-up (Epic 3.0: Xendit integration) -------------------------
@@ -325,3 +337,97 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserPublic
+
+
+# ---- Epic 2.0 Route Planning & Geocoding Schemas ----------------------------
+class RouteLocationInput(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90, examples=[-6.2088])
+    longitude: float = Field(..., ge=-180, le=180, examples=[106.8456])
+    label: Optional[str] = Field(None, examples=["Current Location"])
+
+
+class RoutePreferencesInput(BaseModel):
+    route_type: str = Field("fastest", examples=["fastest"])
+    maximum_detour_km: float = Field(8.0, ge=1.0, le=50.0, examples=[8.0])
+    prefer_fast_charging: bool = Field(True)
+
+
+class RoutePlanRequest(BaseModel):
+    origin: RouteLocationInput
+    destination: RouteLocationInput
+    current_soc_pct: float = Field(..., ge=0, le=100, examples=[72.0])
+    minimum_arrival_soc_pct: float = Field(15.0, ge=0, le=50, examples=[15.0])
+    preferences: Optional[RoutePreferencesInput] = Field(default_factory=RoutePreferencesInput)
+    waypoint_station_id: Optional[str] = Field(None, description="Optional station ID to force as a route waypoint.")
+
+
+class VehicleSummary(BaseModel):
+    id: str = Field(..., examples=["hyundai-ioniq-5"])
+    name: str = Field(..., examples=["Hyundai Ioniq 5 Standard Range"])
+    battery_kwh: float = Field(..., examples=[58.0])
+    efficiency_wh_per_km: float = Field(..., examples=[160.0])
+    efficiency_source: str = Field(..., examples=["dataset"])
+
+
+class TripSummary(BaseModel):
+    distance_km: float = Field(..., examples=[148.0])
+    duration_minutes: float = Field(..., examples=[190.0])
+    estimated_energy_kwh: float = Field(..., examples=[31.2])
+    estimated_arrival_soc_pct: float = Field(..., examples=[12.0])
+    minimum_arrival_soc_pct: float = Field(..., examples=[15.0])
+
+
+class RoutePlanGeometryAndSteps(BaseModel):
+    type: str = Field("Feature", examples=["Feature"])
+    geometry: RouteGeometry
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class RecommendedStop(BaseModel):
+    station: Station
+    distance_from_origin_km: float = Field(..., examples=[82.0])
+    detour_km: float = Field(..., examples=[2.1])
+    arrival_soc_pct: float = Field(..., examples=[18.0])
+    recommended_target_soc_pct: float = Field(..., examples=[80.0])
+    energy_to_add_kwh: float = Field(..., examples=[20.0])
+    estimated_charging_minutes: float = Field(..., examples=[25.0])
+    effective_charging_power_kw: float = Field(..., examples=[50.0])
+    connector_compatible: bool = Field(True)
+    availability: str = Field("unknown", examples=["available_now", "unknown"])
+    data_confidence: str = Field("medium", examples=["high", "medium", "low"])
+
+
+class RoutePlanAssumptions(BaseModel):
+    reserve_soc_pct: float = Field(15.0)
+    weather_applied: bool = Field(False)
+    traffic_applied: bool = Field(False)
+    connector_data_inferred: bool = Field(True)
+    energy_model_version: str = Field("spec-v1")
+
+
+class RoutePlanResponse(BaseModel):
+    route_plan_id: str = Field(..., examples=["ephemeral-12345"])
+    directly_reachable: bool = Field(..., examples=[False])
+    vehicle: VehicleSummary
+    summary: TripSummary
+    route: RoutePlanGeometryAndSteps
+    recommended_stop: Optional[RecommendedStop] = None
+    assumptions: RoutePlanAssumptions = Field(default_factory=RoutePlanAssumptions)
+
+
+class GeocodingItem(BaseModel):
+    id: str = Field(..., examples=["place-1"])
+    label: str = Field(..., examples=["Bandung"])
+    subtitle: str = Field(..., examples=["West Java · via Tol Cipularang"])
+    latitude: float = Field(..., ge=-90, le=90, examples=[-6.9175])
+    longitude: float = Field(..., ge=-180, le=180, examples=[107.6191])
+    distance_km: Optional[float] = Field(None, examples=[148.0])
+    type: str = Field(..., description="'place' or 'station'", examples=["place"])
+    station: Optional[Station] = None
+    attribution: str = Field("OpenStreetMap contributors, PLN SPKLU")
+
+
+class GeocodingSearchResponse(BaseModel):
+    query: str
+    items: list[GeocodingItem]
+

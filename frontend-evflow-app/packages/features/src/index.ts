@@ -1,6 +1,8 @@
 export * from './business/BusinessDashboardScreen';
 export * from './ev_driver/EVDriverContainer';
+export * from './ev_driver/plan_route/PlanRouteScreen';
 export * from './ev_driver/components/FilterCategory';
+
 export * from './ev_driver/types';
 export * from './ev_driver/walletTransactions';
 export * from './home/HomeScreen';

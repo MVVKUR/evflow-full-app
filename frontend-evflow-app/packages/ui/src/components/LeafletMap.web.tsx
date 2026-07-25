@@ -13,12 +13,16 @@ type LeafletMapProps = {
   markerIconSvg?: string;
   markers?: LeafletMapMarker[];
   onMarkerPress?: (markerId: string) => void;
+  polylineCoordinates?: [number, number][];
+  polylineColor?: string;
+  autoFitBounds?: boolean;
   radiusKm?: number | null;
   selectedMarkerIconSvg?: string;
   selectedMarkerId?: string | null;
   showCurrentLocationPinpoint?: boolean;
   zoom?: number;
 };
+
 
 type LeafletMapMarker = {
   id: string;
@@ -38,11 +42,14 @@ const defaultCenter = {
 };
 
 export function LeafletMap({
+  autoFitBounds,
   center = defaultCenter,
   currentLocation,
   markerIconSvg,
   markers = [],
   onMarkerPress,
+  polylineColor,
+  polylineCoordinates,
   radiusKm,
   selectedMarkerIconSvg,
   selectedMarkerId = null,
@@ -246,6 +253,8 @@ export function LeafletMap({
     mapRef.current?.setView([center.latitude, center.longitude], zoom);
   }, [center.latitude, center.longitude, zoom]);
 
+  const polylineRef = useRef<import('leaflet').Polyline | null>(null);
+
   useEffect(() => {
     renderStationMarkers(markers);
 
@@ -254,6 +263,32 @@ export function LeafletMap({
       stationMarkersRef.current = [];
     };
   }, [mapRevision, markerIconSvg, markers, onMarkerPress, selectedMarkerIconSvg, selectedMarkerId]);
+
+  useEffect(() => {
+    if (!mapRef.current || !leafletRef.current) {
+      return;
+    }
+
+    if (polylineRef.current) {
+      polylineRef.current.remove();
+      polylineRef.current = null;
+    }
+
+    if (polylineCoordinates && polylineCoordinates.length > 1) {
+      const poly = leafletRef.current.polyline(polylineCoordinates, {
+        color: polylineColor || '#00696F',
+        weight: 5,
+        opacity: 0.85
+      }).addTo(mapRef.current);
+
+      polylineRef.current = poly;
+
+      if (autoFitBounds) {
+        mapRef.current.fitBounds(poly.getBounds(), { padding: [40, 40] });
+      }
+    }
+  }, [polylineCoordinates, polylineColor, autoFitBounds]);
+
 
   useEffect(() => {
     if (currentLocation) {

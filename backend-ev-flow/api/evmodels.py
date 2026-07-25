@@ -1,35 +1,28 @@
-"""EV model catalogue (Kaggle Indonesia-EV-2026): specs for range-aware routing.
+"""EV model catalogue (Kaggle Indonesia-EV-2026 enriched with 2025 specs).
 
-Loads make / model / battery / range from the Kaggle dataset (the committed
-``ev_dataset.zip``, or an extracted CSV). This is the seed of the Epic 6.0 EVModel
-catalogue; for now it backs the optional ``ev_model_id`` + ``current_soc`` inputs on
-the nearest-station routing endpoint (Route & Battery), so the backend can derive
-the remaining range instead of the client having to know each car's specs.
-
-Stdlib only (csv + zipfile) so it stays light and unit-testable without pandas.
-The Kaggle fields are free-text (e.g. "26.7 kWh", "200 - 300 km"); numbers are
-parsed out and, where a range is given, the **lower** bound is kept (conservative
-for a "can I reach it?" check).
+Database-backed repository reading from PostgreSQL `ev_models` table with
+a JSON file and zip fallback for offline test runs and local development.
 """
 from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import re
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
+JSON_PATH = ROOT / "data" / "processed" / "ev_models_enriched.json"
 CSV_PATH = Path(os.getenv("EV_DATASET_CSV", ROOT / "data" / "raw" / "indonesia_ev_specs_pricing_2026.csv"))
 ZIP_PATH = ROOT / "ev_dataset.zip"
 ZIP_MEMBER = "indonesia_ev_specs_pricing_2026.csv"
 
-# Plan to arrive with a reserve and discount optimistic manufacturer range.
 RANGE_SAFETY_FACTOR = float(os.getenv("ROUTING_RANGE_SAFETY_FACTOR", 0.85))
 
-_MODELS: Optional[list] = None
+_MODELS_CACHE: Optional[List[Dict[str, Any]]] = None
 
 
 def _slug(name: str) -> str:
@@ -47,7 +40,36 @@ def _min_num(s) -> Optional[float]:
     return min(nums) if nums else None
 
 
-def _read_rows() -> list:
+def _load_from_db() -> List[Dict[str, Any]]:
+    try:
+        from sqlalchemy import text
+        from api.db import engine
+
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT id, name, make, model, brand, battery_kwh, range_km, efficiency_wh_per_km,
+                       efficiency_source, max_dc_charge_kw, fast_charge_port, price_range, charging_time, source_url
+                FROM ev_models
+                ORDER BY name ASC;
+            """)).mappings().all()
+            if rows:
+                return [dict(r) for r in rows]
+    except Exception:
+        pass
+    return []
+
+
+def _load_from_json() -> List[Dict[str, Any]]:
+    if JSON_PATH.exists():
+        try:
+            with open(JSON_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
+def _read_raw_rows() -> list:
     if CSV_PATH.exists():
         with open(CSV_PATH, encoding="utf-8-sig", newline="") as f:
             return list(csv.DictReader(f))
@@ -62,51 +84,79 @@ def _read_rows() -> list:
     return []
 
 
-def _parse(row: dict) -> Optional[dict]:
-    name = (row.get("Vehicle Name") or "").strip()
+def _parse_fallback(row: dict) -> Optional[dict]:
+    name = (row.get("name") or row.get("Vehicle Name") or "").strip()
     if not name:
         return None
     parts = name.split()
+    brand = (row.get("brand") or row.get("make") or parts[0]).strip()
+    make = brand
+    model = (row.get("model") or (" ".join(parts[1:]) if len(parts) > 1 else name)).strip()
+
+    bat_kwh = _min_num(row.get("battery_kwh") or row.get("Battery Capacity"))
+    range_km = _min_num(row.get("range_km") or row.get("Range (Jarak Tempuh)"))
+
+    eff = _min_num(row.get("efficiency_wh_per_km"))
+    eff_src = "dataset"
+    if eff is None and bat_kwh and range_km and range_km > 0:
+        eff = round((bat_kwh * 1000.0) / range_km, 2)
+        eff_src = "derived_local_specs"
+
     return {
-        "id": _slug(name),
+        "id": row.get("id") or _slug(name),
+        "brand": brand,
         "name": name,
-        "make": parts[0],
-        "model": " ".join(parts[1:]) or name,
-        "battery_kwh": _min_num(row.get("Battery Capacity")),
-        "range_km": _min_num(row.get("Range (Jarak Tempuh)")),
-        "price_range": (row.get("Vehicle Price Range") or "").strip() or None,
-        "charging_time": (row.get("Charging time") or "").strip() or None,
-        "source_url": (row.get("Source URL") or "").strip() or None,
+        "make": make,
+        "model": model,
+        "battery_kwh": bat_kwh,
+        "range_km": range_km,
+        "efficiency_wh_per_km": eff,
+        "efficiency_source": eff_src,
+        "max_dc_charge_kw": _min_num(row.get("fast_charging_power_kw_dc")),
+        "fast_charge_port": (row.get("fast_charge_port") or "").strip() or None,
+        "price_range": (row.get("price_range") or row.get("Vehicle Price Range") or "").strip() or None,
+        "charging_time": (row.get("charging_time") or row.get("Charging time") or "").strip() or None,
+        "source_url": (row.get("source_url") or row.get("Source URL") or "").strip() or None,
     }
 
 
-def load() -> list:
-    """Build (once) and return the EV model catalogue."""
-    global _MODELS
-    if _MODELS is not None:
-        return _MODELS
+def load() -> List[Dict[str, Any]]:
+    """Return EV model catalogue, trying DB first, then JSON, then raw fallback."""
+    global _MODELS_CACHE
+    if _MODELS_CACHE is not None:
+        return _MODELS_CACHE
+
+    db_models = _load_from_db()
+    if db_models:
+        _MODELS_CACHE = db_models
+        return _MODELS_CACHE
+
+    json_models = _load_from_json()
+    if json_models:
+        _MODELS_CACHE = json_models
+        return _MODELS_CACHE
+
     seen: dict = {}
-    for row in _read_rows():
-        m = _parse(row)
+    for row in _read_raw_rows():
+        m = _parse_fallback(row)
         if m and m["id"] not in seen:
             seen[m["id"]] = m
-    _MODELS = list(seen.values())
-    return _MODELS
+    _MODELS_CACHE = list(seen.values())
+    return _MODELS_CACHE
 
 
-def reload() -> list:
-    """Force a re-read from disk/zip."""
-    global _MODELS
-    _MODELS = None
+def reload() -> List[Dict[str, Any]]:
+    """Force cache clear and reload."""
+    global _MODELS_CACHE
+    _MODELS_CACHE = None
     return load()
 
 
-def get(model_id: str) -> Optional[dict]:
+def get(model_id: str) -> Optional[Dict[str, Any]]:
     return next((m for m in load() if m["id"] == model_id), None)
 
 
 def search(q: Optional[str], limit: int, offset: int):
-    """Return (total, page) for the catalogue, optionally filtered by name."""
     models = load()
     if q:
         ql = q.casefold()
@@ -116,11 +166,6 @@ def search(q: Optional[str], limit: int, offset: int):
 
 def remaining_range_km(range_km: Optional[float], soc_percent: float,
                        safety_factor: float = RANGE_SAFETY_FACTOR) -> Optional[float]:
-    """Usable remaining range (km) = full range × SoC × safety buffer.
-
-    Returns ``None`` when the model's range is unknown (caller should fall back to
-    an explicit ``max_range_km``).
-    """
     if range_km is None:
         return None
     return round(range_km * (soc_percent / 100.0) * safety_factor, 2)

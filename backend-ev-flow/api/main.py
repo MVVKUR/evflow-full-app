@@ -39,7 +39,10 @@ from .models import (
     ChargingQuote, ChargingQuoteRequest, ChargingSession, StartSessionRequest, SettleRequest,
     ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, ProfileUpdate, RegisterRequest,
     ResetPasswordRequest, ResetPasswordResponse, TokenResponse, UserPublic,
+    RoutePlanRequest, RoutePlanResponse, GeocodingSearchResponse, VehicleSummary,
+    TripSummary, RoutePlanGeometryAndSteps, RecommendedStop, RoutePlanAssumptions, GeocodingItem,
 )
+
 
 
 TAGS = [
@@ -624,3 +627,167 @@ def speed_tiers_lookup() -> list[SpeedTier]:
     counts = repo.speed_tier_counts()
     return [SpeedTier(id=t["id"], label=t["label"], min_kw=t["min_kw"], max_kw=t["max_kw"],
                       count=counts.get(t["id"], 0)) for t in conn.SPEED_TIERS]
+
+
+# ---- Epic 2.0 Route Planning & Geocoding Endpoints -------------------------
+@app.post("/api/v1/route-plans", response_model=RoutePlanResponse, tags=["routing"],
+          summary="Simulate trip energy consumption and recommend optimal SPKLU charging stop")
+async def create_route_plan(
+    body: RoutePlanRequest,
+    user: dict = Depends(security.current_user)
+) -> RoutePlanResponse:
+    ev_model_id = user.get("ev_model_id")
+    if not ev_model_id:
+        raise HTTPException(
+            409,
+            "Please select an EV model in your profile before simulating route energy consumption."
+        )
+
+    ev_model = evmodels.get(ev_model_id)
+    if not ev_model or not ev_model.get("battery_kwh"):
+        raise HTTPException(
+            409,
+            f"The selected vehicle '{ev_model_id}' lacks usable battery capacity data. Please select another vehicle model in your profile."
+        )
+
+    battery_kwh = float(ev_model["battery_kwh"])
+    efficiency_wh_per_km = float(ev_model.get("efficiency_wh_per_km") or 180.0)
+    efficiency_source = ev_model.get("efficiency_source") or "dataset"
+    max_dc_charge_kw = ev_model.get("max_dc_charge_kw")
+    fast_charge_port = ev_model.get("fast_charge_port") or user.get("main_connector_type")
+
+    # Round coordinates according to DMP (privacy and caching)
+    origin_lat = round(body.origin.latitude, 4)
+    origin_lon = round(body.origin.longitude, 4)
+    dest_lat = round(body.destination.latitude, 4)
+    dest_lon = round(body.destination.longitude, 4)
+
+    origin_pos = (origin_lat, origin_lon)
+    dest_pos = (dest_lat, dest_lon)
+
+    from api.services.routing_service import RoutingService, haversine_distance_km
+    from api.services.energy_estimator import EnergyEstimator
+    from api.services.stop_ranker import StopRanker
+
+    routing_service = RoutingService()
+    energy_estimator = EnergyEstimator()
+    stop_ranker = StopRanker(energy_estimator, routing_service)
+
+    # Direct route estimation
+    direct_route = await routing_service.get_route(origin_pos, dest_pos)
+    distance_km = direct_route["distance_km"]
+    duration_mins = direct_route["duration_minutes"]
+
+    est_direct = energy_estimator.estimate_trip_energy(
+        battery_kwh=battery_kwh,
+        efficiency_wh_per_km=efficiency_wh_per_km,
+        distance_km=distance_km,
+        current_soc_pct=body.current_soc_pct,
+        minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
+    )
+
+    max_detour_km = body.preferences.maximum_detour_km if body.preferences else 8.0
+
+    stop_required = (not est_direct.directly_reachable) or (body.waypoint_station_id is not None)
+
+    recommended_stop = None
+    final_route = direct_route
+    final_distance_km = distance_km
+    final_duration_mins = duration_mins
+    final_arrival_soc = est_direct.estimated_arrival_soc_pct
+    final_energy_kwh = est_direct.estimated_trip_energy_kwh
+
+    if stop_required:
+        rec_stop = await stop_ranker.select_recommended_stop(
+            origin=origin_pos,
+            destination=dest_pos,
+            direct_distance_km=distance_km,
+            battery_kwh=battery_kwh,
+            efficiency_wh_per_km=efficiency_wh_per_km,
+            current_soc_pct=body.current_soc_pct,
+            minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
+            vehicle_connector=fast_charge_port,
+            max_dc_charge_kw=max_dc_charge_kw,
+            maximum_detour_km=max_detour_km,
+            forced_station_id=body.waypoint_station_id,
+        )
+
+        if rec_stop:
+            recommended_stop = rec_stop
+            st_pos = (rec_stop.station.latitude, rec_stop.station.longitude)
+
+            stop_route = await routing_service.get_route(origin_pos, dest_pos, waypoints=[st_pos])
+            final_route = stop_route
+            final_distance_km = stop_route["distance_km"]
+
+            est_from_stop = energy_estimator.estimate_trip_energy(
+                battery_kwh=battery_kwh,
+                efficiency_wh_per_km=efficiency_wh_per_km,
+                distance_km=haversine_distance_km(st_pos[0], st_pos[1], dest_pos[0], dest_pos[1]),
+                current_soc_pct=rec_stop.recommended_target_soc_pct,
+                minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
+            )
+
+            final_arrival_soc = est_from_stop.estimated_arrival_soc_pct
+            final_duration_mins = stop_route["duration_minutes"] + rec_stop.estimated_charging_minutes
+            final_energy_kwh = round(est_direct.estimated_trip_energy_kwh * (final_distance_km / max(1.0, distance_km)), 2)
+
+    plan_id = f"plan-{uuid.uuid4().hex[:12]}"
+
+    return RoutePlanResponse(
+        route_plan_id=plan_id,
+        directly_reachable=est_direct.directly_reachable and not recommended_stop,
+        vehicle=VehicleSummary(
+            id=ev_model.get("id") or ev_model_id,
+            name=ev_model.get("name") or "Selected EV",
+            battery_kwh=battery_kwh,
+            efficiency_wh_per_km=efficiency_wh_per_km,
+            efficiency_source=efficiency_source,
+        ),
+        summary=TripSummary(
+            distance_km=final_distance_km,
+            duration_minutes=round(final_duration_mins, 1),
+            estimated_energy_kwh=final_energy_kwh,
+            estimated_arrival_soc_pct=final_arrival_soc,
+            minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
+        ),
+        route=RoutePlanGeometryAndSteps(
+            type="Feature",
+            geometry=final_route["geometry"],
+            steps=final_route.get("steps") or [],
+        ),
+        recommended_stop=recommended_stop,
+        assumptions=RoutePlanAssumptions(
+            reserve_soc_pct=body.minimum_arrival_soc_pct,
+            weather_applied=False,
+            traffic_applied=False,
+            connector_data_inferred=True,
+            energy_model_version="spec-v1",
+        )
+    )
+
+
+@app.get("/api/v1/geocoding/search", response_model=GeocodingSearchResponse, tags=["routing"],
+         summary="Search places and SPKLU stations for destination picker")
+async def search_geocoding(
+    q: str = Query(..., min_length=2, description="Place or station search term"),
+    lat: Optional[float] = Query(None, ge=-90, le=90),
+    lon: Optional[float] = Query(None, ge=-180, le=180),
+    limit: int = Query(5, ge=1, le=10),
+) -> GeocodingSearchResponse:
+    from api.services.geocoding_service import GeocodingService
+    service = GeocodingService()
+    return await service.search(query=q, origin_lat=lat, origin_lon=lon, limit=limit)
+
+
+@app.get("/api/v1/geocoding/reverse", tags=["routing"],
+         summary="Reverse geocode coordinates to location name")
+async def reverse_geocoding(
+    lat: float = Query(..., ge=-90, le=90),
+    lon: float = Query(..., ge=-180, le=180),
+) -> dict[str, str]:
+    from api.services.geocoding_service import GeocodingService
+    service = GeocodingService()
+    return await service.reverse_search(lat=lat, lon=lon)
+
+

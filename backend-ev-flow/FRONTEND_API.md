@@ -254,19 +254,67 @@ Requires the station dataset (`data/raw/`).
 > buffer; manufacturer range is optimistic). When the full Epic 6.0 EVModel catalogue lands,
 > this gets more accurate — **the request/response shape won't change.**
 
-### 4.8 `GET /api/v1/ev-models` — EV catalogue (for the vehicle picker)
-Backs the `ev_model_id` input above. Sourced from the Kaggle Indonesia-EV-2026 dataset (~60 models).
+### 4.9 `POST /api/v1/route-plans` — Epic 2.0 Route energy simulation & optimal SPKLU stop ⭐
+Requires Bearer authentication token. Simulates trip energy consumption based on user's selected EV model in profile (`getMe().ev_model_id`).
 
-```js
-const { items } = await (await fetch(`${API}/api/v1/ev-models?q=wuling`)).json();
-// -> [{ id:"wuling-air-ev", name:"Wuling Air EV", make:"Wuling", model:"Air EV",
-//       battery_kwh:26.7, range_km:200, price_range:"Rp 214 - 307,5 Juta", charging_time:"8.5 Jam" }]
+**Request body**:
+```json
+{
+  "origin": { "latitude": -6.2088, "longitude": 106.8456, "label": "Current Location" },
+  "destination": { "latitude": -6.9175, "longitude": 107.6191, "label": "Bandung" },
+  "current_soc_pct": 72.0,
+  "minimum_arrival_soc_pct": 15.0,
+  "preferences": { "maximum_detour_km": 15.0, "prefer_fast_charging": true }
+}
 ```
-- `GET /api/v1/ev-models?q=&limit=&offset=` → `{ total, limit, offset, items }`
-- `GET /api/v1/ev-models/{id}` → one model (`404` if not found)
 
-⚠️ `range_km` is a manufacturer figure (lower bound when a range like "200-300 km" is given);
-`connector_type` and `max_intake_power` are **not** in this dataset (see §5).
+**Response body**:
+```json
+{
+  "route_plan_id": "plan-a1b2c3d4e5f6",
+  "directly_reachable": false,
+  "vehicle": {
+    "id": "hyundai-ioniq-5",
+    "name": "Hyundai Ioniq 5 Standard Range",
+    "battery_kwh": 58.0,
+    "efficiency_wh_per_km": 160.0,
+    "efficiency_source": "dataset"
+  },
+  "summary": {
+    "distance_km": 148.0,
+    "duration_minutes": 190.0,
+    "estimated_energy_kwh": 31.2,
+    "estimated_arrival_soc_pct": 12.0,
+    "minimum_arrival_soc_pct": 15.0
+  },
+  "route": {
+    "type": "Feature",
+    "geometry": { "type": "LineString", "coordinates": [[106.8456, -6.2088], ...] },
+    "steps": []
+  },
+  "recommended_stop": {
+    "station": { "id": "pln_spklu-72", "name": "SPKLU Rest Area KM72", "latitude": -6.55, "longitude": 107.44 },
+    "distance_from_origin_km": 82.0,
+    "detour_km": 2.1,
+    "arrival_soc_pct": 18.0,
+    "recommended_target_soc_pct": 80.0,
+    "energy_to_add_kwh": 20.0,
+    "estimated_charging_minutes": 25.0,
+    "effective_charging_power_kw": 50.0,
+    "connector_compatible": true,
+    "availability": "available_now",
+    "data_confidence": "medium"
+  }
+}
+```
+
+### 4.10 `GET /api/v1/geocoding/search` — Destination picker search proxy
+Merges SPKLU stations and places with Indonesia spatial bias.
+
+- `GET /api/v1/geocoding/search?q=Bandung&lat=-6.2088&lon=106.8456&limit=5`
+
+---
+
 
 ## 5. Field coverage — design the UI around real data ⚠️
 

@@ -72,3 +72,5 @@ export function getEvflowApiBaseUrl() {
   }
   return baseUrl;
 }
+
+export const getApiBaseUrl = getEvflowApiBaseUrl;

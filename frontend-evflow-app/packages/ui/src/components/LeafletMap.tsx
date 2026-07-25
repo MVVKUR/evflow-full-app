@@ -6,6 +6,7 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { leafletMapStyles as styles } from '../styles/styles';
 
 type LeafletMapProps = {
+  autoFitBounds?: boolean;
   center?: {
     latitude: number;
     longitude: number;
@@ -17,6 +18,8 @@ type LeafletMapProps = {
   markerIconSvg?: string;
   markers?: LeafletMapMarker[];
   onMarkerPress?: (markerId: string) => void;
+  polylineColor?: string;
+  polylineCoordinates?: [number, number][];
   radiusKm?: number | null;
   selectedMarkerIconSvg?: string;
   selectedMarkerId?: string | null;
@@ -49,11 +52,14 @@ function toInlineScriptJson(value: string): string {
 }
 
 export function LeafletMap({
+  autoFitBounds,
   center = defaultCenter,
   currentLocation,
   markerIconSvg,
   markers = [],
   onMarkerPress,
+  polylineColor,
+  polylineCoordinates,
   radiusKm,
   selectedMarkerIconSvg,
   selectedMarkerId = null,

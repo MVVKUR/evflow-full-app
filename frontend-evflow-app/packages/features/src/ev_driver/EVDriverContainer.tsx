@@ -5,11 +5,12 @@ import { BottomNavigation, evDriverContainerStyles as styles, SideMenu, type Nav
 import { useAppSafeAreaInsets } from '../shared/useAppSafeAreaInsets';
 import { DriverAssetIcon } from './components/DriverAssetIcon';
 import { DriverMapScreen } from './DriverMapScreen';
-import { MockDriverScreen } from './MockDriverScreen';
+import { PlanRouteScreen } from './plan_route/PlanRouteScreen';
 import { ProfileScreen } from './ProfileScreen';
 import { TopUpSuccessScreen, TopUpWalletScreen } from './TopUpWalletScreen';
 import { WalletScreen } from './WalletScreen';
 import type { DriverTabKey } from './types';
+
 
 export function EVDriverContainer() {
   const location = useLocation();
@@ -61,9 +62,12 @@ export function EVDriverContainer() {
           <WalletScreen bottomInset={insets.bottom} bottomOffset={bottomNavOffset} topInset={topInset} />
         ) : activeTab === 'profile' ? (
           <ProfileScreen bottomOffset={bottomNavOffset} topInset={topInset} />
+        ) : activeTab === 'plan_route' ? (
+          <PlanRouteScreen bottomOffset={bottomNavOffset} topInset={topInset} />
         ) : (
           <MockDriverScreen tabKey={activeTab} topInset={topInset} />
         )}
+
 
         {!desktop && walletFlow !== 'success' ? (
           <View style={[styles.bottomNavWrap, { paddingBottom: insets.bottom }]}>

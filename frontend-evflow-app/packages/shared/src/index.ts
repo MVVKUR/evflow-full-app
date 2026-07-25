@@ -7,7 +7,10 @@ export * from './chargers/filterChargers';
 export * from './ev_models/api';
 export * from './html/escapeHtml';
 export * from './routes/buildRoutePlanRequest';
+export * from './routes/routeTypes';
+export * from './routes/routeApi';
 export * from './stations/api';
+
 export * from './transformers/chargerTransformer';
 export * from './validation';
 export * from './wallet/api';
