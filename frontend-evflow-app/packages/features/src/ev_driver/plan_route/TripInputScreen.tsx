@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useNavigate } from 'react-router';
-import { fetchEvModels, getMe, reverseGeocode, type EVModelApiItem, type UserPublic } from '@evflow/shared';
+import { fetchEvModels, getMe, reverseGeocode, type EVModelApiItem, type ManualVehicleInput, type RoutePreferencesInput, type UserPublic } from '@evflow/shared';
 import { getUserLocation } from '../utils/location';
 import { BatteryLevelInput } from './BatteryLevelInput';
 import type { LocationState } from './planRouteTypes';
@@ -11,19 +11,20 @@ type TripInputScreenProps = {
   destination: LocationState | null;
   currentSocPct: number;
   socInputText: string;
+  manualVehicle: ManualVehicleInput;
+  preferences: Required<RoutePreferencesInput>;
+  minimumArrivalSocPct: number;
   onSetOrigin: (loc: LocationState) => void;
   onOpenDestinationSearch: () => void;
   onChangeSocText: (text: string) => void;
   onQuickSelectSoc: (val: number) => void;
+  onManualVehicleChange: (vehicle: ManualVehicleInput) => void;
+  onPreferencesChange: (preferences: Required<RoutePreferencesInput>) => void;
+  onMinimumArrivalSocChange: (value: number) => void;
+  onVehicleProfileAvailable: (available: boolean) => void;
   onSimulate: () => void;
   isSimulating: boolean;
   error?: string | null;
-};
-
-const defaultJakartaPusat: LocationState = {
-  latitude: -6.2088,
-  longitude: 106.8456,
-  label: 'Current Location — Jl. Sudirman, Jakarta Pusat',
 };
 
 export function TripInputScreen({
@@ -31,10 +32,17 @@ export function TripInputScreen({
   destination,
   currentSocPct,
   socInputText,
+  manualVehicle,
+  preferences,
+  minimumArrivalSocPct,
   onSetOrigin,
   onOpenDestinationSearch,
   onChangeSocText,
   onQuickSelectSoc,
+  onManualVehicleChange,
+  onPreferencesChange,
+  onMinimumArrivalSocChange,
+  onVehicleProfileAvailable,
   onSimulate,
   isSimulating,
   error,
@@ -44,6 +52,8 @@ export function TripInputScreen({
   const [user, setUser] = useState<UserPublic | null>(null);
   const [selectedEvModel, setSelectedEvModel] = useState<EVModelApiItem | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [locationDenied, setLocationDenied] = useState(false);
+  const [manualOrigin, setManualOrigin] = useState('');
 
   // Auto-fill origin from location helper & reverse geocode to location name
   useEffect(() => {
@@ -67,10 +77,7 @@ export function TripInputScreen({
             label: `Current Location — ${locationName}`,
           });
         });
-      } else if (!origin) {
-        // Fallback manual default origin when location denied or unavailable
-        onSetOrigin(defaultJakartaPusat);
-      }
+      } else if (!origin) setLocationDenied(true);
     });
 
     return () => {
@@ -96,10 +103,16 @@ export function TripInputScreen({
           const found = res.items.find((m) => m.id === u.ev_model_id);
           if (found) {
             setSelectedEvModel(found);
+            onVehicleProfileAvailable(true);
+          } else {
+            onVehicleProfileAvailable(false);
           }
+        } else {
+          onVehicleProfileAvailable(false);
         }
       } catch (e) {
         // Handle unauthenticated or network error
+        onVehicleProfileAvailable(false);
       } finally {
         if (mounted) setLoadingProfile(false);
       }
@@ -122,11 +135,24 @@ export function TripInputScreen({
   const canSimulate = Boolean(
     origin &&
       destination &&
-      selectedEvModel &&
+      (selectedEvModel || manualVehicle.usable_range_km > 0) &&
       currentSocPct >= 0 &&
       currentSocPct <= 100 &&
       !isSimulating
   );
+
+  function updateManualNumber(field: keyof ManualVehicleInput, text: string) {
+    const value = Number(text.replace(/[^0-9.]/g, ''));
+    onManualVehicleChange({ ...manualVehicle, [field]: Number.isFinite(value) ? value : 0 });
+  }
+
+  function applyManualOrigin() {
+    const [lat, lon] = manualOrigin.split(',').map((part) => Number(part.trim()));
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      onSetOrigin({ latitude: lat, longitude: lon, label: 'Manual origin' });
+      setLocationDenied(false);
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -167,6 +193,12 @@ export function TripInputScreen({
         </Pressable>
       </View>
 
+      {locationDenied && !origin ? <View style={styles.permissionBox}>
+        <Text style={styles.warningTitle}>Location permission is unavailable</Text>
+        <Text style={styles.warningSub}>Enter your starting coordinates to plan this trip.</Text>
+        <View style={styles.manualOriginRow}><TextInput accessibilityLabel="Manual origin latitude and longitude" value={manualOrigin} onChangeText={setManualOrigin} placeholder="-6.2088, 106.8456" style={styles.manualOriginInput} /><Pressable accessibilityLabel="Use manual origin" onPress={applyManualOrigin} style={styles.manualOriginButton}><Text style={styles.manualOriginButtonText}>Use</Text></Pressable></View>
+      </View> : null}
+
       {/* Vehicle Profile Warning Banner if no EV model selected */}
       {missingEvModel ? (
         <View style={styles.warningBanner}>
@@ -174,7 +206,7 @@ export function TripInputScreen({
           <View style={styles.warningTextWrap}>
             <Text style={styles.warningTitle}>No EV Model Selected</Text>
             <Text style={styles.warningSub}>
-              Select your vehicle model in Profile to calculate battery capacity & range.
+              Enter your usable range below or select a saved vehicle profile.
             </Text>
             <Pressable
               style={styles.profileLinkButton}
@@ -186,6 +218,14 @@ export function TripInputScreen({
         </View>
       ) : null}
 
+      {missingEvModel ? <View style={styles.settingsSection}>
+        <Text style={styles.sectionTitle}>Manual vehicle</Text>
+        <Text style={styles.inputLabel}>Usable range (km) *</Text>
+        <TextInput accessibilityLabel="Manual usable vehicle range" keyboardType="decimal-pad" value={manualVehicle.usable_range_km ? String(manualVehicle.usable_range_km) : ''} onChangeText={(text) => updateManualNumber('usable_range_km', text)} placeholder="350" style={styles.settingsInput} />
+        <View style={styles.twoColumns}><View style={styles.column}><Text style={styles.inputLabel}>Battery capacity (kWh)</Text><TextInput accessibilityLabel="Manual battery capacity" keyboardType="decimal-pad" value={manualVehicle.battery_kwh ? String(manualVehicle.battery_kwh) : ''} onChangeText={(text) => updateManualNumber('battery_kwh', text)} placeholder="60" style={styles.settingsInput} /></View><View style={styles.column}><Text style={styles.inputLabel}>Maximum charge (kW)</Text><TextInput accessibilityLabel="Manual maximum charging power" keyboardType="decimal-pad" value={manualVehicle.max_dc_charge_kw ? String(manualVehicle.max_dc_charge_kw) : ''} onChangeText={(text) => updateManualNumber('max_dc_charge_kw', text)} placeholder="150" style={styles.settingsInput} /></View></View>
+        <Text style={styles.inputLabel}>Connector type</Text><TextInput accessibilityLabel="Manual connector type" autoCapitalize="characters" value={manualVehicle.connector_type || ''} onChangeText={(connector_type) => onManualVehicleChange({ ...manualVehicle, connector_type })} placeholder="CCS2" style={styles.settingsInput} />
+      </View> : null}
+
       {/* Battery Level Input Card */}
       <BatteryLevelInput
         value={currentSocPct}
@@ -194,6 +234,14 @@ export function TripInputScreen({
         onQuickSelect={onQuickSelectSoc}
         estimatedRangeKm={estimatedRangeKm}
       />
+
+      <View style={styles.settingsSection}>
+        <Text style={styles.sectionTitle}>Route preferences</Text>
+        <Text style={styles.inputLabel}>Route type</Text>
+        <View style={styles.segmented}>{(['fastest', 'shortest'] as const).map((routeType) => <Pressable key={routeType} accessibilityRole="radio" accessibilityState={{ checked: preferences.route_type === routeType }} style={[styles.segment, preferences.route_type === routeType && styles.segmentActive]} onPress={() => onPreferencesChange({ ...preferences, route_type: routeType })}><Text style={[styles.segmentText, preferences.route_type === routeType && styles.segmentTextActive]}>{routeType === 'fastest' ? 'Fastest' : 'Shortest'}</Text></Pressable>)}</View>
+        <View style={styles.twoColumns}><View style={styles.column}><Text style={styles.inputLabel}>Maximum detour (km)</Text><TextInput accessibilityLabel="Maximum charging detour" keyboardType="decimal-pad" value={String(preferences.maximum_detour_km)} onChangeText={(text) => onPreferencesChange({ ...preferences, maximum_detour_km: Math.max(1, Math.min(50, Number(text) || 1)) })} style={styles.settingsInput} /></View><View style={styles.column}><Text style={styles.inputLabel}>Arrival reserve (%)</Text><TextInput accessibilityLabel="Minimum arrival battery" keyboardType="decimal-pad" value={String(minimumArrivalSocPct)} onChangeText={(text) => onMinimumArrivalSocChange(Math.max(0, Math.min(50, Number(text) || 0)))} style={styles.settingsInput} /></View></View>
+        <View style={styles.toggleRow}><View><Text style={styles.toggleLabel}>Prefer fast charging</Text><Text style={styles.toggleHelp}>Prioritise higher-power compatible stations</Text></View><Switch accessibilityLabel="Prefer fast charging" value={preferences.prefer_fast_charging} onValueChange={(prefer_fast_charging) => onPreferencesChange({ ...preferences, prefer_fast_charging })} trackColor={{ false: '#CBD5E1', true: '#5EEAD4' }} thumbColor={preferences.prefer_fast_charging ? '#00696F' : '#FFFFFF'} /></View>
+      </View>
 
       {error ? (
         <View style={styles.errorBox}>
@@ -258,6 +306,25 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  settingsSection: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 8, padding: 14, marginBottom: 16, gap: 8 },
+  sectionTitle: { color: '#0F172A', fontSize: 17, fontWeight: '800', marginBottom: 2 },
+  inputLabel: { color: '#475569', fontSize: 12, fontWeight: '700' },
+  settingsInput: { minHeight: 44, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 6, paddingHorizontal: 10, color: '#0F172A' },
+  twoColumns: { flexDirection: 'row', gap: 10 },
+  column: { flex: 1, gap: 6 },
+  segmented: { flexDirection: 'row', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 6, overflow: 'hidden' },
+  segment: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  segmentActive: { backgroundColor: '#00696F' },
+  segmentText: { color: '#334155', fontWeight: '700' },
+  segmentTextActive: { color: '#FFFFFF' },
+  toggleRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  toggleLabel: { color: '#0F172A', fontWeight: '700' },
+  toggleHelp: { color: '#64748B', fontSize: 12 },
+  permissionBox: { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 8, padding: 14, marginBottom: 16 },
+  manualOriginRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  manualOriginInput: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 6, paddingHorizontal: 10 },
+  manualOriginButton: { minWidth: 52, minHeight: 44, backgroundColor: '#00696F', borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  manualOriginButtonText: { color: '#FFFFFF', fontWeight: '700' },
   routeRow: {
     flexDirection: 'row',
     alignItems: 'center',

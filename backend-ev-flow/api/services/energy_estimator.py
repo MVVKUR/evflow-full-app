@@ -61,6 +61,12 @@ class EnergyEstimateResult(NamedTuple):
     directly_reachable: bool
 
 
+class CurrentSocEstimate(NamedTuple):
+    estimated_current_soc_pct: float
+    remaining_energy_kwh: float
+    travelled_energy_kwh: float
+
+
 def reserve_km_for_soc_pct(battery_kwh: float, efficiency_wh_per_km: float, soc_pct: float) -> float:
     """How many km of range a given SoC percentage is worth for this vehicle."""
     if not battery_kwh or not efficiency_wh_per_km or efficiency_wh_per_km <= 0:
@@ -121,6 +127,33 @@ class EnergyEstimator:
         if not battery_kwh:
             return 0.0
         return (self.trip_energy_kwh(efficiency_wh_per_km, distance_km) / float(battery_kwh)) * 100.0
+
+    def estimate_current_soc(
+        self,
+        battery_kwh: float,
+        efficiency_wh_per_km: float,
+        navigation_start_soc_pct: float,
+        cumulative_distance_travelled_km: float,
+    ) -> CurrentSocEstimate:
+        """Estimate present SoC from energy consumed since navigation started.
+
+        The result is bounded by the navigation-start SoC, so ordinary driving
+        can never create energy. A measured post-charge SoC is handled by the
+        caller because charging is a separate state transition.
+        """
+        battery_kwh = float(battery_kwh)
+        start_soc = max(0.0, min(100.0, float(navigation_start_soc_pct)))
+        travelled_km = max(0.0, float(cumulative_distance_travelled_km))
+        available_start_energy_kwh = battery_kwh * start_soc / 100.0
+        travelled_energy_kwh = self.trip_energy_kwh(efficiency_wh_per_km, travelled_km)
+        remaining_energy_kwh = max(0.0, available_start_energy_kwh - travelled_energy_kwh)
+        current_soc = 0.0 if battery_kwh <= 0 else remaining_energy_kwh / battery_kwh * 100.0
+        current_soc = max(0.0, min(start_soc, current_soc))
+        return CurrentSocEstimate(
+            estimated_current_soc_pct=round(current_soc, 1),
+            remaining_energy_kwh=round(remaining_energy_kwh, 2),
+            travelled_energy_kwh=round(travelled_energy_kwh, 2),
+        )
 
     def estimate_trip_energy(
         self,

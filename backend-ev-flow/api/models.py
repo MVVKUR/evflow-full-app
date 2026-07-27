@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from api.services import service_area
 
@@ -527,6 +527,10 @@ class TripSummary(BaseModel):
         description="Estimated arrival TIME (UTC) = computed_at + duration_minutes, charging "
                     "time included (AC 2.4.1).")
 
+    @field_serializer("computed_at", "estimated_arrival_at")
+    def serialize_route_time(self, value: Optional[datetime]) -> Optional[str]:
+        return value.isoformat() if value is not None else None
+
 
 class RouteStep(BaseModel):
     """One turn-by-turn instruction (AC 2.4.1 'next instruction').
@@ -723,11 +727,21 @@ class RoutePlanResponse(BaseModel):
 class ActiveRouteEvaluationRequest(BaseModel):
     current_position: RouteLocationInput = Field(..., description="Where the driver is right now.")
     destination: RouteLocationInput
-    current_soc_pct: float = Field(..., ge=0, le=100, examples=[26.0])
+    current_soc_pct: Optional[float] = Field(
+        None, ge=0, le=100,
+        description="Legacy caller-supplied current SoC. Navigation clients should send "
+                    "navigation_start_soc_pct and cumulative_distance_travelled_km instead.",
+        examples=[26.0])
+    navigation_start_soc_pct: Optional[float] = Field(None, ge=0, le=100, examples=[72.0])
+    cumulative_distance_travelled_km: float = Field(0.0, ge=0, examples=[12.4])
+    measured_current_soc_pct: Optional[float] = Field(
+        None, ge=0, le=100, description="Optional trusted vehicle telemetry reading.")
     minimum_arrival_soc_pct: Optional[float] = Field(None, ge=0, le=50, examples=[20.0])
     route_plan_id: Optional[str] = Field(None, description="Plan being driven, echoed back.")
     maximum_detour_km: float = Field(15.0, ge=1.0, le=50.0)
     max_candidate_stops: int = Field(5, ge=1, le=25)
+    active_waypoint_station_id: Optional[str] = Field(
+        None, description="Accepted charging stop that the remaining road route must preserve.")
     ev_model_id: Optional[str] = Field(
         None, description="Catalogue vehicle to evaluate against instead of the saved profile "
                           "(AC 2.2.3).", examples=["hyundai-ioniq-5"])
@@ -757,6 +771,11 @@ class ActiveRouteEvaluationResponse(BaseModel):
     remaining_duration_minutes: float = Field(..., examples=[95.0])
     estimated_energy_kwh: float = Field(..., examples=[18.4])
     projected_arrival_soc_pct: float = Field(..., examples=[8.0])
+    estimated_current_soc_pct: float = Field(..., examples=[61.2])
+    current_soc_source: str = Field(..., examples=["distance_estimate", "vehicle_telemetry"])
+    remaining_energy_kwh: float = Field(..., examples=[35.5])
+    energy_model_version: str = Field("spec-v2")
+    energy_assumptions: dict = Field(default_factory=dict)
     raw_projected_arrival_soc_pct: float = Field(..., examples=[8.2])
     reserve_soc_pct: float = Field(..., examples=[20.0])
     effective_reserve_km: Optional[float] = Field(None, examples=[42.0])
@@ -799,6 +818,10 @@ class ActiveRouteEvaluationResponse(BaseModel):
         description="Same shape POST /api/v1/route-plans returns, so a client can read "
                     "routing_provider / turn_by_turn_available / distance_basis the same "
                     "way on both endpoints. Additive: no pre-existing field changed.")
+
+    @field_serializer("computed_at", "estimated_arrival_at")
+    def serialize_route_time(self, value: Optional[datetime]) -> Optional[str]:
+        return value.isoformat() if value is not None else None
 
 
 DISTANCE_FROM_ORIGIN = "origin"
@@ -885,4 +908,3 @@ class GeocodingSearchResponse(BaseModel):
         description="How many otherwise-matching suggestions were dropped because "
                     "in_service_area_only=true. Always 0 when the flag is off.",
         examples=[0])
-

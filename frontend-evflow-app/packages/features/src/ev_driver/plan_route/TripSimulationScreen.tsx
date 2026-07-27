@@ -1,35 +1,54 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LeafletMap, type LeafletMapMarker } from '@evflow/ui';
-import type { RoutePlanResponse } from '@evflow/shared';
+import type { RoutePlanResponse, RoutePreferencesInput } from '@evflow/shared';
 import { ChargingStopCard } from './ChargingStopCard';
 import { formatDistance, formatDuration, formatEnergy, formatSoc } from './planRouteUtils';
 import type { LocationState } from './planRouteTypes';
+import { noStationActions } from './routePlanningLogic';
 
 type TripSimulationScreenProps = {
   result: RoutePlanResponse;
   onEditTrip: () => void;
+  onCancel: () => void;
+  onChooseAnotherRoute: () => void;
+  onAdjustPreferences: () => void;
+  onChargeBeforeDeparture: () => void;
   onStartNavigation: () => void;
-  onAddStopToRoute: (stationId: string) => void;
+  onAddStopToRoute: (stationId: string) => Promise<RoutePlanResponse>;
   origin?: LocationState | null;
   destination?: LocationState | null;
   originLabel?: string;
   destinationLabel?: string;
+  preferences: Required<RoutePreferencesInput>;
+  minimumArrivalSocPct: number;
+  isRecalculating?: boolean;
 };
 
 export function TripSimulationScreen({
   result,
   onEditTrip,
+  onCancel,
+  onChooseAnotherRoute,
+  onAdjustPreferences,
+  onChargeBeforeDeparture,
   onStartNavigation,
   onAddStopToRoute,
   origin,
   destination,
   originLabel = 'Jakarta Pusat',
   destinationLabel = 'Bandung',
+  preferences,
+  minimumArrivalSocPct,
+  isRecalculating: externalRecalculating = false,
 }: TripSimulationScreenProps) {
   const [stopAdded, setStopAdded] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
-  const { summary, route, recommended_stop, directly_reachable } = result;
+  const { summary, route, recommended_stop, directly_reachable, route_status, warning } = result;
+  const noSuitableStation = route_status === 'no_suitable_station' || warning?.code === 'no_suitable_station';
+  const suggestedActions = noStationActions(warning?.suggested_actions);
+  const busy = isRecalculating || externalRecalculating;
 
   // Convert GeoJSON LineString [lon, lat] coordinates to Leaflet [lat, lon]
   const polylineCoordinates: [number, number][] = React.useMemo(() => {
@@ -81,7 +100,7 @@ export function TripSimulationScreen({
     if (recommended_stop) {
       markers.push({
         id: recommended_stop.station.id,
-        label: recommended_stop.station.name,
+        label: recommended_stop.station.name ?? undefined,
         latitude: recommended_stop.station.latitude,
         longitude: recommended_stop.station.longitude,
         type: 'charging_stop',
@@ -91,17 +110,19 @@ export function TripSimulationScreen({
     return markers;
   }, [destination, destinationLabel, origin, originLabel, polylineCoordinates, recommended_stop]);
 
-  function handleAddStop() {
+  async function handleAddStop() {
     if (recommended_stop) {
-      setStopAdded(true);
-      onAddStopToRoute(recommended_stop.station.id);
+      setIsRecalculating(true);
+      try { await onAddStopToRoute(recommended_stop.station.id); setStopAdded(true); }
+      finally { setIsRecalculating(false); }
     }
   }
 
-  function handleStartNavPress() {
+  async function handleStartNavPress() {
     if (recommended_stop && !stopAdded && !directly_reachable) {
-      // Confirmation flow: Add recommended stop before starting navigation
-      handleAddStop();
+      await handleAddStop();
+      onStartNavigation();
+      return;
     }
     onStartNavigation();
   }
@@ -135,7 +156,7 @@ export function TripSimulationScreen({
       </View>
 
       {/* Status Banner */}
-      {isWarning ? (
+      {noSuitableStation ? <View style={styles.noStationCard}><Text style={styles.warningTitle}>No suitable charging station</Text><Text style={styles.warningSub}>{warning?.message || 'This trip cannot currently preserve your arrival reserve.'}</Text><View style={styles.suggestedActions}>{suggestedActions.map((action) => <Pressable key={action.code} style={styles.outlineAction} onPress={action.code === 'choose_another_route' ? onChooseAnotherRoute : action.code === 'adjust_preferences' ? onAdjustPreferences : onChargeBeforeDeparture}><Text style={styles.outlineActionText}>{action.label}</Text></Pressable>)}</View></View> : isWarning ? (
         <View style={styles.warningCard}>
           <View style={styles.warningIconBg}>
             <Text style={styles.warningIconText}>⚡</Text>
@@ -143,7 +164,7 @@ export function TripSimulationScreen({
           <View style={styles.bannerTextWrap}>
             <Text style={styles.warningTitle}>Charging Stop Recommended</Text>
             <Text style={styles.warningSub}>
-              Your battery won't safely cover the full distance. We found a stop along the way.
+              Your battery won't safely cover the full distance. A compatible available stop is recommended.
             </Text>
           </View>
         </View>
@@ -186,8 +207,10 @@ export function TripSimulationScreen({
         </View>
       </View>
 
+      <View style={styles.preferenceReview}><Text style={styles.metricLabel}>APPLIED PREFERENCES</Text><Text style={styles.preferenceText}>{preferences.route_type === 'shortest' ? 'Shortest route' : 'Fastest route'} · up to {preferences.maximum_detour_km} km detour</Text><Text style={styles.preferenceText}>{preferences.prefer_fast_charging ? 'Prefer fast charging' : 'No charging-speed preference'} · {minimumArrivalSocPct}% requested arrival reserve</Text></View>
+
       {/* Suggested Charging Stop Card if applicable */}
-      {recommended_stop ? (
+      {recommended_stop && !noSuitableStation ? (
         <ChargingStopCard
           stop={recommended_stop}
           onAddStop={handleAddStop}
@@ -196,9 +219,10 @@ export function TripSimulationScreen({
       ) : null}
 
       {/* Start Navigation Action Button */}
-      <Pressable style={styles.startNavButton} onPress={handleStartNavPress}>
-        <Text style={styles.startNavButtonText}>Start Navigation</Text>
+      <Pressable disabled={busy || noSuitableStation} style={[styles.startNavButton, (busy || noSuitableStation) && { opacity: 0.55 }]} onPress={handleStartNavPress}>
+        <Text style={styles.startNavButtonText}>{busy ? 'Recalculating route...' : noSuitableStation ? 'Route not safe to start' : 'Start Navigation'}</Text>
       </Pressable>
+      <Pressable accessibilityLabel="Cancel route planning" style={styles.cancelButton} onPress={onCancel}><Text style={styles.cancelButtonText}>Cancel</Text></Pressable>
     </ScrollView>
   );
 }
@@ -256,6 +280,14 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     alignItems: 'center',
   },
+  noStationCard: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FCA5A5', borderRadius: 8, padding: 14, marginBottom: 16, gap: 6 },
+  suggestedActions: { gap: 8, marginTop: 8 },
+  outlineAction: { minHeight: 44, borderWidth: 1, borderColor: '#B91C1C', borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  outlineActionText: { color: '#991B1B', fontWeight: '700' },
+  preferenceReview: { marginBottom: 16, paddingVertical: 4, gap: 3 },
+  preferenceText: { color: '#475569', fontSize: 13 },
+  cancelButton: { minHeight: 48, marginTop: 10, alignItems: 'center', justifyContent: 'center' },
+  cancelButtonText: { color: '#475569', fontWeight: '700' },
   warningIconBg: {
     width: 38,
     height: 38,

@@ -1,6 +1,7 @@
 import type { GeocodingItem, RecommendedStop, RoutePlanResponse } from '@evflow/shared';
 
-export type PlanRouteViewMode = 'input' | 'search' | 'simulation' | 'active_navigation';
+export type RouteViewMode = 'input' | 'simulation' | 'active_navigation' | 'completed';
+export type PlanRouteViewMode = RouteViewMode;
 
 export interface LocationState {
   latitude: number;

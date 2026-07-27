@@ -7,6 +7,24 @@ export type UserLocationResult = {
   status: LocationPermissionStatus;
 };
 
+export type NavigationFix = { latitude: number; longitude: number; heading?: number | null; speed?: number | null; accuracy?: number | null; timestamp: number };
+
+export async function watchNavigationLocation(onFix: (fix: NavigationFix) => void, onError?: () => void): Promise<Location.LocationSubscription | null> {
+  try {
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (permission.status !== Location.PermissionStatus.GRANTED) return null;
+    return await Location.watchPositionAsync({
+      accuracy: Location.Accuracy.Highest,
+      distanceInterval: 10,
+      timeInterval: 3000,
+      mayShowUserSettingsDialog: true,
+    }, (location) => onFix({ latitude: location.coords.latitude, longitude: location.coords.longitude, heading: location.coords.heading, speed: location.coords.speed, accuracy: location.coords.accuracy, timestamp: location.timestamp }));
+  } catch {
+    onError?.();
+    return null;
+  }
+}
+
 export async function getUserLocation(options: { requestPermission?: boolean } = {}): Promise<UserLocationResult> {
   try {
     const permission = options.requestPermission
@@ -14,7 +32,6 @@ export async function getUserLocation(options: { requestPermission?: boolean } =
       : await Location.getForegroundPermissionsAsync();
 
     if (permission.status !== Location.PermissionStatus.GRANTED) {
-      console.log('Permission to access location was denied');
       return {
         coordinates: null,
         status: permission.status === Location.PermissionStatus.DENIED ? 'denied' : 'undetermined'
@@ -30,7 +47,6 @@ export async function getUserLocation(options: { requestPermission?: boolean } =
       status: 'granted'
     };
   } catch (error) {
-    console.error('Error getting location:', error);
     return {
       coordinates: null,
       status: 'unavailable'
