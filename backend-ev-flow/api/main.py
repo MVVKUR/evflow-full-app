@@ -11,6 +11,7 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
@@ -44,7 +45,15 @@ from .models import (
     RoutePlanRequest, RoutePlanResponse, GeocodingSearchResponse, VehicleSummary,
     TripSummary, RoutePlanGeometryAndSteps, RecommendedStop, RoutePlanAssumptions, GeocodingItem,
     RouteWarning, ActiveRouteEvaluationRequest, ActiveRouteEvaluationResponse,
+    ManualVehicleInput, RoutePreferencesInput, ServiceAreaSummary,
 )
+from .services import service_area
+
+# Coordinate masking must not depend on the ASGI lifespan running: with
+# `--lifespan off`, or under a bare TestClient, the filter used to be defined but
+# never attached and raw coordinates reached the access log (AC 2.3.2).
+# `install()` is idempotent, so the lifespan hook below is kept as a belt.
+log_privacy.install()
 
 
 
@@ -64,7 +73,17 @@ async def lifespan(app: FastAPI):
     # Endpoints that take coordinates as GET query params (the frontend contract)
     # would otherwise put a raw GPS fix into the access log verbatim.
     log_privacy.install()
-    yield
+
+    # AC 2.3.3: the temporary-location TTL must hold on an IDLE process. Expiry
+    # used to run only inside the cache's own writer, so with no further traffic
+    # a cached position outlived its 30 s deadline indefinitely. This task sleeps
+    # until the next entry is actually due and deletes it then.
+    from api.services.geocoding_service import start_sweeper, stop_sweeper
+    start_sweeper()
+    try:
+        yield
+    finally:
+        await stop_sweeper()
 
 
 app = FastAPI(
@@ -83,7 +102,7 @@ _allow_origins = ["*"] if _origins_env in ("", "*") else [o.strip() for o in _or
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allow_origins,
-    allow_methods=["GET", "POST", "PATCH"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -644,23 +663,101 @@ ROUTE_STATUS_NO_STATION = "no_suitable_station"
 # the plan gives up. Each attempt costs two routing calls.
 MAX_ROAD_VALIDATION_CANDIDATES = int(os.getenv("ROUTE_MAX_ROAD_VALIDATION_CANDIDATES", "3"))
 
+# AC 2.2.6: machine-readable remedies, so the client can render buttons and
+# localise them instead of string-matching the English in `warning.message`.
+SUGGEST_ANOTHER_ROUTE = "choose_another_route"
+SUGGEST_ADJUST_PREFERENCES = "adjust_preferences"
+SUGGEST_CHARGE_BEFORE_DEPARTURE = "charge_before_departure"
+NO_STATION_SUGGESTED_ACTIONS = [
+    SUGGEST_ANOTHER_ROUTE,
+    SUGGEST_ADJUST_PREFERENCES,
+    SUGGEST_CHARGE_BEFORE_DEPARTURE,
+]
 
-def _planning_vehicle(user: dict) -> tuple[str, dict]:
-    """Resolve the signed-in driver's EV model, or explain why planning cannot run."""
-    ev_model_id = user.get("ev_model_id")
-    if not ev_model_id:
+# Advisory-only, never blocking: the driver is mid-journey outside the configured
+# service area (AC 2.1.1 / AC 2.4.2 keep the evaluation running regardless).
+WARNING_OUT_OF_SERVICE_AREA = "out_of_service_area"
+SUGGEST_RETURN_TO_SERVICE_AREA = "return_to_service_area"
+
+# AC 2.2.3 manual-range branch: a bare range says nothing about pack size, so a
+# pack consistent with the entered range is assumed at this efficiency. Same
+# 180 Wh/km already used when a catalogue model has no efficiency figure.
+MANUAL_VEHICLE_ID = "manual-range"
+MANUAL_VEHICLE_EFFICIENCY_WH_PER_KM = float(
+    os.getenv("ROUTE_MANUAL_EFFICIENCY_WH_PER_KM", "180.0"))
+MANUAL_EFFICIENCY_SOURCE = "manual_range"
+
+
+def _manual_vehicle(manual: ManualVehicleInput) -> tuple[str, dict]:
+    """Build a planning vehicle from a hand-entered range (AC 2.2.3).
+
+    With a pack size, efficiency is derived from it so the entered range is what
+    a full pack actually delivers. Without one, a pack consistent with the range
+    at ``MANUAL_VEHICLE_EFFICIENCY_WH_PER_KM`` is assumed -- self-consistent
+    either way, so 100% SoC is exactly ``usable_range_km``.
+    """
+    range_km = float(manual.usable_range_km)
+    if manual.battery_kwh:
+        battery_kwh = float(manual.battery_kwh)
+        efficiency_wh_per_km = (battery_kwh * 1000.0) / range_km
+    else:
+        efficiency_wh_per_km = MANUAL_VEHICLE_EFFICIENCY_WH_PER_KM
+        battery_kwh = (range_km * efficiency_wh_per_km) / 1000.0
+
+    return MANUAL_VEHICLE_ID, {
+        "id": MANUAL_VEHICLE_ID,
+        "name": manual.name or f"Manual range ({range_km:.0f} km)",
+        "battery_kwh": round(battery_kwh, 2),
+        "efficiency_wh_per_km": round(efficiency_wh_per_km, 1),
+        "efficiency_source": MANUAL_EFFICIENCY_SOURCE,
+        "max_dc_charge_kw": manual.max_dc_charge_kw,
+        "fast_charge_port": manual.connector_type,
+    }
+
+
+def _planning_vehicle(
+    user: dict,
+    ev_model_id: Optional[str] = None,
+    manual: Optional[ManualVehicleInput] = None,
+) -> tuple[str, dict]:
+    """Resolve the vehicle this plan is simulated for (AC 2.2.3).
+
+    Precedence: a range entered on the request > an EV model named on the
+    request > the saved profile. The AC allows EITHER a selected vehicle profile
+    OR an entered range, so a driver with no profile who supplies a range is
+    planned for -- 409 is reserved for the case where all three sources are
+    absent.
+    """
+    if manual is not None:
+        return _manual_vehicle(manual)
+
+    requested_id = ev_model_id or user.get("ev_model_id")
+    if not requested_id:
         raise HTTPException(
             409,
-            "Please select an EV model in your profile before simulating route energy consumption."
+            "Please select an EV model in your profile, or send a vehicle range, "
+            "before simulating route energy consumption."
         )
 
-    ev_model = evmodels.get(ev_model_id)
-    if not ev_model or not ev_model.get("battery_kwh"):
+    ev_model = evmodels.get(requested_id)
+    if not ev_model:
+        if ev_model_id:
+            raise HTTPException(404, f"Unknown EV model '{ev_model_id}'.")
         raise HTTPException(
             409,
-            f"The selected vehicle '{ev_model_id}' lacks usable battery capacity data. Please select another vehicle model in your profile."
+            f"The selected vehicle '{requested_id}' lacks usable battery capacity data. Please select another vehicle model in your profile."
         )
-    return ev_model_id, ev_model
+    if not ev_model.get("battery_kwh"):
+        raise HTTPException(
+            409,
+            f"The selected vehicle '{requested_id}' lacks usable battery capacity data. Please select another vehicle model in your profile."
+        )
+    return requested_id, ev_model
+
+
+def _eta(computed_at: datetime, duration_minutes: float) -> datetime:
+    """AC 2.4.1 estimated arrival TIME, anchored to a server clock the client sees."""
+    return computed_at + timedelta(minutes=float(duration_minutes or 0.0))
 
 
 def _vehicle_summary(ev_model_id: str, ev_model: dict, battery_kwh: float,
@@ -789,6 +886,8 @@ async def _road_validated_stop(
     max_dc_charge_kw,
     distance_basis: str,
     forced: bool,
+    weights=None,
+    maximum_detour_km: Optional[float] = None,
 ) -> tuple[Optional[RecommendedStop], Optional[dict], list[RecommendedStop]]:
     """Pick the best ranked stop that still holds on the ACTUAL routed legs.
 
@@ -798,9 +897,21 @@ async def _road_validated_stop(
     silently, so the chosen candidate is re-derived from the routed legs here
     and the next candidate is tried when it no longer holds.
 
+    AC 2.2.4: the detour budget was only ever applied to the straight-line
+    estimate, so a stop whose ROAD detour blew past the driver's budget could
+    still be recommended. A candidate that fits the budget on the road is now
+    preferred over one that does not; an over-budget candidate is used only when
+    nothing inside the budget survived, and it comes back flagged
+    (`detour_within_budget=False`) rather than silently.
+
     Returns ``(stop, route_through_stop, remaining_alternatives)``.
     """
+    if weights is None:
+        from api.services.stop_ranker import DEFAULT_RANKING_WEIGHTS
+        weights = DEFAULT_RANKING_WEIGHTS
+
     rejected_ids: set[str] = set()
+    over_budget: Optional[tuple[RecommendedStop, dict]] = None
 
     for candidate in ranked[:MAX_ROAD_VALIDATION_CANDIDATES]:
         st_pos = (candidate.station.latitude, candidate.station.longitude)
@@ -822,14 +933,26 @@ async def _road_validated_stop(
             max_dc_charge_kw=max_dc_charge_kw,
             distance_basis=distance_basis,
             forced=forced,
+            weights=weights,
+            maximum_detour_km=maximum_detour_km,
         )
         if validated is not None:
-            alternatives = [s for s in ranked
-                            if s.station.id != validated.station.id
-                            and s.station.id not in rejected_ids]
-            return validated, via_route, alternatives
+            if validated.detour_within_budget or forced:
+                alternatives = [s for s in ranked
+                                if s.station.id != validated.station.id
+                                and s.station.id not in rejected_ids]
+                return validated, via_route, alternatives
+            if over_budget is None:
+                over_budget = (validated, via_route)
+            continue
 
         rejected_ids.add(candidate.station.id)
+
+    if over_budget is not None:
+        stop, via_route = over_budget
+        alternatives = [s for s in ranked
+                        if s.station.id != stop.station.id and s.station.id not in rejected_ids]
+        return stop, via_route, alternatives
 
     return None, None, [s for s in ranked if s.station.id not in rejected_ids]
 
@@ -840,20 +963,20 @@ async def create_route_plan(
     body: RoutePlanRequest,
     user: dict = Depends(security.current_user)
 ) -> RoutePlanResponse:
-    ev_model_id, ev_model = _planning_vehicle(user)
+    ev_model_id, ev_model = _planning_vehicle(user, body.ev_model_id, body.vehicle)
 
     battery_kwh = float(ev_model["battery_kwh"])
     efficiency_wh_per_km = float(ev_model.get("efficiency_wh_per_km") or 180.0)
     efficiency_source = ev_model.get("efficiency_source") or "dataset"
     max_dc_charge_kw = ev_model.get("max_dc_charge_kw")
 
-    from api.services.routing_service import RoutingService
+    from api.services.routing_service import ROAD_PROVIDERS, RoutingService
     from api.services.energy_estimator import (
         MIN_RESERVE_KM, TIGHT_MARGIN_SOC_PCT, EnergyEstimator,
         effective_reserve_soc_pct, reserve_km_for_soc_pct,
     )
     from api.services.connector_compat import vehicle_connector_profile
-    from api.services.stop_ranker import StopRanker
+    from api.services.stop_ranker import StopRanker, ranking_weights_for
 
     connector_profile = vehicle_connector_profile(
         ev_model.get("fast_charge_port"), user.get("main_connector_type")
@@ -886,7 +1009,15 @@ async def create_route_plan(
         minimum_arrival_soc_pct=reserve_pct,
     )
 
-    max_detour_km = body.preferences.maximum_detour_km if body.preferences else 8.0
+    # AC 2.2.4: the driver's charging preferences drive the ranking. They used to
+    # be validated, published in OpenAPI and then dropped on the floor -- flipping
+    # prefer_fast_charging produced byte-identical plans.
+    preferences = body.preferences or RoutePreferencesInput()
+    max_detour_km = preferences.maximum_detour_km
+    rank_weights = ranking_weights_for(
+        route_type=preferences.route_type,
+        prefer_fast_charging=preferences.prefer_fast_charging,
+    )
 
     route_status, margin_is_tight = _classify_route(
         est_direct.raw_arrival_soc_pct, reserve_pct, TIGHT_MARGIN_SOC_PCT
@@ -926,6 +1057,7 @@ async def create_route_plan(
             distance_scale_factor=scale,
             distance_basis=basis,
             limit=body.max_candidate_stops,
+            weights=rank_weights,
         )
 
         selected, stop_route, alternative_stops = await _road_validated_stop(
@@ -942,6 +1074,8 @@ async def create_route_plan(
             max_dc_charge_kw=max_dc_charge_kw,
             distance_basis=basis,
             forced=bool(forced_station_id),
+            weights=rank_weights,
+            maximum_detour_km=max_detour_km,
         )
 
         if selected is not None and stop_route is not None:
@@ -1001,12 +1135,14 @@ async def create_route_plan(
                 message=(
                     "No charging station on this corridor is reachable with your reserve intact, "
                     "has a free connector your vehicle can use, and can get you to the destination. "
-                    "Try charging before departure or widening the detour allowance."
+                    "Try charging before departure, choosing another route, or widening the "
+                    "detour allowance."
                 ),
                 projected_arrival_soc_pct=round(est_direct.raw_arrival_soc_pct, 1),
                 reserve_soc_pct=round(reserve_pct, 1),
                 shortfall_soc_pct=round(max(0.0, reserve_pct - est_direct.raw_arrival_soc_pct), 1),
                 can_dismiss=True,
+                suggested_actions=list(NO_STATION_SUGGESTED_ACTIONS),
             )
         elif forced_station_id:
             warning = RouteWarning(
@@ -1029,6 +1165,13 @@ async def create_route_plan(
 
     plan_id = f"plan-{uuid.uuid4().hex[:12]}"
 
+    # AC 2.4.1: an arrival TIME, not just a duration. Anchored to a server clock
+    # the client also receives, so two clients reading the same plan at different
+    # moments agree instead of each adding duration to their own "now".
+    computed_at = datetime.now(timezone.utc)
+    steps = final_route.get("steps") or []
+    provider = final_route.get("provider")
+
     return RoutePlanResponse(
         route_plan_id=plan_id,
         route_status=route_status,
@@ -1046,11 +1189,13 @@ async def create_route_plan(
             effective_reserve_km=round(reserve_km, 1),
             direct_arrival_soc_pct=est_direct.estimated_arrival_soc_pct,
             soc_margin_pct=round(final_arrival_soc - reserve_pct, 1),
+            computed_at=computed_at,
+            estimated_arrival_at=_eta(computed_at, final_duration_mins),
         ),
         route=RoutePlanGeometryAndSteps(
             type="Feature",
             geometry=final_route["geometry"],
-            steps=final_route.get("steps") or [],
+            steps=steps,
         ),
         recommended_stop=recommended_stop,
         charging_stops=charging_stops,
@@ -1069,6 +1214,14 @@ async def create_route_plan(
             traffic_applied=False,
             connector_data_inferred=bool(connector_profile.inferred_types),
             energy_model_version="spec-v2",
+            service_area=ServiceAreaSummary(**service_area.describe()),
+            route_type=preferences.route_type,
+            prefer_fast_charging=preferences.prefer_fast_charging,
+            maximum_detour_km=max_detour_km,
+            rank_detour_weight=rank_weights.detour_weight,
+            rank_power_weight_km_per_kw=rank_weights.power_weight_km_per_kw,
+            routing_provider=provider,
+            turn_by_turn_available=bool(provider in ROAD_PROVIDERS and len(steps) > 1),
         )
     )
 
@@ -1088,7 +1241,7 @@ async def evaluate_active_route(
     ranked stations that could be added as a stop. Adding the stop and
     dismissing the alert are client actions.
     """
-    ev_model_id, ev_model = _planning_vehicle(user)
+    ev_model_id, ev_model = _planning_vehicle(user, body.ev_model_id, body.vehicle)
 
     battery_kwh = float(ev_model["battery_kwh"])
     efficiency_wh_per_km = float(ev_model.get("efficiency_wh_per_km") or 180.0)
@@ -1162,12 +1315,14 @@ async def evaluate_active_route(
                 severity="critical",
                 message=(
                     "Battery will drop below your reserve before arrival and no reachable station "
-                    "ahead has a free connector your vehicle can use."
+                    "ahead has a free connector your vehicle can use. Choose another route, widen "
+                    "your detour allowance, or charge before continuing."
                 ),
                 projected_arrival_soc_pct=round(projection.raw_arrival_soc_pct, 1),
                 reserve_soc_pct=round(reserve_pct, 1),
                 shortfall_soc_pct=round(max(0.0, reserve_pct - projection.raw_arrival_soc_pct), 1),
                 can_dismiss=True,
+                suggested_actions=list(NO_STATION_SUGGESTED_ACTIONS),
             )
     elif margin_is_tight:
         warning = RouteWarning(
@@ -1184,11 +1339,42 @@ async def evaluate_active_route(
             can_dismiss=True,
         )
 
+    computed_at = datetime.now(timezone.utc)
+
+    # AC 2.1.1 / AC 2.4.2: a driver ALREADY ON AN ACTIVE ROUTE must keep getting
+    # battery re-evaluations. The planning-time service-area gate (AC 2.2.2)
+    # therefore must NOT run here -- it would turn a boundary into a mid-journey
+    # kill switch and 422 the driver the moment they crossed it, which is exactly
+    # the moment those two ACs exist to cover. The condition is surfaced as an
+    # advisory instead: flagged, named per field, and carried in `advisories` so
+    # it cannot displace the battery `warning`.
+    out_of_area_fields = service_area.outside_fields([
+        ("current_position", body.current_position.latitude, body.current_position.longitude),
+        ("destination", body.destination.latitude, body.destination.longitude),
+    ])
+    advisories = []
+    if out_of_area_fields:
+        advisories.append(RouteWarning(
+            triggered=True,
+            code=WARNING_OUT_OF_SERVICE_AREA,
+            severity="info",
+            message=service_area.advisory_message(out_of_area_fields),
+            projected_arrival_soc_pct=round(projection.estimated_arrival_soc_pct, 1),
+            reserve_soc_pct=round(reserve_pct, 1),
+            shortfall_soc_pct=0.0,
+            can_dismiss=True,
+            suggested_actions=[SUGGEST_RETURN_TO_SERVICE_AREA],
+        ))
+
     return ActiveRouteEvaluationResponse(
         route_plan_id=body.route_plan_id,
         route_status=route_status,
         margin_is_tight=margin_is_tight,
         warning=warning,
+        service_area=ServiceAreaSummary(**service_area.describe()),
+        out_of_service_area=bool(out_of_area_fields),
+        out_of_service_area_fields=out_of_area_fields,
+        advisories=advisories,
         remaining_distance_km=remaining_km,
         remaining_duration_minutes=remaining_route["duration_minutes"],
         estimated_energy_kwh=projection.estimated_trip_energy_kwh,
@@ -1200,7 +1386,44 @@ async def evaluate_active_route(
         vehicle=_vehicle_summary(ev_model_id, ev_model, battery_kwh,
                                  efficiency_wh_per_km, efficiency_source),
         candidate_stops=candidate_stops,
+        computed_at=computed_at,
+        estimated_arrival_at=_eta(computed_at, remaining_route["duration_minutes"]),
     )
+
+
+@app.delete("/api/v1/route-plans/{route_plan_id}", status_code=204, tags=["routing"],
+            summary="End a route session and delete its temporary location data (AC 2.3.3)")
+async def delete_route_plan(
+    route_plan_id: str,
+    user: dict = Depends(security.current_user),
+) -> None:
+    """AC 2.3.3: the trigger for "the session ended, delete the temporary history".
+
+    Route plans are never persisted -- ``route_plan_id`` is an ephemeral string,
+    there is no route-plan table and no user-position column anywhere in the
+    schema -- so there is no stored trip to delete. What DOES briefly hold a
+    location is the reverse-geocoding cache, whose key is the caller's own
+    (coarsened) position.
+
+    This used to call ``purge_expired()`` and nothing else, which was a no-op for
+    the session that just ended: that call drops entries whose TTL has ALREADY
+    elapsed, and the ending session's coordinates are precisely the ones still
+    inside it. It now deletes this session's OWN entries, via the index the
+    ``route_plan_id`` query parameter on ``/api/v1/geocoding/reverse`` builds up,
+    and then sweeps anything else that has expired.
+
+    Deleting is fail-safe in the privacy direction, so an unknown or already-torn
+    -down ``route_plan_id`` is a successful 204 rather than a 404 -- the client
+    must be able to call this on teardown without handling an error.
+
+    Independently of this endpoint, the same entries are deleted no later than
+    ``GEOCODING_REVERSE_CACHE_TTL_SECONDS`` (30 s) by the background sweeper
+    started in the app lifespan, so the AC's bound does not depend on the client
+    remembering to call it.
+    """
+    from api.services.geocoding_service import purge_expired, purge_session
+    purge_session(route_plan_id)
+    purge_expired()
 
 
 def _enforce_geocoding_rate_limit(request: Request) -> None:
@@ -1241,7 +1464,20 @@ async def search_geocoding(
     lat: Optional[float] = Query(None, ge=-90, le=90),
     lon: Optional[float] = Query(None, ge=-180, le=180),
     limit: int = Query(5, ge=1, le=10),
+    in_service_area_only: bool = Query(
+        False,
+        description="Drop suggestions that POST /api/v1/route-plans would reject with a 422. "
+                    "Off by default, because the station dataset is national and browsing "
+                    "outside the configured service area is legitimate; every item carries "
+                    "`in_service_area` either way, so a picker that cannot label them can "
+                    "filter instead (AC 2.2.1 / AC 2.2.2)."),
 ) -> GeocodingSearchResponse:
+    """Destination suggestions that never contradict the planner.
+
+    Every item says whether the planner will accept it (`in_service_area`), and
+    the response echoes the area itself (`service_area`), so the picker can never
+    offer a destination that POST /api/v1/route-plans then refuses.
+    """
     _enforce_geocoding_rate_limit(request)
     from api.services.geocoding_service import GeocodingService, round_coord
     # Round before the service sees them (privacy + caching, same as
@@ -1250,7 +1486,8 @@ async def search_geocoding(
     origin_lon = None if lon is None else round_coord(lon)
     service = GeocodingService()
     try:
-        return await service.search(query=q, origin_lat=origin_lat, origin_lon=origin_lon, limit=limit)
+        return await service.search(query=q, origin_lat=origin_lat, origin_lon=origin_lon,
+                                    limit=limit, in_service_area_only=in_service_area_only)
     except HTTPException:
         raise
     except Exception:
@@ -1264,6 +1501,13 @@ async def reverse_geocoding(
     request: Request,
     lat: float = Query(..., ge=-90, le=90),
     lon: float = Query(..., ge=-180, le=180),
+    route_plan_id: Optional[str] = Query(
+        None,
+        description="The route session this lookup belongs to. Supply it and "
+                    "DELETE /api/v1/route-plans/{route_plan_id} deletes the temporary "
+                    "location data this session created, at once rather than at TTL "
+                    "(AC 2.3.3). Omit it and the data still expires on the 30-second "
+                    "deadline, it just cannot be deleted early by session."),
 ) -> dict[str, str]:
     _enforce_geocoding_rate_limit(request)
     from api.services.geocoding_service import GeocodingService, REVERSE_COORD_PRECISION_DP, round_coord
@@ -1273,7 +1517,8 @@ async def reverse_geocoding(
     safe_lon = round_coord(lon, REVERSE_COORD_PRECISION_DP)
     service = GeocodingService()
     try:
-        return await service.reverse_search(lat=safe_lat, lon=safe_lon)
+        return await service.reverse_search(lat=safe_lat, lon=safe_lon,
+                                            session_id=route_plan_id)
     except HTTPException:
         raise
     except Exception:

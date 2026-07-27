@@ -37,9 +37,14 @@ distance share one basis and `detour_km` can never go negative.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
-from api.models import RecommendedStop, Station
+from api.models import (  # noqa: F401  (route-type names re-exported for callers)
+    ROUTE_TYPE_FASTEST,
+    ROUTE_TYPE_SHORTEST,
+    RecommendedStop,
+    Station,
+)
 from api.services.connector_compat import (  # noqa: F401  (re-exported for callers)
     VehicleConnectorProfile,
     connector_is_compatible,
@@ -61,6 +66,35 @@ from api.services.station_availability import (
 # Ranking weights. Score is in "km-equivalent"; lower is better.
 DETOUR_WEIGHT = float(os.getenv("ROUTE_RANK_DETOUR_WEIGHT", "1.0"))
 POWER_WEIGHT_KM_PER_KW = float(os.getenv("ROUTE_RANK_POWER_WEIGHT", "0.05"))
+
+# AC 2.2.4: the driver's charging preferences must actually move the ranking.
+# `prefer_fast_charging=True` rewards available charging power far harder, so a
+# 200 kW station a couple of km off the corridor beats a 22 kW one on it;
+# `False` drops the power term entirely and minimises detour alone.
+FAST_CHARGING_POWER_WEIGHT = float(os.getenv("ROUTE_RANK_FAST_POWER_WEIGHT", "0.25"))
+MIN_DETOUR_POWER_WEIGHT = float(os.getenv("ROUTE_RANK_MIN_DETOUR_POWER_WEIGHT", "0.0"))
+# route_type='shortest' weights added distance harder than the default 'fastest'.
+SHORTEST_DETOUR_WEIGHT = float(os.getenv("ROUTE_RANK_SHORTEST_DETOUR_WEIGHT", "2.0"))
+
+
+class RankingWeights(NamedTuple):
+    """How the driver's preferences translate into the km-equivalent rank score."""
+    detour_weight: float = DETOUR_WEIGHT
+    power_weight_km_per_kw: float = POWER_WEIGHT_KM_PER_KW
+
+
+#: Preference-free weights, used when a caller ranks without a preferences object.
+DEFAULT_RANKING_WEIGHTS = RankingWeights()
+
+
+def ranking_weights_for(
+    route_type: str = ROUTE_TYPE_FASTEST,
+    prefer_fast_charging: bool = True,
+) -> RankingWeights:
+    """Map AC 2.2.4 preferences onto ranking weights (the whole point of the AC)."""
+    detour = SHORTEST_DETOUR_WEIGHT if route_type == ROUTE_TYPE_SHORTEST else DETOUR_WEIGHT
+    power = FAST_CHARGING_POWER_WEIGHT if prefer_fast_charging else MIN_DETOUR_POWER_WEIGHT
+    return RankingWeights(detour_weight=detour, power_weight_km_per_kw=power)
 
 # Corridor prefilter half-size, in degrees, around the origin-destination box.
 # Only used by the degenerate/offline fallback path -- the primary prefilter is
@@ -226,8 +260,13 @@ class StopRanker:
         distance_scale_factor: float = 1.0,
         distance_basis: str = DISTANCE_BASIS_STRAIGHT_LINE,
         limit: Optional[int] = None,
+        weights: RankingWeights = DEFAULT_RANKING_WEIGHTS,
     ) -> List[RecommendedStop]:
-        """Every station that passes all AC 2.2.9 filters, best first."""
+        """Every station that passes all AC 2.2.9 filters, best first.
+
+        ``weights`` carries the driver's AC 2.2.4 charging preferences into the
+        score; the default is the preference-free weighting.
+        """
         stations = self._fetch_stations(
             origin, destination, forced_station_id, corridor_km=float(maximum_detour_km)
         )
@@ -265,6 +304,7 @@ class StopRanker:
                         scale=scale,
                         distance_basis=distance_basis,
                         forced=bool(forced_station_id),
+                        weights=weights,
                     )
                 except CandidateRejection:
                     continue
@@ -338,6 +378,7 @@ class StopRanker:
         scale: float,
         distance_basis: str,
         forced: bool,
+        weights: RankingWeights = DEFAULT_RANKING_WEIGHTS,
     ) -> RecommendedStop:
         st_lat = float(st["latitude"])
         st_lon = float(st["longitude"])
@@ -419,9 +460,10 @@ class StopRanker:
             station_power_kw=station_power_kw,
         )
 
-        # --- ranking: detour asc, available power desc -----------------------
+        # --- ranking: detour asc, available power desc, weighted by preference ---
         rank_power_kw = float(live_power_kw if live_power_kw is not None else (st.get("power_kw") or 0.0))
-        rank_score = round((detour_km * DETOUR_WEIGHT) - (rank_power_kw * POWER_WEIGHT_KM_PER_KW), 4)
+        rank_score = round(
+            (detour_km * weights.detour_weight) - (rank_power_kw * weights.power_weight_km_per_kw), 4)
 
         station_model = Station(
             id=st["id"],
@@ -472,6 +514,8 @@ class StopRanker:
             availability="available_now" if free_compatible > 0 else "unavailable",
             data_confidence=("high" if availability.total > 0 and not st.get("connector_inferred") else "medium"),
             rank_score=rank_score,
+            detour_budget_km=round(float(maximum_detour_km), 1),
+            detour_within_budget=detour_km <= float(maximum_detour_km),
         )
 
     # ---- road-distance re-validation --------------------------------------
@@ -488,6 +532,8 @@ class StopRanker:
         max_dc_charge_kw: Optional[float],
         distance_basis: str = DISTANCE_BASIS_ROAD,
         forced: bool = False,
+        weights: RankingWeights = DEFAULT_RANKING_WEIGHTS,
+        maximum_detour_km: Optional[float] = None,
     ) -> Optional[RecommendedStop]:
         """Re-check a ranked stop against the ACTUAL road legs the driver will drive.
 
@@ -554,7 +600,17 @@ class StopRanker:
 
         detour_km = max(0.0, (leg1 + leg2) - float(road_direct_distance_km))
         rank_power_kw = float(stop.best_available_power_kw or stop.station.power_kw or 0.0)
-        rank_score = round((detour_km * DETOUR_WEIGHT) - (rank_power_kw * POWER_WEIGHT_KM_PER_KW), 4)
+        rank_score = round(
+            (detour_km * weights.detour_weight) - (rank_power_kw * weights.power_weight_km_per_kw), 4)
+
+        # AC 2.2.4: the detour budget was only ever a pre-ranking straight-line
+        # filter, so the ROAD detour finally reported to the driver could exceed
+        # the budget they set. It is re-checked here and reported honestly; the
+        # caller prefers an in-budget candidate and only falls back to this one
+        # when nothing inside the budget survived.
+        budget_km = (float(maximum_detour_km) if maximum_detour_km is not None
+                     else stop.detour_budget_km)
+        within_budget = True if budget_km is None else detour_km <= float(budget_km)
 
         return stop.model_copy(update={
             "station": stop.station.model_copy(update={"distance_km": round(leg1, 1)}),
@@ -573,4 +629,6 @@ class StopRanker:
             "estimated_charging_minutes": charge_info["estimated_charging_minutes"],
             "effective_charging_power_kw": charge_info["effective_charging_power_kw"],
             "rank_score": rank_score,
+            "detour_budget_km": (round(float(budget_km), 1) if budget_km is not None else None),
+            "detour_within_budget": within_budget,
         })

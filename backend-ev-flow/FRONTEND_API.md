@@ -308,10 +308,99 @@ Requires Bearer authentication token. Simulates trip energy consumption based on
 }
 ```
 
+**What changed (Epic 2 acceptance pass — all ADDITIVE, nothing renamed):**
+
+- **Service area is enforced at PLANNING time (AC 2.2.1 / 2.2.2).** `origin` /
+  `destination` on `POST /api/v1/route-plans` outside the configured area return
+  **422** with `detail[].loc == ["body","origin"]` / `["body","destination"]` and **no
+  route**. Default area: lat `-11.20 … 6.30`, lon `94.60 … 141.30` — the whole
+  Indonesian archipelago, i.e. everything the station dataset actually covers, so the
+  picker and the planner agree. It is echoed at `assumptions.service_area`.
+  **`/active/evaluate` deliberately does NOT reject** — see below.
+- **Mid-journey is never blocked (AC 2.1.1 / 2.4.2).**
+  `POST /api/v1/route-plans/active/evaluate` no longer 422s on an out-of-area
+  `current_position` / `destination`: a driver who is already travelling must keep
+  getting battery re-evaluations. It returns **200** plus
+  `out_of_service_area: boolean`, `out_of_service_area_fields: string[]` (any of
+  `"current_position"`, `"destination"`), `service_area`, and an entry in the new
+  `advisories: RouteWarning[]` with `code: "out_of_service_area"` and
+  `suggested_actions: ["return_to_service_area"]`. Advisories never displace
+  `warning`, which stays reserved for the battery projection — render both.
+- **Vehicle source (AC 2.2.3).** Optional `ev_model_id` (catalogue vehicle for this
+  request; **404** if unknown) and `vehicle: { usable_range_km, battery_kwh?, name?,
+  max_dc_charge_kw?, connector_type? }` (hand-entered range). Precedence:
+  `vehicle` > `ev_model_id` > profile. A driver with **no** profile who sends
+  `vehicle` is now planned for instead of getting 409; `vehicle.efficiency_source`
+  comes back as `"manual_range"`. 409 only when all three are absent.
+- **Preferences are applied (AC 2.2.4).** `preferences.prefer_fast_charging` and
+  `preferences.route_type` now change which stop is recommended. `route_type` stays a
+  free-form **string** — `"fastest"` and `"shortest"` are understood (case- and
+  whitespace-insensitive) and **anything else falls back to `"fastest"` rather than
+  422**, so an existing client cannot break on deploy. Check
+  `assumptions.route_type` to see what was actually applied. Applied values are echoed at
+  `assumptions.route_type` / `prefer_fast_charging` / `maximum_detour_km` /
+  `rank_detour_weight` / `rank_power_weight_km_per_kw`.
+- **Actionable warnings (AC 2.2.6).** `warning.suggested_actions: string[]` from a
+  fixed vocabulary — `"choose_another_route"`, `"adjust_preferences"`,
+  `"charge_before_departure"` — so buttons can be rendered/localised without
+  string-matching `warning.message`.
+- **Arrival time (AC 2.4.1).** `summary.computed_at` and
+  `summary.estimated_arrival_at` (both UTC ISO-8601; the ETA includes charging
+  time). Same two fields on `/active/evaluate`. Prefer these over adding
+  `duration_minutes` to your own clock.
+- **Typed steps (AC 2.4.1).** `route.steps[]` is now
+  `{ instruction, name, distance_m, duration_s, location, leg_index }`. `leg_index`
+  tells you which step is on which side of the charging stop.
+  `assumptions.routing_provider` + `assumptions.turn_by_turn_available` tell you when
+  routing degraded (straight line, one placeholder step) instead of failing loudly.
+- **Detour honesty (AC 2.2.4).** Each stop carries `detour_budget_km` and
+  `detour_within_budget`; the latter is `false` when the ROAD detour finally exceeds
+  the budget (only when nothing inside it was viable, or for a forced waypoint).
+
+### 4.9b `DELETE /api/v1/route-plans/{route_plan_id}` — end the session _(AC 2.3.3)_
+Requires auth. Returns **204**, always — it is idempotent and never 404s, so teardown
+never has to handle an error. Call it when the driver cancels the route or closes
+navigation.
+
+Route plans are never persisted; what this deletes is the short-lived,
+position-keyed geocoding cache. **To make that deletion target *your* session, pass
+`route_plan_id` to `GET /api/v1/geocoding/reverse`** (see 4.11) — the DELETE then
+removes exactly the entries that session created, including ones still well inside
+their TTL. Without the tag the endpoint can only sweep whatever already expired.
+
+Either way the 30-second bound holds: a background task deletes each entry on its
+deadline, whether or not the app is receiving any traffic and whether or not you call
+this endpoint.
+
 ### 4.10 `GET /api/v1/geocoding/search` — Destination picker search proxy
 Merges SPKLU stations and places with Indonesia spatial bias.
 
 - `GET /api/v1/geocoding/search?q=Bandung&lat=-6.2088&lon=106.8456&limit=5`
+
+**The picker never contradicts the planner (AC 2.2.1 / 2.2.2):** every item carries
+`in_service_area: boolean` — `false` means `POST /api/v1/route-plans` **would 422** on
+it as an origin/destination, so label or disable it rather than offering it. The
+response also echoes `service_area`, so you can tell the user where the app does work.
+Pass `?in_service_area_only=true` to have the server drop those items instead
+(`filtered_out_of_service_area` counts how many went). With the default national area
+nothing is filtered; the flag matters for a deployment that narrows the boundary.
+`Station` objects from `/api/v1/stations` and `/api/v1/stations/nearby` carry the same
+`in_service_area` field.
+
+**Distances without a GPS fix (AC 2.2.7):** omitting `lat`/`lon` no longer returns
+`distance_km: null`. Distances are then measured from a configured reference point
+and every item — plus the response itself — carries `distance_from`
+(`"origin"` | `"reference_point"`) and `distance_reference_label` (e.g. `"Jakarta"`),
+so the picker can render "~115 km from Jakarta" rather than nothing.
+
+### 4.11 `GET /api/v1/geocoding/reverse` — coordinates → place label
+- `GET /api/v1/geocoding/reverse?lat=-6.2088&lon=106.8456&route_plan_id=plan-abc123`
+
+`route_plan_id` is **optional and additive**. Supply the id of the plan being driven
+and the temporary location data this lookup creates becomes deletable by
+`DELETE /api/v1/route-plans/{route_plan_id}` the moment the trip ends (AC 2.3.3).
+Omit it and nothing breaks — the data still expires within 30 seconds, it just cannot
+be dropped early.
 
 ---
 

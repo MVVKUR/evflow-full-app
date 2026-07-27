@@ -5,14 +5,25 @@ Fallback provider: Local NetworkX Dijkstra graph router in `api.routing`.
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import httpx
 
+logger = logging.getLogger(__name__)
+
 OSRM_BASE_URL = os.getenv("OSRM_BASE_URL", "https://router.project-osrm.org")
 ROUTING_TIMEOUT_SECONDS = float(os.getenv("ROUTING_TIMEOUT_SECONDS", "3.0"))
+
+# A provider that answers "0 km" for two points this far apart is off its map
+# and is reporting nonsense (two identical coordinates for a 111 km ocean pair).
+# Such a reply is discarded rather than published as a healthy direct route.
+DEGENERATE_ROUTE_KM = float(os.getenv("ROUTING_DEGENERATE_ROUTE_KM", "0.5"))
+
+# Providers whose geometry is real road geometry (as opposed to a straight line).
+ROAD_PROVIDERS = ("osrm", "local_dijkstra")
 
 
 
@@ -54,7 +65,10 @@ class RoutingService:
                 if osrm_result:
                     return osrm_result
             except Exception:
-                pass
+                # Swallowing this silently made a degraded plan (2-point geometry,
+                # one synthetic step) indistinguishable from a real one in the
+                # logs. The client still gets a 200 with `routing_provider` set.
+                logger.warning("routing: OSRM request failed, falling back", exc_info=True)
 
         # Fallback to local graph or straight-line estimation
         return self._local_fallback_route(coords)
@@ -76,9 +90,21 @@ class RoutingService:
             dist_km = route["distance"] / 1000.0
             dur_mins = route["duration"] / 60.0
 
+            # Reject a degenerate answer instead of reporting it as a healthy
+            # plan: OSRM snapped both ends to the same off-map node.
+            requested_km = sum(
+                haversine_distance_km(a[0], a[1], b[0], b[1])
+                for a, b in zip(coords, coords[1:])
+            )
+            if dist_km < DEGENERATE_ROUTE_KM <= requested_km:
+                logger.warning(
+                    "routing: provider returned a degenerate 0 km route for a %.1f km request; "
+                    "discarding", requested_km)
+                return None
+
             geometry = route["geometry"]  # GeoJSON LineString
             steps = []
-            for leg in route.get("legs", []):
+            for leg_index, leg in enumerate(route.get("legs", [])):
                 for step in leg.get("steps", []):
                     maneuver = step.get("maneuver", {})
                     steps.append({
@@ -87,6 +113,9 @@ class RoutingService:
                         "distance_m": step.get("distance", 0),
                         "duration_s": step.get("duration", 0),
                         "location": maneuver.get("location", []),
+                        # Which leg the step belongs to, so the client can tell
+                        # where the charging stop falls in a multi-leg plan.
+                        "leg_index": leg_index,
                     })
 
             return {
@@ -127,7 +156,7 @@ class RoutingService:
                     "coordinates": all_coordinates,
                 },
                 "steps": [
-                    {"instruction": "Head towards destination", "name": "Main Road", "distance_m": total_dist_km * 1000, "duration_s": total_duration_mins * 60, "location": [coords[0][1], coords[0][0]]}
+                    {"instruction": "Head towards destination", "name": "Main Road", "distance_m": total_dist_km * 1000, "duration_s": total_duration_mins * 60, "location": [coords[0][1], coords[0][0]], "leg_index": 0}
                 ],
                 "provider": "local_dijkstra",
             }
@@ -151,7 +180,7 @@ class RoutingService:
                     "coordinates": line_coords,
                 },
                 "steps": [
-                    {"instruction": "Proceed along route", "name": "Highway", "distance_m": total_dist_km * 1000, "duration_s": total_duration_mins * 60, "location": line_coords[0]}
+                    {"instruction": "Proceed along route", "name": "Highway", "distance_m": total_dist_km * 1000, "duration_s": total_duration_mins * 60, "location": line_coords[0], "leg_index": 0}
                 ],
                 "provider": "haversine_fallback",
             }

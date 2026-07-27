@@ -5,7 +5,15 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from api.services import service_area
+
+# Route-type vocabulary. Declared here (not in the ranker) so the request model
+# can validate against it without importing a service that imports this module.
+ROUTE_TYPE_FASTEST = "fastest"
+ROUTE_TYPE_SHORTEST = "shortest"
+SUPPORTED_ROUTE_TYPES = (ROUTE_TYPE_FASTEST, ROUTE_TYPE_SHORTEST)
 
 
 class Source(str, Enum):
@@ -78,6 +86,20 @@ class Station(BaseModel):
     status: Optional[str] = Field(None, description="Operational status if reported.", examples=["operational"])
     date_verified: Optional[str] = Field(None, description="ISO timestamp last verified (OCM).")
     distance_km: Optional[float] = Field(None, description="Set only on /nearby results.", examples=[1.42])
+    in_service_area: bool = Field(
+        True,
+        description="False when this station lies OUTSIDE the configured route service area, "
+                    "i.e. POST /api/v1/route-plans would reject it as an origin or "
+                    "destination. Computed from the station's own coordinates, so discovery "
+                    "(/api/v1/stations, /api/v1/stations/nearby, /api/v1/geocoding/search) and "
+                    "planning can never disagree. The station dataset is national while a "
+                    "deployment's service area may be narrower.")
+
+    @model_validator(mode="after")
+    def _set_in_service_area(self) -> "Station":
+        object.__setattr__(self, "in_service_area",
+                           service_area.contains(self.latitude, self.longitude))
+        return self
 
 
 class StationList(BaseModel):
@@ -347,15 +369,73 @@ class RouteLocationInput(BaseModel):
 
 
 class RoutePreferencesInput(BaseModel):
-    route_type: str = Field("fastest", examples=["fastest"])
+    route_type: str = Field(
+        ROUTE_TYPE_FASTEST,
+        description="'fastest' balances detour against charging power; 'shortest' weights "
+                    "detour distance harder. Applied to stop ranking and echoed in "
+                    "assumptions.route_type (AC 2.2.4). Kept a free-form string rather than "
+                    "an enum: this field shipped untyped, the web client declares it "
+                    "`route_type?: string`, and turning an already-accepted request into a "
+                    "422 would break it. An unrecognised value falls back to 'fastest' and "
+                    "the value ACTUALLY applied comes back in assumptions.route_type, so a "
+                    "client can detect the fallback without guessing.",
+        examples=list(SUPPORTED_ROUTE_TYPES))
     maximum_detour_km: float = Field(8.0, ge=1.0, le=50.0, examples=[8.0])
-    prefer_fast_charging: bool = Field(True)
+    prefer_fast_charging: bool = Field(
+        True,
+        description="True rewards high available charging power when ranking stops; False "
+                    "ranks on detour distance alone (AC 2.2.4).")
+
+    @field_validator("route_type", mode="before")
+    @classmethod
+    def _known_route_type(cls, v: Any) -> str:
+        """Accept the known values; degrade anything else to the default."""
+        if not isinstance(v, str):
+            return ROUTE_TYPE_FASTEST
+        normalised = v.strip().lower()
+        return normalised if normalised in SUPPORTED_ROUTE_TYPES else ROUTE_TYPE_FASTEST
+
+
+class ManualVehicleInput(BaseModel):
+    """A range entered by hand, for a driver with no saved vehicle profile (AC 2.2.3)."""
+    usable_range_km: float = Field(
+        ..., gt=0, le=2000,
+        description="Remaining/usable range at 100% battery, in km.", examples=[350.0])
+    battery_kwh: Optional[float] = Field(
+        None, gt=0, le=500,
+        description="Usable pack size. When omitted, one consistent with the entered range "
+                    "and the configured default efficiency is assumed.", examples=[58.0])
+    name: Optional[str] = Field(None, examples=["My EV"])
+    max_dc_charge_kw: Optional[float] = Field(None, gt=0, le=1000, examples=[150.0])
+    connector_type: Optional[str] = Field(None, examples=["CCS2"])
+
+
+def _require_service_area(point: "RouteLocationInput") -> "RouteLocationInput":
+    """AC 2.2.1 / AC 2.2.2: reject a point outside the configured route service area.
+
+    Raised as a Pydantic ValueError so FastAPI answers 422 with
+    ``detail[].loc == ["body", "origin"|"destination"|"current_position"]`` and
+    the endpoint body never runs -- no route is generated.
+    """
+    if not service_area.contains(point.latitude, point.longitude):
+        raise ValueError(service_area.rejection_message())
+    return point
 
 
 class RoutePlanRequest(BaseModel):
     origin: RouteLocationInput
     destination: RouteLocationInput
     current_soc_pct: float = Field(..., ge=0, le=100, examples=[72.0])
+    ev_model_id: Optional[str] = Field(
+        None,
+        description="Plan for this catalogue vehicle instead of the saved profile (AC 2.2.3). "
+                    "404 when unknown. Overridden by `vehicle`.",
+        examples=["hyundai-ioniq-5"])
+    vehicle: Optional[ManualVehicleInput] = Field(
+        None,
+        description="Manually entered vehicle range (AC 2.2.3). Takes precedence over "
+                    "ev_model_id and over the saved profile, so a driver with no profile "
+                    "can still simulate a trip.")
     minimum_arrival_soc_pct: Optional[float] = Field(
         None, ge=0, le=50, examples=[20.0],
         description="Minimum arrival battery. Defaults to the server reserve (20%, AC 2.1.3). "
@@ -366,6 +446,11 @@ class RoutePlanRequest(BaseModel):
     max_candidate_stops: int = Field(
         5, ge=1, le=25,
         description="How many ranked alternative stops to return alongside the recommended one.")
+
+    @field_validator("origin", "destination")
+    @classmethod
+    def _within_service_area(cls, v: RouteLocationInput) -> RouteLocationInput:
+        return _require_service_area(v)
 
 
 class VehicleSummary(BaseModel):
@@ -393,12 +478,39 @@ class TripSummary(BaseModel):
         None, description="Arrival SoC with NO charging stop, for the warning UI.", examples=[8.0])
     soc_margin_pct: Optional[float] = Field(
         None, description="Projected arrival SoC minus the enforced reserve.", examples=[3.0])
+    computed_at: Optional[datetime] = Field(
+        None,
+        description="Server clock when this plan was computed (UTC). The reference point for "
+                    "estimated_arrival_at, so two clients reading the same plan agree (AC 2.4.1).")
+    estimated_arrival_at: Optional[datetime] = Field(
+        None,
+        description="Estimated arrival TIME (UTC) = computed_at + duration_minutes, charging "
+                    "time included (AC 2.4.1).")
+
+
+class RouteStep(BaseModel):
+    """One turn-by-turn instruction (AC 2.4.1 'next instruction').
+
+    Every field has a default so a provider that omits one still serialises, and
+    so the legacy untyped `steps: []` payload keeps validating unchanged.
+    """
+    instruction: str = Field("", examples=["turn slight left"])
+    name: str = Field("", description="Road name, may be empty.",
+                      examples=["Jalan Medan Merdeka Utara"])
+    distance_m: float = Field(0.0, examples=[782.5])
+    duration_s: float = Field(0.0, examples=[45.6])
+    location: list[float] = Field(default_factory=list,
+                                  description="[longitude, latitude] where the manoeuvre starts.")
+    leg_index: int = Field(
+        0,
+        description="Which leg this step belongs to. 0 is origin -> first waypoint, so the "
+                    "charging stop is the boundary between leg 0 and leg 1.", examples=[0])
 
 
 class RoutePlanGeometryAndSteps(BaseModel):
     type: str = Field("Feature", examples=["Feature"])
     geometry: RouteGeometry
-    steps: list[dict[str, Any]] = Field(default_factory=list)
+    steps: list[RouteStep] = Field(default_factory=list)
 
 
 class RecommendedStop(BaseModel):
@@ -459,6 +571,23 @@ class RecommendedStop(BaseModel):
     rank_score: float = Field(
         0.0, description="Deterministic rank score (detour km penalised, available power rewarded); lower is better.",
         examples=[1.4])
+    detour_budget_km: Optional[float] = Field(
+        None, description="The maximum_detour_km this stop was ranked against.", examples=[8.0])
+    detour_within_budget: bool = Field(
+        True,
+        description="False when the ROAD detour finally reported exceeds detour_budget_km. "
+                    "Only possible when nothing inside the budget was viable, or for a "
+                    "driver-forced waypoint (AC 2.2.4).")
+
+
+class ServiceAreaSummary(BaseModel):
+    """The route service area the request was validated against (AC 2.2.1)."""
+    name: str = Field(..., examples=["Indonesia (national SPKLU coverage)"])
+    south: float = Field(..., examples=[-11.2])
+    west: float = Field(..., examples=[94.6])
+    north: float = Field(..., examples=[6.3])
+    east: float = Field(..., examples=[141.3])
+    enforced: bool = Field(True)
 
 
 class RoutePlanAssumptions(BaseModel):
@@ -473,6 +602,26 @@ class RoutePlanAssumptions(BaseModel):
     traffic_applied: bool = Field(False)
     connector_data_inferred: bool = Field(True)
     energy_model_version: str = Field("spec-v1")
+    service_area: Optional[ServiceAreaSummary] = Field(
+        None, description="The area origin/destination were validated against (AC 2.2.1).")
+    route_type: Optional[str] = Field(
+        None, description="The route_type preference actually applied.", examples=["fastest"])
+    prefer_fast_charging: Optional[bool] = Field(
+        None, description="The prefer_fast_charging preference actually applied (AC 2.2.4).")
+    maximum_detour_km: Optional[float] = Field(
+        None, description="The detour budget actually applied.", examples=[8.0])
+    rank_detour_weight: Optional[float] = Field(
+        None, description="Weight the applied preferences gave to detour km.", examples=[1.0])
+    rank_power_weight_km_per_kw: Optional[float] = Field(
+        None, description="Weight the applied preferences gave to available charging power.",
+        examples=[0.25])
+    routing_provider: Optional[str] = Field(
+        None, description="Which provider produced the geometry: 'osrm', 'local_dijkstra' or "
+                          "'haversine_fallback' (AC 2.4.1).", examples=["osrm"])
+    turn_by_turn_available: bool = Field(
+        False,
+        description="False when the routing provider degraded and route.steps is a single "
+                    "synthetic placeholder rather than real navigation instructions (AC 2.4.1).")
 
 
 class RouteWarning(BaseModel):
@@ -485,6 +634,13 @@ class RouteWarning(BaseModel):
     reserve_soc_pct: float = Field(..., examples=[20.0])
     shortfall_soc_pct: float = Field(0.0, description="How far below the reserve the projection lands.", examples=[12.0])
     can_dismiss: bool = Field(True, description="AC 2.1.1 lets the driver dismiss and continue.")
+    suggested_actions: list[str] = Field(
+        default_factory=list,
+        description="Machine-readable remedies the client can render as buttons and localise, "
+                    "instead of string-matching `message`. Vocabulary: "
+                    "'choose_another_route', 'adjust_preferences', 'charge_before_departure' "
+                    "(AC 2.2.6), 'return_to_service_area' (advisory only).",
+        examples=[["choose_another_route", "adjust_preferences", "charge_before_departure"]])
 
 
 class RoutePlanResponse(BaseModel):
@@ -532,6 +688,19 @@ class ActiveRouteEvaluationRequest(BaseModel):
     route_plan_id: Optional[str] = Field(None, description="Plan being driven, echoed back.")
     maximum_detour_km: float = Field(15.0, ge=1.0, le=50.0)
     max_candidate_stops: int = Field(5, ge=1, le=25)
+    ev_model_id: Optional[str] = Field(
+        None, description="Catalogue vehicle to evaluate against instead of the saved profile "
+                          "(AC 2.2.3).", examples=["hyundai-ioniq-5"])
+    vehicle: Optional[ManualVehicleInput] = Field(
+        None, description="Manually entered vehicle range (AC 2.2.3). Takes precedence over "
+                          "ev_model_id and over the saved profile.")
+
+    # NOTE: deliberately NO service-area validator here, unlike RoutePlanRequest.
+    # The planning-time boundary (AC 2.2.2) must not become a mid-journey kill
+    # switch: AC 2.1.1 and AC 2.4.2 exist precisely to keep warning a driver who
+    # is already travelling, and a driver on an active route may legitimately be
+    # outside the box. The condition is reported on the RESPONSE instead --
+    # out_of_service_area / out_of_service_area_fields / advisories.
 
 
 class ActiveRouteEvaluationResponse(BaseModel):
@@ -556,6 +725,36 @@ class ActiveRouteEvaluationResponse(BaseModel):
     candidate_stops: list[RecommendedStop] = Field(
         default_factory=list,
         description="Nearby stations the driver could add as a stop, best first.")
+    computed_at: Optional[datetime] = Field(
+        None, description="Server clock when this evaluation ran (UTC) (AC 2.4.1).")
+    estimated_arrival_at: Optional[datetime] = Field(
+        None, description="Estimated arrival TIME (UTC) = computed_at + "
+                          "remaining_duration_minutes (AC 2.4.1).")
+    service_area: Optional[ServiceAreaSummary] = Field(
+        None, description="The configured route service area this evaluation was measured "
+                          "against (AC 2.2.1).")
+    out_of_service_area: bool = Field(
+        False,
+        description="True when current_position and/or destination lies outside the "
+                    "configured route service area. ADVISORY ONLY: unlike "
+                    "POST /api/v1/route-plans, this endpoint keeps evaluating, because a "
+                    "driver already on an active route must keep receiving battery warnings "
+                    "(AC 2.1.1 / AC 2.4.2). Station coverage and ETA are unreliable while "
+                    "this is true.")
+    out_of_service_area_fields: list[str] = Field(
+        default_factory=list,
+        description="Which request fields fell outside: any of 'current_position', "
+                    "'destination'. Empty when out_of_service_area is false.",
+        examples=[["current_position"]])
+    advisories: list[RouteWarning] = Field(
+        default_factory=list,
+        description="Non-blocking notices that do not displace `warning` (which stays "
+                    "reserved for the battery projection). Currently carries the "
+                    "'out_of_service_area' notice.")
+
+
+DISTANCE_FROM_ORIGIN = "origin"
+DISTANCE_FROM_REFERENCE_POINT = "reference_point"
 
 
 class GeocodingItem(BaseModel):
@@ -564,13 +763,78 @@ class GeocodingItem(BaseModel):
     subtitle: str = Field(..., examples=["West Java · via Tol Cipularang"])
     latitude: float = Field(..., ge=-90, le=90, examples=[-6.9175])
     longitude: float = Field(..., ge=-180, le=180, examples=[107.6191])
-    distance_km: Optional[float] = Field(None, examples=[148.0])
+    distance_km: Optional[float] = Field(
+        None,
+        description="Distance from the caller's OWN position, and null when the caller sent "
+                    "none. This meaning is deliberately unchanged: a client that renders it as "
+                    "'distance from you' stays correct, and never silently shows a distance "
+                    "measured from somewhere the user has never been.",
+        examples=[148.0])
+    distance_from_reference_km: Optional[float] = Field(
+        None,
+        description="AC 2.2.7 estimate for the no-GPS-fix case, measured from the configured "
+                    "reference point named in distance_reference_label. Populated only when "
+                    "distance_km is null, so a client must label it ('~X km from Jakarta') "
+                    "rather than present it as the user's own distance.",
+        examples=[148.0])
+    distance_from: str = Field(
+        DISTANCE_FROM_ORIGIN,
+        description="Which of the two distance fields is populated: 'origin' -> distance_km, "
+                    "'reference_point' -> distance_from_reference_km (AC 2.2.7).",
+        examples=["origin", "reference_point"])
+    distance_reference_label: Optional[str] = Field(
+        None,
+        description="Name of the reference point when distance_from == 'reference_point', so "
+                    "the picker can say '~X km from Jakarta'.", examples=["Jakarta"])
+
+    @model_validator(mode="after")
+    def _reference_distance_never_poses_as_the_users_own(self):
+        """Keep distance_km meaning exactly what it meant before AC 2.2.7 landed.
+
+        The fallback estimate is real and useful, but it is measured from a fixed
+        reference point, not from the driver. Serving it in distance_km would make
+        an unmodified client display a confident, wrong 'distance from you'. So it
+        moves to its own field and distance_km goes back to null.
+        """
+        if self.distance_from == DISTANCE_FROM_REFERENCE_POINT and self.distance_km is not None:
+            self.distance_from_reference_km = self.distance_km
+            self.distance_km = None
+        return self
     type: str = Field(..., description="'place' or 'station'", examples=["place"])
     station: Optional[Station] = None
     attribution: str = Field("OpenStreetMap contributors, PLN SPKLU")
+    in_service_area: bool = Field(
+        True,
+        description="False when picking this suggestion as an origin or destination would be "
+                    "REJECTED by POST /api/v1/route-plans with a 422 (AC 2.2.2). The picker "
+                    "must label or disable such an entry rather than offering it as routable; "
+                    "pass ?in_service_area_only=true to have the server drop them instead. "
+                    "Computed from the suggestion's own coordinates against the same "
+                    "configured area the planner uses, so the two can never disagree.")
+
+    @model_validator(mode="after")
+    def _set_in_service_area(self) -> "GeocodingItem":
+        object.__setattr__(self, "in_service_area",
+                           service_area.contains(self.latitude, self.longitude))
+        return self
 
 
 class GeocodingSearchResponse(BaseModel):
     query: str
     items: list[GeocodingItem]
+    distance_from: str = Field(
+        DISTANCE_FROM_ORIGIN,
+        description="Applies to every item: 'origin' or 'reference_point' (AC 2.2.7).",
+        examples=["origin", "reference_point"])
+    distance_reference_label: Optional[str] = Field(None, examples=["Jakarta"])
+    service_area: Optional[ServiceAreaSummary] = Field(
+        None,
+        description="The configured route service area every item's `in_service_area` was "
+                    "computed against -- the SAME area POST /api/v1/route-plans enforces, so "
+                    "the picker can explain why a suggestion is not routable (AC 2.2.1).")
+    filtered_out_of_service_area: int = Field(
+        0,
+        description="How many otherwise-matching suggestions were dropped because "
+                    "in_service_area_only=true. Always 0 when the flag is off.",
+        examples=[0])
 

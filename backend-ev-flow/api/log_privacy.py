@@ -24,6 +24,24 @@ _COORD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# A `lat=`/`lon=` sweep is not the whole access log. `bbox=` on /api/v1/stations
+# and /api/v1/stations.geojson carries the SAME user position as the "near me"
+# map view -- a tight viewport bbox is the user's location at full precision --
+# and a coordinate pair typed into `q=` reaches the log verbatim too. Both are
+# comma-separated numeric lists, so they need their own pattern. `q=Bandung` and
+# `limit=5` do not match.
+_COORD_LIST_RE = re.compile(
+    r"\b(bbox|q|query)=(-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?)+)",
+    re.IGNORECASE,
+)
+
+
+def _round_component(raw: str) -> str:
+    try:
+        return str(round(float(raw), LOG_COORD_PRECISION_DP))
+    except ValueError:
+        return "redacted"
+
 
 def mask_coordinates(text: str) -> str:
     """Return `text` with any coordinate-looking query parameter coarsened."""
@@ -34,7 +52,11 @@ def mask_coordinates(text: str) -> str:
             return f"{m.group(1)}=redacted"
         return f"{m.group(1)}={value}"
 
-    return _COORD_RE.sub(_mask, text)
+    def _mask_list(m: re.Match) -> str:
+        parts = [_round_component(p) for p in m.group(2).split(",")]
+        return f"{m.group(1)}={','.join(parts)}"
+
+    return _COORD_LIST_RE.sub(_mask_list, _COORD_RE.sub(_mask, text))
 
 
 class CoordinateMaskingFilter(logging.Filter):
@@ -51,7 +73,12 @@ class CoordinateMaskingFilter(logging.Filter):
 
 
 def install() -> None:
-    """Attach the filter to uvicorn's access logger (idempotent)."""
+    """Attach the filter to uvicorn's access logger (idempotent).
+
+    Called at ``api.main`` IMPORT time as well as from the lifespan hook: an
+    embedding that runs without the ASGI lifespan (``--lifespan off``, a bare
+    TestClient) used to lose masking silently and log raw coordinates.
+    """
     for name in ("uvicorn.access", "gunicorn.access"):
         logger = logging.getLogger(name)
         if not any(isinstance(f, CoordinateMaskingFilter) for f in logger.filters):
