@@ -16,7 +16,7 @@ import os
 import re
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 ZIP_PATH = ROOT / "ev_dataset.zip"
@@ -188,6 +188,64 @@ ENRICHMENT_SPECS = {
 }
 
 
+#: The six fields the local (Indonesian) feed does not carry and that this
+#: module supplies, in the order `enrichment_for` returns them. They are what
+#: `data/processed/indonesia_ev_cleaned.csv` -- and therefore the live
+#: `ev_models` table, which migration 0010 loads from it -- publishes today.
+ENRICHMENT_FIELDS: tuple[str, ...] = (
+    "top_speed_kmh", "fast_charging_power_kw_dc", "fast_charge_port",
+    "car_body_type", "drivetrain", "efficiency_wh_per_km",
+)
+
+
+class Enrichment(NamedTuple):
+    """What the enrichment produced, and where each half of it came from.
+
+    `fields` is the payload. `matched_global_row` / `curated` exist so a caller
+    can record provenance without re-deriving it: the global spec row wins
+    field by field and the hand-curated table fills whatever it left empty,
+    which is why both can be true at once.
+    """
+    fields: dict
+    matched_global_row: Optional[dict]
+    curated: bool
+
+
+def enrichment_for(car_id: str, brand: str, model: str, vehicle_name: str,
+                   right_rows: list[dict]) -> Enrichment:
+    """THE enrichment for one local model. The only implementation of it.
+
+    `scripts/ev_union.local_record` calls this so the union publishes byte-for-
+    byte what production publishes; `wrangle()` below calls it so there is no
+    second copy to drift. Per field the matched global spec row wins and
+    `ENRICHMENT_SPECS` is the fallback -- note this is `or`, not "is None", so a
+    0 or an empty string in the global feed also falls through to the curated
+    value. That is the existing behaviour and it is deliberate: a 0 kW fast
+    charger or an empty port string is missing data, not a measurement.
+    """
+    right_match = find_best_right_match(brand, model, vehicle_name, right_rows) or {}
+    enrich = ENRICHMENT_SPECS.get(car_id, {})
+
+    fields = {
+        "top_speed_kmh":
+            _min_num(right_match.get("top_speed_kmh")) or enrich.get("top_speed_kmh"),
+        "fast_charging_power_kw_dc":
+            _min_num(right_match.get("fast_charging_power_kw_dc"))
+            or enrich.get("fast_charging_power_kw_dc"),
+        "fast_charge_port":
+            (right_match.get("fast_charge_port") or "").strip() or enrich.get("fast_charge_port"),
+        "car_body_type":
+            (right_match.get("car_body_type") or "").strip() or enrich.get("car_body_type"),
+        "drivetrain":
+            (right_match.get("drivetrain") or "").strip() or enrich.get("drivetrain"),
+        "efficiency_wh_per_km":
+            _min_num(right_match.get("efficiency_wh_per_km")) or enrich.get("efficiency_wh_per_km"),
+    }
+    return Enrichment(fields=fields,
+                      matched_global_row=right_match or None,
+                      curated=bool(enrich))
+
+
 def wrangle() -> list[dict]:
     left_rows, right_rows = load_datasets()
     print(f"Loaded {len(left_rows)} rows from ID dataset and {len(right_rows)} rows from complete global dataset.")
@@ -208,7 +266,8 @@ def wrangle() -> list[dict]:
             continue
 
         # Perform left join with global EV dataset
-        right_match = find_best_right_match(brand, model, vname, right_rows) or {}
+        enrichment = enrichment_for(car_id, brand, model, vname, right_rows)
+        right_match = enrichment.matched_global_row or {}
 
         battery_kwh = _min_num(row.get("Battery Capacity"))
         if battery_kwh is None and right_match.get("battery_capacity_kWh"):
@@ -227,14 +286,6 @@ def wrangle() -> list[dict]:
         price_range = (row.get("Vehicle Price Range") or "").strip() or None
         source_url = (row.get("Source URL") or "").strip() or right_match.get("source_url") or None
 
-        enrich = ENRICHMENT_SPECS.get(car_id, {})
-        top_speed_kmh = _min_num(right_match.get("top_speed_kmh")) or enrich.get("top_speed_kmh")
-        fast_charging_kw = _min_num(right_match.get("fast_charging_power_kw_dc")) or enrich.get("fast_charging_power_kw_dc")
-        fast_charge_port = (right_match.get("fast_charge_port") or "").strip() or enrich.get("fast_charge_port")
-        car_body_type = (right_match.get("car_body_type") or "").strip() or enrich.get("car_body_type")
-        drivetrain = (right_match.get("drivetrain") or "").strip() or enrich.get("drivetrain")
-        efficiency_wh_km = _min_num(right_match.get("efficiency_wh_per_km")) or enrich.get("efficiency_wh_per_km")
-
         car_record = {
             "id": car_id,
             "brand": brand,
@@ -247,12 +298,12 @@ def wrangle() -> list[dict]:
             "charging_time_minutes": charging_time_minutes,
             "power_hp": power_hp,
             "seats": seats,
-            "top_speed_kmh": top_speed_kmh,
-            "fast_charging_power_kw_dc": fast_charging_kw,
-            "fast_charge_port": fast_charge_port,
-            "car_body_type": car_body_type,
-            "drivetrain": drivetrain,
-            "efficiency_wh_per_km": efficiency_wh_km,
+            "top_speed_kmh": enrichment.fields["top_speed_kmh"],
+            "fast_charging_power_kw_dc": enrichment.fields["fast_charging_power_kw_dc"],
+            "fast_charge_port": enrichment.fields["fast_charge_port"],
+            "car_body_type": enrichment.fields["car_body_type"],
+            "drivetrain": enrichment.fields["drivetrain"],
+            "efficiency_wh_per_km": enrichment.fields["efficiency_wh_per_km"],
             "source_url": source_url,
             "is_ev": True,
         }

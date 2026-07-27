@@ -183,6 +183,16 @@ def seed_demo_users(conn) -> str:
 
 def main() -> None:
     stations = build_stations()
+    # `api.sources` now reads `raw_station_records`, not data/raw/*.json. With
+    # nothing staged it returns no rows, and the DELETE below would then replace
+    # every station in the database with nothing -- a silent wipe caused by
+    # skipping one deploy step. Refuse instead, and name the step.
+    if not stations:
+        raise SystemExit(
+            "no stations built: raw_station_records is empty (or holds nothing "
+            "usable). Run `python -m scripts.ingest_raw` before seeding; the "
+            "deploy order is migrate -> ingest -> seed."
+        )
     with engine.begin() as conn:
         # DELETE, not TRUNCATE: connectors FK-references stations, so TRUNCATE
         # would need CASCADE-to-table semantics. DELETE fires the row-level FK

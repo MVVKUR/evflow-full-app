@@ -1,5 +1,15 @@
 """Idempotent EV model importer script for EV-FLOW (Epic 2.0).
 
+SUPERSEDED BY `python -m scripts.ingest_raw`, which is now the only step that
+reads a dataset file. This script ENRICHES the 60 Indonesian models with a
+lookup into the global dataset and discards the other 478; `ingest_raw` stores
+both as a 535-model union. `data/processed/ev_models_enriched.json`, which this
+script writes, is no longer read by anything -- `api/evmodels.py` is
+database-only. Kept because its parsing helpers (`_parse_range_bounds`,
+`_parse_charging_time_minutes`, `_slug`) are what `scripts/ev_union.py` reuses,
+so the local dataset is still parsed by exactly the code that produced the rows
+now in production.
+
 Imports and enriches EV specifications from:
 1. indonesia_ev_specs_pricing_2026.csv (canonical local dataset)
 2. electric_vehicles_spec_2025.csv (global specification dataset for enrichment)

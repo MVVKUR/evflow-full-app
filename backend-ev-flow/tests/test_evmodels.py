@@ -2,6 +2,7 @@
 import pytest
 
 from api import evmodels
+from tests.conftest import requires_db
 
 
 @pytest.mark.unit
@@ -34,8 +35,12 @@ def test_remaining_range_maths():
     assert evmodels.remaining_range_km(None, 50) is None   # unknown range
 
 
+@requires_db
 @pytest.mark.integration
-def test_catalogue_loads_from_committed_zip():
+def test_catalogue_loads_from_the_database():
+    # Was `test_catalogue_loads_from_committed_zip`: the zip fallback is gone,
+    # so the catalogue only exists once `scripts.ingest_raw` has filled the
+    # table. Marked, not weakened -- it still asserts the same four things.
     models = evmodels.reload()
     assert len(models) > 0
     assert all(m["id"] and m["name"] for m in models)      # every model identifiable

@@ -433,6 +433,7 @@ def test_nearest_station_ev_model_needs_a_state_of_charge(client):
     assert r.json()["detail"] == "current_soc is required when ev_model_id is given"
 
 
+@requires_db   # DB-only catalogue: without ev_models there is no 404, only 503
 def test_nearest_station_unknown_ev_model_is_404(client):
     r = client.get("/api/v1/route/nearest-station",
                    params={"lat": -6.2, "lon": 106.8,
@@ -600,6 +601,7 @@ def test_nearest_station_does_not_claim_an_unreachable_station_is_within_range(
 
 
 # ------------------------------------------------------------- /api/v1/ev-models
+@requires_db
 def test_ev_model_paging_slices_a_stable_catalogue(client):
     everything = client.get("/api/v1/ev-models", params={"limit": 500}).json()
     total = everything["total"]
@@ -618,6 +620,7 @@ def test_ev_model_paging_slices_a_stable_catalogue(client):
     assert past_end["total"] == total          # total is the unpaged count
 
 
+@requires_db
 def test_ev_model_search_is_case_insensitive_and_narrows_the_total(client):
     everything = client.get("/api/v1/ev-models", params={"limit": 500}).json()
     name = everything["items"][0]["name"]
@@ -636,6 +639,7 @@ def test_ev_model_search_is_case_insensitive_and_narrows_the_total(client):
         "total": 0, "limit": 100, "offset": 0, "items": []}
 
 
+@requires_db
 def test_ev_model_unknown_id_is_404_and_names_it(client):
     r = client.get("/api/v1/ev-models/not-a-real-model")
     assert r.status_code == 404

@@ -11,6 +11,8 @@ tests/test_stations_db.py.
 """
 import pytest
 
+from tests.conftest import requires_db
+
 pytest.importorskip("fastapi")
 nx = pytest.importorskip("networkx")
 
@@ -91,6 +93,7 @@ def test_route_requires_a_destination(client):
     assert r.status_code == 422
 
 
+@requires_db   # the catalogue is the ev_models table now; no file fallback
 @pytest.mark.integration
 def test_ev_models_catalogue_endpoint(client):
     r = client.get("/api/v1/ev-models")

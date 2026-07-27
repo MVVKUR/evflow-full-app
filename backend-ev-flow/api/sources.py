@@ -1,26 +1,66 @@
-"""Source loaders + normalization for PLN / OCM / OSM into one row schema."""
+"""Source loaders + normalization for PLN / OCM / OSM into one row schema.
+
+Reads the STAGING TABLE, never a file. `python -m scripts.ingest_raw` is the one
+place a dataset file is opened; it copies each snapshot verbatim into
+`raw_station_records` (source, ordinal, source_id, payload jsonb) and this module
+reads it back ordered by `ordinal`, which is the record's index in the original
+file. Every normalisation rule below -- the chargerbox expansion, the (0,0)
+filter, the OSM name fallback, the `or 1` connector counts -- is unchanged, and
+`ordinal` guarantees the loaders see the records in the same order they saw them
+on disk, so the seeded output is identical: 2931 stations, 6733 connectors.
+"""
 from __future__ import annotations
 
-import json
 import math
-import os
-from pathlib import Path
 
 from . import connectors
 
-# dataset/data/raw  (this file lives in dataset/api/)
-ROOT = Path(__file__).resolve().parent.parent
-RAW_DIR = Path(os.getenv("RAW_DIR", ROOT / "data" / "raw"))
-
-PLN_PATH = RAW_DIR / "_petaspklu_all.json"
-OCM_PATH = RAW_DIR / "ocm_jakarta.json"
-OSM_PATH = RAW_DIR / "osm_charging_jakarta.json"
+PLN_SOURCE = "pln_spklu"
+OCM_SOURCE = "open_charge_map"
+OSM_SOURCE = "osm"
 
 COLUMNS = [
     "id", "name", "source", "latitude", "longitude", "address", "province",
     "city", "operator", "power_kw", "charge_type", "connectors", "status",
     "date_verified",
 ]
+
+
+_STAGED = (
+    "SELECT payload FROM raw_station_records "
+    "WHERE source = :source ORDER BY ordinal"
+)
+
+
+def _staged(source: str) -> list[dict]:
+    """Every staged record for one feed, in the order it had in the file.
+
+    An empty list means the snapshot has not been ingested. That is the same
+    answer the file loaders gave for a missing file, so `normalized_rows` keeps
+    behaving the way it always did; `scripts/seed_db.py` is where the "you
+    forgot to run the ingest" guard lives, because that is the step that would
+    otherwise wipe the stations table and replace it with nothing.
+    """
+    from sqlalchemy import text
+
+    from .db import engine
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(_STAGED), {"source": source}).scalars().all()
+    return [r for r in rows if isinstance(r, dict)]
+
+
+def _raw_pln() -> list[dict]:
+    return _staged(PLN_SOURCE)
+
+
+def _raw_ocm() -> list[dict]:
+    return _staged(OCM_SOURCE)
+
+
+def _raw_osm() -> list[dict]:
+    """OSM *elements*, already unwrapped from the Overpass envelope at ingest."""
+    return _staged(OSM_SOURCE)
 
 
 def _num(v) -> float:
@@ -80,11 +120,8 @@ def _pln_connections(r: dict) -> list[dict] | None:
 
 
 def _load_pln() -> list[dict]:
-    if not PLN_PATH.exists():
-        return []
-    raw = json.loads(PLN_PATH.read_text(encoding="utf-8"))
     out = []
-    for r in raw:
+    for r in _raw_pln():
         try:
             lat, lon = float(r.get("latitude")), float(r.get("longitude"))
         except (TypeError, ValueError):
@@ -111,11 +148,11 @@ def _load_pln() -> list[dict]:
 
 
 def _load_ocm() -> list[dict]:
-    if not OCM_PATH.exists():
-        return []
-    raw = json.loads(OCM_PATH.read_text(encoding="utf-8"))
     out = []
-    for i, p in enumerate(raw):
+    # `i` is the record's position in the snapshot and is the id of last resort
+    # for a record with no `ID`. The staging read is ordered by `ordinal`, which
+    # IS that position, so this enumerate reproduces the file-based ids exactly.
+    for i, p in enumerate(_raw_ocm()):
         ai = p.get("AddressInfo") or {}
         lat, lon = ai.get("Latitude"), ai.get("Longitude")
         if lat is None or lon is None:
@@ -144,11 +181,8 @@ def _load_ocm() -> list[dict]:
 
 
 def _load_osm() -> list[dict]:
-    if not OSM_PATH.exists():
-        return []
-    payload = json.loads(OSM_PATH.read_text(encoding="utf-8"))
     out = []
-    for el in payload.get("elements", []):
+    for el in _raw_osm():
         tags = el.get("tags", {}) or {}
         if el["type"] == "node":
             lat, lon = el.get("lat"), el.get("lon")

@@ -4,14 +4,15 @@ Three layers of the data pipeline are exercised here:
 
 * ``api.sources``      -- the PLN SPKLU / Open Charge Map / OpenStreetMap loaders
                           and their normalisation into one row schema. Every test
-                          feeds a hand-built fixture file rather than the 3029-row
+                          stages a hand-built record rather than the 3029-row
                           production dump, so the messy branches (string
                           coordinates, Null Island, free-text power, OSM elements
                           with no ``name`` or no ``tags`` at all) are reachable and
                           deterministic.
-* ``api.evmodels``      -- the DB-backed catalogue load, the Decimal->float
-                          coercion at the repository boundary, the JSON/CSV/zip
-                          fallbacks, ``get``/``search``/paging and the range maths.
+* ``api.evmodels``      -- the database-only catalogue load, the Decimal->float
+                          coercion at the repository boundary, the failure
+                          contract when the catalogue cannot be served,
+                          ``get``/``search``/paging and the range maths.
 * ``api.stations_repo`` -- the filter combinations the endpoints expose and the
                           corridor query used by route planning, against a small
                           synthetic set of stations parked far away from the
@@ -22,18 +23,15 @@ reason string on each for the defect it pins.
 """
 from __future__ import annotations
 
-import csv
-import io
 import json
 import math
 import os
-import zipfile
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
 from api import evmodels, sources
+from scripts.ingest_raw import osm_elements
 from tests.conftest import requires_db
 
 # =============================================================================
@@ -42,24 +40,29 @@ from tests.conftest import requires_db
 
 
 @pytest.fixture
-def write_raw(tmp_path, monkeypatch):
-    """Point the three loaders at empty tmp paths; return a writer for fixtures.
+def write_raw(monkeypatch):
+    """Stage records for the three feeds, exactly as `scripts.ingest_raw` would.
 
-    A source file that is never written simply does not exist, which is the
-    "missing file" branch of every loader.
+    ``api.sources`` reads the ``raw_station_records`` staging table now, so the
+    seam these tests replace is the staging read, not a file path -- which keeps
+    the whole loader suite running with no database. The argument is still the
+    snapshot payload as it appears on disk, and the OSM envelope is unwrapped by
+    ``ingest_raw.osm_elements``, the real ingest function, not a copy of it.
+
+    A feed that is never written simply has nothing staged, which is the
+    "source absent" branch of every loader.
     """
-    paths = {
-        "pln": tmp_path / "_petaspklu_all.json",
-        "ocm": tmp_path / "ocm_jakarta.json",
-        "osm": tmp_path / "osm_charging_jakarta.json",
-    }
-    monkeypatch.setattr(sources, "PLN_PATH", paths["pln"])
-    monkeypatch.setattr(sources, "OCM_PATH", paths["ocm"])
-    monkeypatch.setattr(sources, "OSM_PATH", paths["osm"])
+    staged: dict[str, list] = {"pln": [], "ocm": [], "osm": []}
+    monkeypatch.setattr(sources, "_raw_pln", lambda: list(staged["pln"]))
+    monkeypatch.setattr(sources, "_raw_ocm", lambda: list(staged["ocm"]))
+    monkeypatch.setattr(sources, "_raw_osm", lambda: list(staged["osm"]))
 
-    def write(kind: str, payload) -> Path:
-        paths[kind].write_text(json.dumps(payload), encoding="utf-8")
-        return paths[kind]
+    def write(kind: str, payload) -> list:
+        # json round-trip: jsonb stores what json.dumps produced, so a fixture
+        # must not smuggle in a Python object the real staging table could not.
+        payload = json.loads(json.dumps(payload))
+        staged[kind] = osm_elements(payload) if kind == "osm" else list(payload)
+        return staged[kind]
 
     return write
 
@@ -115,8 +118,8 @@ def test_clean_power_maps_nan_and_none_to_none_and_keeps_numbers():
 # ---- PLN --------------------------------------------------------------------
 
 @pytest.mark.unit
-def test_pln_missing_file_returns_empty(write_raw):
-    assert sources._load_pln() == []       # nothing written -> file absent
+def test_pln_with_nothing_staged_returns_empty(write_raw):
+    assert sources._load_pln() == []       # nothing staged -> source absent
 
 
 @pytest.mark.unit
@@ -369,7 +372,7 @@ def _ocm_record(**overrides) -> dict:
 
 
 @pytest.mark.unit
-def test_ocm_missing_file_returns_empty(write_raw):
+def test_ocm_with_nothing_staged_returns_empty(write_raw):
     assert sources._load_ocm() == []
 
 
@@ -452,7 +455,7 @@ def test_ocm_row_builds_one_connector_entry_per_distinct_power(write_raw):
 # ---- OpenStreetMap ----------------------------------------------------------
 
 @pytest.mark.unit
-def test_osm_missing_file_returns_empty(write_raw):
+def test_osm_with_nothing_staged_returns_empty(write_raw):
     assert sources._load_osm() == []
 
 
@@ -541,7 +544,7 @@ def test_osm_power_falls_back_to_the_socket_tag_and_bad_capacity_is_dropped(writ
 
 
 @pytest.mark.unit
-def test_osm_empty_payload_and_missing_elements_key(write_raw):
+def test_osm_empty_envelope_and_missing_elements_key(write_raw):
     write_raw("osm", {})
     assert sources._load_osm() == []
     write_raw("osm", {"elements": []})
@@ -627,23 +630,42 @@ def test_one_malformed_coordinate_does_not_abort_the_whole_source(write_raw, kin
 
 
 @pytest.fixture
-def catalogue(monkeypatch, tmp_path):
-    """Isolate the module-level catalogue cache and every on-disk fallback.
+def catalogue(monkeypatch):
+    """Isolate the module cache and stand in for the one remaining source: the DB.
+
+    ``api.evmodels`` has no file fallback any more, so the only seam left is
+    ``_load_from_db``. Replacing it keeps ``get``/``search``/paging/caching under
+    test with no database at all, and without weakening a single assertion --
+    the rows go through ``coerce_numerics`` exactly as the real repository
+    boundary sends them.
 
     ``monkeypatch.setattr`` restores the previous cache on teardown, so the rest
     of the suite keeps whatever catalogue it had loaded.
     """
     monkeypatch.setattr(evmodels, "_MODELS_CACHE", None)
-    monkeypatch.setattr(evmodels, "JSON_PATH", tmp_path / "nope.json")
-    monkeypatch.setattr(evmodels, "CSV_PATH", tmp_path / "nope.csv")
-    monkeypatch.setattr(evmodels, "ZIP_PATH", tmp_path / "nope.zip")
-    monkeypatch.setattr(evmodels, "_load_from_db", lambda: [])
-    return tmp_path
+    rows: list = []
+    monkeypatch.setattr(
+        evmodels, "_load_from_db",
+        lambda: [evmodels.coerce_numerics(dict(r)) for r in rows])
+
+    def stage(models):
+        rows[:] = list(models)
+        evmodels._MODELS_CACHE = None
+        return models
+
+    return stage
+
+
+#: The DSN a real psycopg failure carries. Used to prove it does not reach the
+#: 503 body, which is served to unauthenticated callers.
+_LEAKY_DRIVER_MESSAGE = (
+    'connection to server at "db.internal" (10.0.0.7), port 5432 failed: '
+    'FATAL:  password authentication failed for user "evflow"')
 
 
 class _ExplodingEngine:
     def connect(self):
-        raise RuntimeError("connection refused")
+        raise RuntimeError(_LEAKY_DRIVER_MESSAGE)
 
 
 # ---- numeric coercion (the Decimal barrier) ---------------------------------
@@ -712,135 +734,120 @@ def test_coerce_numerics_leaves_absent_fields_absent():
     assert "max_dc_charge_kw" not in model      # nothing invented out of thin air
 
 
-# ---- load() and its fallback chain ------------------------------------------
+# ---- load(): the database is the only source ---------------------------------
 
 @pytest.mark.unit
-def test_load_from_db_returns_empty_when_the_database_is_unreachable(monkeypatch):
+def test_the_module_has_no_file_fallback_left(catalogue):
+    """The regression guard for "every dataset lives in a table".
+
+    A future edit that re-adds a JSON/CSV/zip path would restore exactly the
+    failure this removal was for: a stale file quietly standing in for a
+    database that is down.
+    """
+    for attribute in ("JSON_PATH", "CSV_PATH", "ZIP_PATH", "ZIP_MEMBER",
+                      "_load_from_json", "_read_raw_rows", "_parse_fallback"):
+        assert not hasattr(evmodels, attribute), attribute
+
+
+@pytest.mark.unit
+def test_load_from_db_raises_when_the_database_is_unreachable(monkeypatch):
     import api.db
     monkeypatch.setattr(api.db, "engine", _ExplodingEngine())
-    assert evmodels._load_from_db() == []
+    monkeypatch.setattr(evmodels, "_MODELS_CACHE", None)
+    with pytest.raises(evmodels.CatalogueUnavailable) as err:
+        evmodels._load_from_db()
+    # actionable, and it still names where the catalogue comes from
+    assert "ev_models" in str(err.value)
+    # the driver's own text is chained for a traceback, not for the caller
+    assert isinstance(err.value.__cause__, RuntimeError)
+    assert _LEAKY_DRIVER_MESSAGE in str(err.value.__cause__)
 
 
 @pytest.mark.unit
-def test_load_falls_back_to_json_when_the_database_yields_nothing(catalogue):
-    json_path = catalogue / "models.json"
-    json_path.write_text(json.dumps([
-        {"id": "wuling-air-ev", "name": "Wuling Air EV", "range_km": "200",
-         "battery_kwh": "26.7", "fast_charging_power_kw_dc": "40"},
-    ]), encoding="utf-8")
-    evmodels.JSON_PATH = json_path
+def test_the_503_body_does_not_disclose_the_database_host(monkeypatch, caplog):
+    """`GET /api/v1/ev-models` needs no token, so its error body is public.
 
+    Interpolating the driver exception into it published the database host,
+    port and user to anyone who could make the database fail (or just wait for
+    it to). The operator detail belongs in the log.
+    """
+    import logging
+
+    import api.db
+    monkeypatch.setattr(api.db, "engine", _ExplodingEngine())
+    monkeypatch.setattr(evmodels, "_MODELS_CACHE", None)
+
+    with caplog.at_level(logging.ERROR, logger="api.evmodels"):
+        with pytest.raises(evmodels.CatalogueUnavailable) as err:
+            evmodels._load_from_db()
+
+    body = str(err.value)
+    for secret in ("db.internal", "10.0.0.7", "5432", "password", "evflow", "FATAL"):
+        assert secret not in body, secret
+    # ...and none of it was simply thrown away
+    assert _LEAKY_DRIVER_MESSAGE in caplog.text
+
+
+@pytest.mark.unit
+def test_load_raises_and_names_the_remedy_when_the_table_is_empty(catalogue):
+    catalogue([])
+    with pytest.raises(evmodels.CatalogueUnavailable) as err:
+        evmodels.load()
+    # The message has to be actionable: an empty catalogue is an ops problem,
+    # and the operator must be told which step was skipped.
+    assert "scripts.ingest_raw" in str(err.value)
+
+
+@pytest.mark.unit
+def test_an_unavailable_catalogue_propagates_through_get_and_search(catalogue):
+    catalogue([])
+    with pytest.raises(evmodels.CatalogueUnavailable):
+        evmodels.get("wuling-air-ev")
+    with pytest.raises(evmodels.CatalogueUnavailable):
+        evmodels.search(None, limit=10, offset=0)
+
+
+@pytest.mark.unit
+def test_the_endpoints_answer_503_not_200_empty_when_the_catalogue_is_gone(catalogue):
+    """The whole point of removing the file fallbacks.
+
+    `200 {"total": 0}` would tell a driver this deployment sells no cars, and
+    `404` would tell them their own car is not real. Both blame the caller for
+    an operator problem. 503 names the dependency and the remedy.
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    catalogue([])
+    with TestClient(main.app, raise_server_exceptions=False) as c:
+        listing = c.get("/api/v1/ev-models")
+        assert listing.status_code == 503
+        assert "scripts.ingest_raw" in listing.json()["detail"]
+        assert c.get("/api/v1/ev-models/wuling-air-ev").status_code == 503
+
+
+@pytest.mark.unit
+def test_load_coerces_and_caches_what_the_database_returns(catalogue):
+    catalogue([
+        {"id": "wuling-air-ev", "name": "Wuling Air EV", "range_km": Decimal("200"),
+         "battery_kwh": Decimal("26.7"), "fast_charging_power_kw_dc": 40.0},
+    ])
     models = evmodels.load()
     assert [m["id"] for m in models] == ["wuling-air-ev"]
-    assert models[0]["range_km"] == 200.0            # coerced, not left as "200"
+    assert models[0]["range_km"] == 200.0            # no Decimal escapes
     assert models[0]["max_dc_charge_kw"] == 40.0     # backfilled from the DC column
     assert evmodels.load() is models                 # second call is cached
 
 
 @pytest.mark.unit
-def test_load_from_json_survives_a_corrupt_file(catalogue):
-    json_path = catalogue / "models.json"
-    json_path.write_text("{not json", encoding="utf-8")
-    evmodels.JSON_PATH = json_path
-    assert evmodels._load_from_json() == []
-    assert evmodels.load() == []                     # no CSV/zip either
-
-
-@pytest.mark.unit
-def test_load_falls_back_to_the_raw_csv_and_dedupes_by_id(catalogue):
-    csv_path = catalogue / "specs.csv"
-    with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["Vehicle Name", "Battery Capacity",
-                                          "Range (Jarak Tempuh)", "Vehicle Price Range"])
-        w.writeheader()
-        w.writerow({"Vehicle Name": "Wuling Air EV", "Battery Capacity": "26.7 kWh",
-                    "Range (Jarak Tempuh)": "200 - 300 km",
-                    "Vehicle Price Range": "Rp 214 - 307,5 Juta"})
-        w.writerow({"Vehicle Name": "Wuling Air EV", "Battery Capacity": "99 kWh",
-                    "Range (Jarak Tempuh)": "900 km", "Vehicle Price Range": ""})
-        w.writerow({"Vehicle Name": "", "Battery Capacity": "10 kWh",
-                    "Range (Jarak Tempuh)": "10 km", "Vehicle Price Range": ""})
-    evmodels.CSV_PATH = csv_path
-
-    models = evmodels.load()
-    assert [m["id"] for m in models] == ["wuling-air-ev"]     # nameless row dropped,
-    assert models[0]["battery_kwh"] == 26.7                   # first row wins
-    assert models[0]["range_km"] == 200.0                     # conservative lower bound
-    assert models[0]["price_range"] == "Rp 214 - 307,5 Juta"
-
-
-@pytest.mark.unit
-def test_read_raw_rows_reads_the_zip_when_no_csv_is_present(catalogue):
-    zip_path = catalogue / "ev.zip"
-    buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=["name", "battery_kwh", "range_km"])
-    w.writeheader()
-    w.writerow({"name": "BYD Dolphin", "battery_kwh": "44.9", "range_km": "410"})
-    with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("some/other/name.csv", buf.getvalue())     # not ZIP_MEMBER
-    evmodels.ZIP_PATH = zip_path
-
-    rows = evmodels._read_raw_rows()
-    assert [r["name"] for r in rows] == ["BYD Dolphin"]
-
-
-@pytest.mark.unit
-def test_read_raw_rows_returns_empty_for_a_zip_without_a_csv(catalogue):
-    zip_path = catalogue / "ev.zip"
-    with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("readme.txt", "no data here")
-    evmodels.ZIP_PATH = zip_path
-    assert evmodels._read_raw_rows() == []
-
-
-@pytest.mark.unit
-def test_read_raw_rows_returns_empty_when_nothing_exists(catalogue):
-    assert evmodels._read_raw_rows() == []
-
-
-@pytest.mark.unit
-def test_parse_fallback_splits_the_name_and_derives_efficiency():
-    m = evmodels._parse_fallback({"Vehicle Name": "Hyundai Ioniq 5",
-                                  "Battery Capacity": "72.6 kWh",
-                                  "Range (Jarak Tempuh)": "481 km"})
-    assert m["id"] == "hyundai-ioniq-5"
-    assert (m["brand"], m["make"], m["model"]) == ("Hyundai", "Hyundai", "Ioniq 5")
-    assert m["battery_kwh"] == 72.6 and m["range_km"] == 481.0
-    assert m["efficiency_wh_per_km"] == round(72.6 * 1000 / 481, 2)
-    assert m["efficiency_source"] == "derived_local_specs"
-
-
-@pytest.mark.unit
-def test_parse_fallback_keeps_a_supplied_efficiency_and_single_word_names():
-    m = evmodels._parse_fallback({"name": "Zeekr", "efficiency_wh_per_km": "155",
-                                 "battery_kwh": "100", "range_km": "600"})
-    assert m["model"] == "Zeekr"                     # single word: model == name
-    assert m["efficiency_wh_per_km"] == 155.0
-    assert m["efficiency_source"] == "dataset"
-
-
-@pytest.mark.unit
-def test_parse_fallback_cannot_derive_efficiency_without_a_range():
-    m = evmodels._parse_fallback({"name": "Mystery EV", "battery_kwh": "50"})
-    assert m["range_km"] is None
-    assert m["efficiency_wh_per_km"] is None
-    assert m["efficiency_source"] == "dataset"
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("row", [{}, {"name": "   "}, {"Vehicle Name": ""}])
-def test_parse_fallback_rejects_a_nameless_row(row):
-    assert evmodels._parse_fallback(row) is None
-
-
-@pytest.mark.unit
 def test_reload_picks_up_a_changed_catalogue(catalogue):
-    json_path = catalogue / "models.json"
-    json_path.write_text(json.dumps([{"id": "a", "name": "A"}]), encoding="utf-8")
-    evmodels.JSON_PATH = json_path
+    catalogue([{"id": "a", "name": "A"}])
     assert [m["id"] for m in evmodels.load()] == ["a"]
 
-    json_path.write_text(json.dumps([{"id": "b", "name": "B"}]), encoding="utf-8")
+    catalogue([{"id": "b", "name": "B"}])
+    evmodels._MODELS_CACHE = [{"id": "a", "name": "A"}]       # as if still cached
     assert [m["id"] for m in evmodels.load()] == ["a"]        # still cached
     assert [m["id"] for m in evmodels.reload()] == ["b"]      # cache cleared
 
@@ -855,9 +862,7 @@ def small_catalogue(catalogue):
         {"id": "hyundai-kona", "name": "Hyundai Kona Electric", "range_km": 305.0},
         {"id": "wuling-air-ev", "name": "Wuling Air EV", "range_km": None},
     ]
-    json_path = catalogue / "models.json"
-    json_path.write_text(json.dumps(models), encoding="utf-8")
-    evmodels.JSON_PATH = json_path
+    catalogue(models)
     evmodels.load()
     return models
 

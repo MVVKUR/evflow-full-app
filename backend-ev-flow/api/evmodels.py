@@ -1,28 +1,56 @@
-"""EV model catalogue (Kaggle Indonesia-EV-2026 enriched with 2025 specs).
+"""EV model catalogue. DATABASE ONLY.
 
-Database-backed repository reading from PostgreSQL `ev_models` table with
-a JSON file and zip fallback for offline test runs and local development.
+The catalogue is the `ev_models` table, populated by
+`python -m scripts.ingest_raw` from the union of the two EV datasets (535
+models: 60 Indonesian, 478 global, 3 shared ids merged). There is no JSON, CSV
+or zip fallback any more, on purpose.
+
+WHY IT RAISES INSTEAD OF RETURNING AN EMPTY CATALOGUE
+-----------------------------------------------------
+The removed fallbacks did not fail -- they answered. A database outage or a
+forgotten ingest used to be served as a slightly older, slightly different
+catalogue from a file nobody was watching, and the only symptom was that a
+driver's saved vehicle quietly stopped existing. Returning `[]` here would be
+the same defect wearing different clothes: `GET /api/v1/ev-models` would answer
+`200 {"total": 0}` ("we sell no cars") and `POST /api/v1/route-plans` would
+answer `404 Unknown EV model` ("your car is not real"), both of which are
+plausible, actionable-looking, and wrong.
+
+`CatalogueUnavailable` is therefore raised, and `api/main.py` maps it to
+**503 Service Unavailable** with the remedy in the message. 503 is the truth: a
+dependency is down, the request was not refused on its merits, and a client is
+free to retry. An operator reading the log sees "run scripts/ingest_raw", not a
+404 that looks like a user error.
 """
 from __future__ import annotations
 
-import csv
-import io
-import json
+import logging
 import os
 import re
-import zipfile
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-ROOT = Path(__file__).resolve().parent.parent
-JSON_PATH = ROOT / "data" / "processed" / "ev_models_enriched.json"
-CSV_PATH = Path(os.getenv("EV_DATASET_CSV", ROOT / "data" / "raw" / "indonesia_ev_specs_pricing_2026.csv"))
-ZIP_PATH = ROOT / "ev_dataset.zip"
-ZIP_MEMBER = "indonesia_ev_specs_pricing_2026.csv"
+logger = logging.getLogger(__name__)
 
 RANGE_SAFETY_FACTOR = float(os.getenv("ROUTING_RANGE_SAFETY_FACTOR", 0.85))
 
 _MODELS_CACHE: Optional[List[Dict[str, Any]]] = None
+
+
+class CatalogueUnavailable(RuntimeError):
+    """The `ev_models` catalogue could not be served: DB down, or never ingested."""
+
+
+# The client is told WHAT is wrong and WHAT to do; it is not told WHERE the
+# database lives. `str(exc)` on a psycopg/SQLAlchemy failure carries the DSN --
+# host, port, user, sometimes the database name -- and `api/main.py` puts this
+# message straight into the 503 body, which is reachable without a token. The
+# driver's own text is logged instead, where an operator can read it and an
+# attacker cannot. See `_load_from_db`.
+_UNREACHABLE = ("EV model catalogue unavailable: the database is not reachable. "
+                "The catalogue is served from the ev_models table only; retry, "
+                "and if it persists check the API's database connection.")
+_EMPTY = ("EV model catalogue is empty: the ev_models table has no rows. "
+          "Run `python -m alembic upgrade head` then `python -m scripts.ingest_raw`.")
 
 
 def _slug(name: str) -> str:
@@ -77,112 +105,52 @@ def coerce_numerics(model: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+_SELECT = """
+    SELECT id, name, make, model, brand, battery_kwh, range_km, efficiency_wh_per_km,
+           efficiency_source,
+           COALESCE(max_dc_charge_kw::double precision, fast_charging_power_kw_dc)
+               AS max_dc_charge_kw,
+           fast_charging_power_kw_dc,
+           fast_charge_port, price_range, charging_time_minutes, source_url
+    FROM ev_models
+    ORDER BY name ASC;
+"""
+
+
 def _load_from_db() -> List[Dict[str, Any]]:
+    """Every model in the table. Raises `CatalogueUnavailable` if the DB is down.
+
+    An empty table is NOT an error here -- it is `load()` that decides an empty
+    catalogue cannot be served -- so the two failures stay distinguishable.
+    """
+    from sqlalchemy import text
+
+    from api.db import engine
+
     try:
-        from sqlalchemy import text
-        from api.db import engine
-
         with engine.connect() as conn:
-            rows = conn.execute(text("""
-                SELECT id, name, make, model, brand, battery_kwh, range_km, efficiency_wh_per_km,
-                       efficiency_source,
-                       COALESCE(max_dc_charge_kw::double precision, fast_charging_power_kw_dc)
-                           AS max_dc_charge_kw,
-                       fast_charging_power_kw_dc,
-                       fast_charge_port, price_range, charging_time_minutes, source_url
-                FROM ev_models
-                ORDER BY name ASC;
-            """)).mappings().all()
-            if rows:
-                return [coerce_numerics(dict(r)) for r in rows]
-    except Exception:
-        pass
-    return []
-
-
-def _load_from_json() -> List[Dict[str, Any]]:
-    if JSON_PATH.exists():
-        try:
-            with open(JSON_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return []
-
-
-def _read_raw_rows() -> list:
-    if CSV_PATH.exists():
-        with open(CSV_PATH, encoding="utf-8-sig", newline="") as f:
-            return list(csv.DictReader(f))
-    if ZIP_PATH.exists():
-        with zipfile.ZipFile(ZIP_PATH) as z:
-            member = ZIP_MEMBER if ZIP_MEMBER in z.namelist() else next(
-                (n for n in z.namelist() if n.endswith(".csv")), None)
-            if member is None:
-                return []
-            with z.open(member) as fh:
-                return list(csv.DictReader(io.TextIOWrapper(fh, encoding="utf-8-sig", newline="")))
-    return []
-
-
-def _parse_fallback(row: dict) -> Optional[dict]:
-    name = (row.get("name") or row.get("Vehicle Name") or "").strip()
-    if not name:
-        return None
-    parts = name.split()
-    brand = (row.get("brand") or row.get("make") or parts[0]).strip()
-    make = brand
-    model = (row.get("model") or (" ".join(parts[1:]) if len(parts) > 1 else name)).strip()
-
-    bat_kwh = _min_num(row.get("battery_kwh") or row.get("Battery Capacity"))
-    range_km = _min_num(row.get("range_km") or row.get("Range (Jarak Tempuh)"))
-
-    eff = _min_num(row.get("efficiency_wh_per_km"))
-    eff_src = "dataset"
-    if eff is None and bat_kwh and range_km and range_km > 0:
-        eff = round((bat_kwh * 1000.0) / range_km, 2)
-        eff_src = "derived_local_specs"
-
-    return {
-        "id": row.get("id") or _slug(name),
-        "brand": brand,
-        "name": name,
-        "make": make,
-        "model": model,
-        "battery_kwh": bat_kwh,
-        "range_km": range_km,
-        "efficiency_wh_per_km": eff,
-        "efficiency_source": eff_src,
-        "max_dc_charge_kw": _min_num(row.get("fast_charging_power_kw_dc")),
-        "fast_charge_port": (row.get("fast_charge_port") or "").strip() or None,
-        "price_range": (row.get("price_range") or row.get("Vehicle Price Range") or "").strip() or None,
-        "charging_time_minutes": _min_num(row.get("charging_time_minutes") or row.get("charging_time") or row.get("Charging time")),
-        "source_url": (row.get("source_url") or row.get("Source URL") or "").strip() or None,
-    }
+            rows = conn.execute(text(_SELECT)).mappings().all()
+    except CatalogueUnavailable:
+        raise
+    except Exception as exc:  # driver / network / missing table
+        # Full detail server-side, generic detail on the wire. The original
+        # exception stays chained (`from exc`) so a traceback still has it.
+        logger.error("ev_models query failed, serving 503: %s: %s",
+                     type(exc).__name__, exc, exc_info=True)
+        raise CatalogueUnavailable(_UNREACHABLE) from exc
+    return [coerce_numerics(dict(r)) for r in rows]
 
 
 def load() -> List[Dict[str, Any]]:
-    """Return EV model catalogue, trying DB first, then JSON, then raw fallback."""
+    """The EV model catalogue, from the database. Never from a file."""
     global _MODELS_CACHE
     if _MODELS_CACHE is not None:
         return _MODELS_CACHE
 
-    db_models = _load_from_db()
-    if db_models:
-        _MODELS_CACHE = db_models
-        return _MODELS_CACHE
-
-    json_models = _load_from_json()
-    if json_models:
-        _MODELS_CACHE = [coerce_numerics(m) for m in json_models]
-        return _MODELS_CACHE
-
-    seen: dict = {}
-    for row in _read_raw_rows():
-        m = _parse_fallback(row)
-        if m and m["id"] not in seen:
-            seen[m["id"]] = coerce_numerics(m)
-    _MODELS_CACHE = list(seen.values())
+    models = _load_from_db()
+    if not models:
+        raise CatalogueUnavailable(_EMPTY)
+    _MODELS_CACHE = models
     return _MODELS_CACHE
 
 

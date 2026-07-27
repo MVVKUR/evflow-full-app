@@ -191,6 +191,20 @@ async def _validation_error_without_echoing_secrets(request: Request, exc: Reque
         detail.append(jsonable_encoder(item))
     return JSONResponse(status_code=422, content={"detail": detail})
 
+
+@app.exception_handler(evmodels.CatalogueUnavailable)
+async def _ev_catalogue_unavailable(request: Request, exc: evmodels.CatalogueUnavailable):
+    """503, not 404 and not an empty list.
+
+    `api/evmodels` is database-only now. When the table is unreachable or has
+    never been ingested, the honest answer is "this dependency is down, retry" —
+    NOT `200 {"total": 0}` (we sell no cars) and NOT `404 unknown EV model`
+    (your car is not real), both of which blame the caller for an operator
+    problem. The remedy — run the ingest — travels in the message.
+    """
+    logging.error("ev model catalogue unavailable: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
 # Frontend calls this from a browser, so allow CORS. Auth/write endpoints are now live, so set
 # CORS_ALLOW_ORIGINS (comma-separated) to the frontend origin(s) in production; it defaults to "*"
 # (open) only for local/dev convenience.
