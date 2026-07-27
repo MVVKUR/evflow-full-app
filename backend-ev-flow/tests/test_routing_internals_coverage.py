@@ -519,9 +519,24 @@ def test_nearest_station_endpoint_requires_an_origin(client):
 @requires_db
 @pytest.mark.integration
 def test_nearest_station_endpoint_returns_a_station_and_its_route(client, monkeypatch):
-    """Full stack: DB station rows -> road snapping -> Dijkstra -> response model."""
+    """Full stack: DB station rows -> road snapping -> Dijkstra -> response model.
+
+    The candidates are the three seeded stations nearest node 4, the far end of
+    the tiny road network, tie-broken by id. They must be picked deterministically
+    and they must be picked by geography: `routing_coords()` has no ORDER BY, so
+    an arbitrary slice of it returns whatever heap order the last re-seed left
+    behind, and 742 of the 2931 seeded stations snap to node 1 -- the origin's
+    own node -- giving a zero-length route that is trivially "within range" of
+    any range at all, while another 245 snap to the isolated node 5 and are not
+    counted as candidates. Both of those made the assertions below a coin flip.
+    """
     from api import main
-    subset = main.repo.routing_coords()[:3]
+    from api.data import haversine_km
+
+    node4_lat, node4_lon = NODE_XY[4][1], NODE_XY[4][0]
+    subset = sorted(main.repo.routing_coords(),
+                    key=lambda s: (haversine_km(node4_lat, node4_lon,
+                                                s["latitude"], s["longitude"]), s["id"]))[:3]
     assert subset, "seeded database expected"
     monkeypatch.setattr(main.repo, "routing_coords", lambda *a, **k: list(subset))
 
@@ -539,8 +554,14 @@ def test_nearest_station_endpoint_returns_a_station_and_its_route(client, monkey
     assert body["station"]["distance_km"] == pytest.approx(
         body["route"]["distance_m"] / 1000.0, abs=0.05)
 
+    # A range strictly shorter than the road distance just measured flags the
+    # station as out of reach. Asserting the distance is non-zero first keeps the
+    # check meaningful: against a station snapped onto the origin's own node any
+    # range would "reach" it and the assertion would pass for the wrong reason.
+    road_km = body["route"]["distance_m"] / 1000.0
+    assert road_km > 0
     tight = client.get("/api/v1/route/nearest-station",
-                       params={"lat": -6.20, "lon": 106.8003, "max_range_km": 0.0001})
+                       params={"lat": -6.20, "lon": 106.8003, "max_range_km": road_km / 2})
     assert tight.status_code == 200
     assert tight.json()["within_range"] is False
 

@@ -208,14 +208,15 @@ def test_pln_station_with_no_power_and_no_charge_type_yields_no_connectors(write
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(strict=True, reason=(
-    "BUG: _load_pln ignores `chargerboxes` and uses `total_konektor`, which is 0 for "
-    "all 3029 records in data/raw/_petaspklu_all.json. Every PLN station is therefore "
-    "published with exactly one connector at the station-level `watt`. Real record id=6 "
-    "(SPKLU PLN ULP Medan Kota) has four chargerboxes -- 22 kW and 7 kW AC plus 25 kW and "
-    "30 kW DC, four chargers each -- and is stored as a single CCS2 connector at 30 kW, so "
-    "its AC Type 2 plugs are invisible to connector filtering and compatibility checks."))
 def test_pln_expands_chargerboxes_into_per_connector_rows(write_raw):
+    """Real record id=6 (SPKLU PLN ULP Medan Kota).
+
+    `total_konektor` is 0 for all 3029 records in the production dump, so the
+    per-chargerbox array is the only real inventory. Four boxes -- 22 kW and
+    7 kW AC plus 25 kW and 30 kW DC -- must not collapse into the single CCS2
+    connector at the station-level `watt` that used to be published, or the AC
+    Type 2 plugs stay invisible to connector filtering and compatibility checks.
+    """
     write_raw("pln", [_pln_record(id=6, watt="30 kW", total_konektor=0, chargerboxes=[
         {"type_charge": "medium", "watt": "22 kW", "jumlah_charger": 4, "jumlah_konektor": "1"},
         {"type_charge": "standard", "watt": "7 kW", "jumlah_charger": 4, "jumlah_konektor": "1"},
@@ -225,8 +226,123 @@ def test_pln_expands_chargerboxes_into_per_connector_rows(write_raw):
     (row,) = sources.normalized_rows()
     # Both standards are physically present at this site.
     assert set(row["connector_types"]) == {"AC Type 2", "CCS2"}
-    # ...and more than the single plug the pipeline currently reports.
-    assert sum(c["count"] for c in row["connectors"]) > 1
+    # One entry per distinct (type, power), in chargerbox order, counts intact.
+    assert [(c["type"], c["power_kw"], c["count"]) for c in row["connectors"]] == [
+        ("AC Type 2", 22.0, 1),
+        ("AC Type 2", 7.0, 1),
+        ("CCS2", 25.0, 2),
+        ("CCS2", 30.0, 2),
+    ]
+    assert sum(c["count"] for c in row["connectors"]) == 6
+    # The station still reports its strongest plug.
+    assert row["power_kw"] == 30.0
+    assert row["speed_tier"] == "medium"
+
+
+@pytest.mark.unit
+def test_pln_boxes_at_different_powers_produce_distinct_connector_types(write_raw):
+    """A 22 kW AC box next to a 120 kW DC box is two standards, not one."""
+    write_raw("pln", [_pln_record(watt="120 kW", type_charge="fast", chargerboxes=[
+        {"type_charge": "medium", "watt": "22 kW", "jumlah_konektor": "2"},
+        {"type_charge": "ultrafast", "watt": "120 kW", "jumlah_konektor": "3"},
+    ])])
+    (row,) = sources.normalized_rows()
+    assert [(c["type"], c["power_kw"], c["count"], c["speed_tier"]) for c in row["connectors"]] == [
+        ("AC Type 2", 22.0, 2, "medium"),
+        ("CCS2", 120.0, 3, "fast"),
+    ]
+    assert row["connector_types"] == ["AC Type 2", "CCS2"]
+    assert row["power_kw"] == 120.0
+    assert row["speed_tier"] == "fast"
+
+
+@pytest.mark.unit
+def test_pln_boxes_sharing_a_power_are_merged_and_their_counts_summed(write_raw):
+    write_raw("pln", [_pln_record(watt="22 kW", chargerboxes=[
+        {"type_charge": "medium", "watt": "22 kW", "jumlah_konektor": "1"},
+        {"type_charge": "medium", "watt": "22 kW", "jumlah_konektor": "2"},
+        {"type_charge": "standard", "watt": "7 kW", "jumlah_konektor": 3},
+    ])])
+    (row,) = sources.normalized_rows()
+    assert [(c["type"], c["power_kw"], c["count"]) for c in row["connectors"]] == [
+        ("AC Type 2", 22.0, 3),          # 1 + 2, one entry not two
+        ("AC Type 2", 7.0, 3),           # same type, different power -> its own entry
+    ]
+    assert row["connector_types"] == ["AC Type 2"]
+
+
+@pytest.mark.unit
+def test_pln_box_charge_type_overrides_the_station_label(write_raw):
+    """A DC box at a station labelled `medium` is still DC.
+
+    `build_connectors` only takes one station-level charge_type, so this is the
+    case that proves per-box `type_charge` reaches the inference.
+    """
+    write_raw("pln", [_pln_record(watt="22 kW", type_charge="medium", chargerboxes=[
+        {"type_charge": "medium", "watt": "tidak diketahui", "jumlah_konektor": "1"},
+        {"type_charge": "ultrafast", "watt": "belum diisi", "jumlah_konektor": "1"},
+    ])])
+    (row,) = sources.normalized_rows()
+    # Neither box has a readable power, so both fall back to the station's 22 kW;
+    # the ultrafast box is DC anyway because of its own type_charge.
+    assert [(c["type"], c["power_kw"]) for c in row["connectors"]] == [
+        ("AC Type 2", 22.0), ("CCS2", 22.0)]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("jumlah_konektor,why", [
+    ("0", "zero connectors is a data gap, not an empty bay"),
+    (0, "same, as a number"),
+    (None, "null"),
+    ("", "blank string"),
+    ("banyak", "free text"),
+    ("__absent__", "key missing entirely"),
+])
+def test_pln_box_without_a_usable_connector_count_still_counts_as_one(
+        write_raw, jumlah_konektor, why):
+    box = {"type_charge": "fast", "watt": "50 kW"}
+    if jumlah_konektor != "__absent__":
+        box["jumlah_konektor"] = jumlah_konektor
+    write_raw("pln", [_pln_record(watt="50 kW", chargerboxes=[box])])
+    (row,) = sources.normalized_rows()
+    assert row["connectors"] == [{
+        "type": "CCS2", "count": 1, "speed_tier": "medium",
+        "power_kw": 50.0, "type_inferred": True,
+    }], why
+
+
+@pytest.mark.unit
+def test_pln_box_with_unreadable_power_falls_back_to_the_station_power(write_raw):
+    write_raw("pln", [_pln_record(watt="60 kW", chargerboxes=[
+        {"type_charge": "fast", "watt": None, "jumlah_konektor": "2"},
+    ])])
+    (row,) = sources.normalized_rows()
+    assert row["connectors"] == [{
+        "type": "CCS2", "count": 2, "speed_tier": "fast",
+        "power_kw": 60.0, "type_inferred": True,
+    }]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("chargerboxes,why", [
+    ("__absent__", "no chargerboxes key at all"),
+    (None, "null chargerboxes"),
+    ([], "empty chargerboxes"),
+    ({"watt": "22 kW"}, "chargerboxes is not a list"),
+    ([None, "rubbish"], "chargerboxes holds no usable objects"),
+])
+def test_pln_without_usable_chargerboxes_keeps_the_station_level_behaviour(
+        write_raw, chargerboxes, why):
+    overrides = {"watt": "22 kW", "total_konektor": 2}
+    if chargerboxes != "__absent__":
+        overrides["chargerboxes"] = chargerboxes
+    write_raw("pln", [_pln_record(**overrides)])
+    (row,) = sources.normalized_rows()
+    assert row["connectors"] == [{
+        "type": "AC Type 2", "count": 2, "speed_tier": "medium",
+        "power_kw": 22.0, "type_inferred": True,
+    }], why
+    assert row["power_kw"] == 22.0
 
 
 # ---- Open Charge Map --------------------------------------------------------
