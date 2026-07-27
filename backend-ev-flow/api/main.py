@@ -58,7 +58,18 @@ log_privacy.install()
 
 
 TAGS = [
-    {"name": "stations", "description": "Query and fetch charging stations."},
+    {"name": "routing", "description":
+        "Trip planning and active navigation (Epic 2). `POST /route-plans` answers whether the "
+        "destination is reachable and, when it is not, which charging stop to take. "
+        "`POST /route-plans/active/evaluate` re-checks a trip already under way. Destination "
+        "search lives here too.\n\n"
+        "Read `route_status` first: it is the single field that decides what the screen shows. "
+        "See [ROUTE_PLANNING_API.md](https://github.com/MVVKUR/evflow-full-app/blob/main/"
+        "backend-ev-flow/ROUTE_PLANNING_API.md) for worked examples."},
+    {"name": "stations", "description":
+        "Query and fetch charging stations, including per-connector live status. "
+        "`/stations/{id}/availability` counts plugs by status; `/stations/{id}/connectors` lists "
+        "them individually."},
     {"name": "geo", "description": "GeoJSON output for direct map rendering."},
     {"name": "meta", "description": "Stats and filter look-ups (sources, provinces, cities)."},
     {"name": "ev-models", "description": "EV model catalogue (battery / range) for range-aware routing."},
@@ -86,11 +97,71 @@ async def lifespan(app: FastAPI):
         await stop_sweeper()
 
 
+# Rendered as the intro panel in ReDoc and above the operations in Swagger UI.
+# Markdown, so keep it scannable: what the data is, how to authenticate, how
+# errors look, and the handful of things clients get wrong.
+API_DESCRIPTION = """
+EV charging station discovery, trip planning and charging for Indonesia.
+
+Station data is fused from three sources: the PLN SPKLU map, Open Charge Map and
+OpenStreetMap. Records within 75 m of each other are treated as one physical site,
+which is why a station can list several `sources`.
+
+## Two ways to read this
+
+* **ReDoc** (`/redoc`) is the reference. Three panes, every schema expanded, good for
+  reading a model end to end.
+* **Swagger UI** (`/docs`) is the workbench. Same spec, but you can authorise once and
+  fire real requests from the browser.
+
+Both are generated from `/openapi.json`, so they never disagree with the server.
+
+## Authentication
+
+Most write endpoints take `Authorization: Bearer <token>` from `POST /api/v1/auth/login`
+or `/auth/register`. In Swagger UI, use **Authorize** and paste the token.
+
+The geocoding endpoints are deliberately open. This deployment is a demo whose demo
+password ships inside the web bundle, so a token there would prove nothing while
+breaking the destination picker. They are bounded by rate limits and a cache instead.
+
+## Errors
+
+Validation failures return `422` with a `detail` array, and every entry names the field
+in `loc`:
+
+```json
+{"detail": [{"loc": ["body", "current_soc_pct"],
+             "msg": "Input should be less than or equal to 100"}]}
+```
+
+Attach the message to that input rather than showing one general error.
+
+## Worth knowing before you build
+
+* Route planning enforces a **configured service area**. An origin or destination outside
+  it is rejected with a `422`, and no route is generated. A trip already under way is
+  never refused; `/route-plans/active/evaluate` reports it as an advisory instead.
+* Connector availability comes from live per-connector rows, not from a station-level
+  flag. `available_connector_count` already excludes plugs this vehicle cannot use.
+* Connector types are frequently **inferred** from power rather than stated by the source.
+  Anything carrying `*_inferred: true` is an educated guess and should be labelled as one.
+* Coordinates are coarsened before they reach logs or any third party.
+"""
+
 app = FastAPI(
-    title="Jakarta EV Charging Stations API",
+    title="EV-FLOW API",
+    summary="Charging station discovery, trip planning and charging for Indonesia.",
+    description=API_DESCRIPTION,
     version=__version__,
     openapi_tags=TAGS,
+    contact={"name": "EV-FLOW", "url": "https://github.com/MVVKUR/evflow-full-app"},
     license_info={"name": "Data: PLN, OCM (CC-BY-SA), OSM (ODbL)"},
+    servers=[
+        {"url": "/", "description": "This server"},
+        {"url": "https://ev-flow-api.opensoft.id", "description": "Production"},
+        {"url": "http://localhost:8000", "description": "Local development"},
+    ],
     lifespan=lifespan,
 )
 
