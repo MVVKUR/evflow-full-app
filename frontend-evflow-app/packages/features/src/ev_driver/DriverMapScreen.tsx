@@ -697,12 +697,11 @@ function ResultsDrawer({
             </View>
             <Pressable
               accessibilityRole="button"
-              disabled={locationPermissionLoading || locationPermissionStatus === 'denied' || locationPermissionStatus === 'unavailable'}
+              disabled={locationPermissionLoading}
               onPress={onRequestLocation}
               style={[
                 styles.locationPermissionButton,
-                (locationPermissionLoading || locationPermissionStatus === 'denied' || locationPermissionStatus === 'unavailable') &&
-                  styles.locationPermissionButtonDisabled
+                locationPermissionLoading && styles.locationPermissionButtonDisabled
               ]}
             >
               <Text style={styles.locationPermissionButtonText}>
@@ -734,11 +733,11 @@ function ResultsDrawer({
 
 function getLocationPermissionMessage(status: LocationPermissionStatus) {
   if (status === 'denied') {
-    return 'Location permission is blocked. Enable location access in your browser settings, then reload this page.';
+    return 'Location permission is blocked. Click button below to retry or use default EV center coordinates in Jakarta.';
   }
 
   if (status === 'unavailable') {
-    return 'Location permission requires HTTPS or localhost and a browser with geolocation support.';
+    return 'GPS is unavailable or requires HTTPS. Click button below to use default EV center coordinates in Jakarta.';
   }
 
   return 'Allow location access to reload nearby stations around your current position.';
@@ -746,11 +745,11 @@ function getLocationPermissionMessage(status: LocationPermissionStatus) {
 
 function getLocationPermissionButtonLabel(status: LocationPermissionStatus) {
   if (status === 'denied') {
-    return 'Location Blocked';
+    return 'Retry / Use Default';
   }
 
   if (status === 'unavailable') {
-    return 'Location Unavailable';
+    return 'Use Default Location';
   }
 
   return 'Use Current Location';
