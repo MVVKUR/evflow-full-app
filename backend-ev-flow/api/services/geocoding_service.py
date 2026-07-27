@@ -1,22 +1,104 @@
 """Geocoding search proxy service for EV-FLOW (Epic 2.0).
 
 Merges SPKLU charging stations and place search results, biased to Indonesia/Java.
-Uses 5-minute in-memory caching for non-sensitive geocoding queries.
+
+Privacy / abuse notes (AC 2.3.2 + Nominatim usage policy):
+  * Coordinates are rounded to COORD_PRECISION_DP before they leave this process
+    (upstream call, cache key) and NOTHING here ever logs a raw coordinate.
+  * Every outbound call carries an explicit timeout and a descriptive
+    User-Agent with a contact address (NOMINATIM_CONTACT_EMAIL).
+  * Results are cached in a bounded LRU so repeated lookups do not hit
+    Nominatim. Upstream failure degrades to local data, never to a traceback.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
 import time
-import urllib.parse
-from typing import Any, Dict, List, Optional, Tuple
+from collections import OrderedDict
+from typing import Dict, List, Optional, Tuple
 
 import httpx
 from api.models import GeocodingItem, GeocodingSearchResponse, Station
 from api.services.routing_service import haversine_distance_km
 
 
-_CACHE: Dict[str, Tuple[float, List[GeocodingItem]]] = {}
+logger = logging.getLogger(__name__)
 
 CACHE_TTL_SECONDS = 300.0
+# Bounded so a hostile/no-op query stream cannot grow the process heap.
+CACHE_MAX_ENTRIES = 512
+
+# 4 dp ~= 11 m. Same precision api.main uses for the routing call "according to
+# DMP (privacy and caching)"; keep the two consistent.
+COORD_PRECISION_DP = 4
+# Reverse geocoding is a "where is this person right now" lookup, so it is
+# coarsened harder: 3 dp ~= 110 m, which is still street-level for a label.
+REVERSE_COORD_PRECISION_DP = 3
+
+NOMINATIM_BASE_URL = os.getenv("NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org").rstrip("/")
+NOMINATIM_TIMEOUT_SECONDS = 4.0
+NOMINATIM_REVERSE_TIMEOUT_SECONDS = 2.5
+
+# Nominatim's usage policy requires an identifiable app name AND a contact
+# address; an anonymous UA is itself grounds for a block. The fallback is a
+# role address, never a real person's, and deployments override it.
+DEFAULT_NOMINATIM_CONTACT = "ops@evflow.example"
+
+
+def _nominatim_user_agent() -> str:
+    contact = (os.getenv("NOMINATIM_CONTACT_EMAIL", "") or "").strip() or DEFAULT_NOMINATIM_CONTACT
+    return f"EVFLOW-RoutePlanner/2.0 (+{contact})"
+
+
+# Nominatim's usage policy allows about one request per second per application.
+# The endpoint rate limits cap what callers may ask of us; this caps what we
+# actually send upstream, which is the number OpenStreetMap measures when it
+# decides to ban an IP. Requests are spaced rather than rejected, so a burst
+# that survives the endpoint limits is slowed instead of failing.
+NOMINATIM_MIN_INTERVAL_SECONDS = float(os.getenv("NOMINATIM_MIN_INTERVAL_SECONDS", "1.0"))
+
+_upstream_lock = asyncio.Lock()
+_last_upstream_call = 0.0
+
+
+async def _await_upstream_slot() -> None:
+    """Space outbound Nominatim calls by at least NOMINATIM_MIN_INTERVAL_SECONDS."""
+    global _last_upstream_call
+    async with _upstream_lock:
+        wait = NOMINATIM_MIN_INTERVAL_SECONDS - (time.monotonic() - _last_upstream_call)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_upstream_call = time.monotonic()
+
+
+def round_coord(value: float, dp: int = COORD_PRECISION_DP) -> float:
+    """Coarsen a coordinate before it is sent upstream, cached, or logged."""
+    return round(float(value), dp)
+
+
+_CACHE: "OrderedDict[str, Tuple[float, List[GeocodingItem]]]" = OrderedDict()
+_REVERSE_CACHE: "OrderedDict[str, Tuple[float, Dict[str, str]]]" = OrderedDict()
+
+
+def _cache_get(cache: OrderedDict, key: str):
+    entry = cache.get(key)
+    if entry is None:
+        return None
+    ts, value = entry
+    if time.time() - ts >= CACHE_TTL_SECONDS:
+        cache.pop(key, None)
+        return None
+    cache.move_to_end(key)
+    return value
+
+
+def _cache_put(cache: OrderedDict, key: str, value) -> None:
+    cache[key] = (time.time(), value)
+    cache.move_to_end(key)
+    while len(cache) > CACHE_MAX_ENTRIES:
+        cache.popitem(last=False)
 
 
 KNOWN_INDONESIA_PLACES = [
@@ -57,16 +139,18 @@ class GeocodingService:
         limit: int = 5,
     ) -> GeocodingSearchResponse:
         q_clean = query.strip().casefold()
+        # Never keep the caller's full-precision position past this point.
+        if origin_lat is not None:
+            origin_lat = round_coord(origin_lat)
+        if origin_lon is not None:
+            origin_lon = round_coord(origin_lon)
         lat_str = f"{origin_lat:.2f}" if origin_lat is not None else "0"
         lon_str = f"{origin_lon:.2f}" if origin_lon is not None else "0"
         cache_key = f"{q_clean}:{lat_str}:{lon_str}:{limit}"
 
-
-        now = time.time()
-        if cache_key in _CACHE:
-            ts, cached_items = _CACHE[cache_key]
-            if now - ts < CACHE_TTL_SECONDS:
-                return GeocodingSearchResponse(query=query, items=cached_items)
+        cached_items = _cache_get(_CACHE, cache_key)
+        if cached_items is not None:
+            return GeocodingSearchResponse(query=query, items=cached_items)
 
         items: List[GeocodingItem] = []
         seen_labels = set()
@@ -122,7 +206,7 @@ class GeocodingService:
                 items.append(item)
                 seen_labels.add(st_name.casefold())
         except Exception:
-            pass
+            logger.warning("geocoding: station lookup failed", exc_info=True)
 
         # 2. Search known local places
         for place in KNOWN_INDONESIA_PLACES:
@@ -153,11 +237,14 @@ class GeocodingService:
 
         if len(items) < limit:
             try:
-                encoded_q = urllib.parse.quote(query)
-                async with httpx.AsyncClient(timeout=4.0) as client:
-                    url = f"https://nominatim.openstreetmap.org/search?q={encoded_q}&countrycodes=id&format=json&limit={limit}"
-                    headers = {"User-Agent": "EVFLOW-RoutePlanner/2.0"}
-                    resp = await client.get(url, headers=headers)
+                params = {"q": query, "countrycodes": "id", "format": "json", "limit": str(limit)}
+                await _await_upstream_slot()
+                async with httpx.AsyncClient(timeout=NOMINATIM_TIMEOUT_SECONDS) as client:
+                    resp = await client.get(
+                        f"{NOMINATIM_BASE_URL}/search",
+                        params=params,
+                        headers={"User-Agent": _nominatim_user_agent()},
+                    )
 
                     if resp.status_code == 200:
                         results = resp.json()
@@ -188,15 +275,34 @@ class GeocodingService:
                                     )
                                 )
                                 seen_labels.add(label.casefold())
+                    else:
+                        logger.warning("geocoding: upstream search returned HTTP %s", resp.status_code)
+            except httpx.TimeoutException:
+                # Degrade to local results; the caller still gets a 200 with
+                # whatever stations/places matched.
+                logger.warning("geocoding: upstream search timed out")
             except Exception:
-                pass
+                logger.warning("geocoding: upstream search failed", exc_info=True)
 
         final_items = items[:limit]
-        _CACHE[cache_key] = (now, final_items)
+        _cache_put(_CACHE, cache_key, final_items)
         return GeocodingSearchResponse(query=query, items=final_items)
 
     async def reverse_search(self, lat: float, lon: float) -> Dict[str, str]:
-        """Reverse geocode lat/lon coordinates to a human-readable location name."""
+        """Reverse geocode lat/lon coordinates to a human-readable location name.
+
+        The incoming position is coarsened immediately: everything downstream of
+        this line (DB query, upstream call, cache key, fallback label, logs)
+        sees only the rounded value.
+        """
+        lat = round_coord(lat, REVERSE_COORD_PRECISION_DP)
+        lon = round_coord(lon, REVERSE_COORD_PRECISION_DP)
+
+        cache_key = f"{lat}:{lon}"
+        cached = _cache_get(_REVERSE_CACHE, cache_key)
+        if cached is not None:
+            return cached
+
         # 1. Check nearest station in DB within 1.5 km
         try:
             from api.stations_repo import nearby
@@ -205,13 +311,13 @@ class GeocodingService:
                 st = station_rows[0]
                 st_name = st.get("name") or "SPKLU Station"
                 address = st.get("address") or st.get("city") or "Jakarta"
-                return {
+                return self._cache_reverse(cache_key, {
                     "label": f"Near {st_name}",
                     "address": address,
                     "city": st.get("city") or "Jakarta",
-                }
+                })
         except Exception:
-            pass
+            logger.warning("reverse geocoding: station lookup failed", exc_info=True)
 
         # 2. Check nearest known local place
         closest_place = None
@@ -223,33 +329,50 @@ class GeocodingService:
                 closest_place = p
 
         if closest_place and min_d < 15.0:
-            return {
+            return self._cache_reverse(cache_key, {
                 "label": closest_place["label"],
                 "address": closest_place["subtitle"],
                 "city": closest_place["label"],
-            }
+            })
 
-        # 3. Nominatim reverse geocoding API fallback
+        # 3. Nominatim reverse geocoding API fallback (rounded coords only)
         try:
-            async with httpx.AsyncClient(timeout=2.5) as client:
-                url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json&zoom=16"
-                headers = {"User-Agent": "EVFLOW-RoutePlanner/2.0"}
-                resp = await client.get(url, headers=headers)
+            params = {"lat": str(lat), "lon": str(lon), "format": "json", "zoom": "16"}
+            await _await_upstream_slot()
+            async with httpx.AsyncClient(timeout=NOMINATIM_REVERSE_TIMEOUT_SECONDS) as client:
+                resp = await client.get(
+                    f"{NOMINATIM_BASE_URL}/reverse",
+                    params=params,
+                    headers={"User-Agent": _nominatim_user_agent()},
+                )
                 if resp.status_code == 200:
                     data = resp.json()
                     address_dict = data.get("address", {})
                     road = address_dict.get("road") or address_dict.get("suburb") or address_dict.get("neighbourhood")
                     city = address_dict.get("city") or address_dict.get("town") or address_dict.get("city_district") or "Jakarta"
                     if road:
-                        return {"label": f"{road}, {city}", "address": data.get("display_name", ""), "city": city}
+                        return self._cache_reverse(cache_key, {
+                            "label": f"{road}, {city}", "address": data.get("display_name", ""), "city": city})
                     if city:
-                        return {"label": city, "address": data.get("display_name", ""), "city": city}
+                        return self._cache_reverse(cache_key, {
+                            "label": city, "address": data.get("display_name", ""), "city": city})
+                else:
+                    logger.warning("reverse geocoding: upstream returned HTTP %s", resp.status_code)
+        except httpx.TimeoutException:
+            logger.warning("reverse geocoding: upstream timed out")
         except Exception:
-            pass
+            logger.warning("reverse geocoding: upstream failed", exc_info=True)
 
-        return {
-            "label": f"Location ({lat:.4f}, {lon:.4f})",
+        # Last-resort label. lat/lon here are already coarsened, and this string
+        # is returned to the caller only — it is never logged.
+        return self._cache_reverse(cache_key, {
+            "label": f"Location ({lat:.{REVERSE_COORD_PRECISION_DP}f}, {lon:.{REVERSE_COORD_PRECISION_DP}f})",
             "address": "Indonesia",
             "city": "Indonesia",
-        }
+        })
+
+    @staticmethod
+    def _cache_reverse(cache_key: str, result: Dict[str, str]) -> Dict[str, str]:
+        _cache_put(_REVERSE_CACHE, cache_key, result)
+        return result
 

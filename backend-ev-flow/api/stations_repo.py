@@ -95,6 +95,64 @@ def nearby(lat: float, lon: float, radius_km: float, limit: int,
         return [dict(r) for r in c.execute(text(sql), params).mappings().all()]
 
 
+def along_corridor(
+    origin: tuple[float, float],       # (lat, lon)
+    destination: tuple[float, float],  # (lat, lon)
+    corridor_km: float,
+    limit: int,
+    buckets: int = 20,
+    filters: Optional[dict] = None,
+) -> list[dict]:
+    """Stations within ``corridor_km`` of the origin->destination line.
+
+    Ordered by PROXIMITY TO THE ROUTE, never by id: `ORDER BY id LIMIT n` returns
+    a lexicographic slice of the table, which silently hid the whole
+    `pln_spklu-*` network (ids sort after `open_charge_map-*`) from route
+    planning.
+
+    The result is also spread ALONG the corridor: stations are bucketed by their
+    position on the line and emitted round-robin (closest-to-the-line first in
+    every bucket), so a `limit` smaller than the corridor population still
+    covers the far end of the trip instead of returning only the dense cluster
+    around the origin.
+    """
+    clauses, params = _filter_clauses(filters or {})
+    extra = (" AND " + " AND ".join(clauses)) if clauses else ""
+    params.update(
+        olat=origin[0], olon=origin[1], dlat=destination[0], dlon=destination[1],
+        r=float(corridor_km) * 1000.0, lim=limit, buckets=max(1, int(buckets)),
+    )
+    sql = f"""
+        WITH corridor AS (
+            SELECT ST_SetSRID(
+                       ST_MakeLine(ST_MakePoint(:olon, :olat), ST_MakePoint(:dlon, :dlat)),
+                       4326) AS line
+        ),
+        candidates AS (
+            SELECT {_COLS},
+                   ST_Distance(geom::geography, corridor.line::geography) / 1000.0
+                       AS corridor_distance_km,
+                   ST_LineLocatePoint(corridor.line, geom) AS along_fraction
+            FROM stations, corridor
+            WHERE ST_DWithin(geom::geography, corridor.line::geography, :r){extra}
+        ),
+        ranked AS (
+            SELECT *,
+                   width_bucket(along_fraction, 0.0, 1.0, :buckets) AS corridor_bucket,
+                   row_number() OVER (
+                       PARTITION BY width_bucket(along_fraction, 0.0, 1.0, :buckets)
+                       ORDER BY corridor_distance_km ASC, id ASC
+                   ) AS bucket_rank
+            FROM candidates
+        )
+        SELECT * FROM ranked
+        ORDER BY bucket_rank ASC, corridor_distance_km ASC, id ASC
+        LIMIT :lim
+    """
+    with engine.connect() as c:
+        return [dict(r) for r in c.execute(text(sql), params).mappings().all()]
+
+
 def count() -> int:
     with engine.connect() as c:
         return c.execute(text("SELECT count(*) FROM stations")).scalar_one()

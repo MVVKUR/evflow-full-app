@@ -3,12 +3,19 @@
     python -m scripts.seed_db
 
 Reads data/raw/*.json (host-mounted), normalizes, infers connectors, clusters
-within 75 m, then truncates and inserts the unique stations.
+within 75 m, then deletes and re-inserts the unique stations.
+
+Demo accounts are opt-in and driven entirely by the environment — see the
+"demo accounts" block below and .env.example. With no demo env vars set, this
+script only touches stations/connectors: it never creates a login and never
+creates wallet balance. That matters because DEPLOY.md runs it in production.
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -47,31 +54,125 @@ _EXPLODE_CONNECTORS = text("""
 """)
 
 
-def seed_demo_users(conn) -> None:
-    pw_hash = security.hash_password("evflow-demo-2026")
-    conn.execute(text("""
-        INSERT INTO users (id, username, password_hash, full_name, account_type, profile_completed)
-        VALUES
-            ('a0000000-0000-0000-0000-000000000001'::uuid, 'demo.driver', :ph, 'Demo User', 'ev_user', true),
-            ('a0000000-0000-0000-0000-000000000002'::uuid, 'fleet.operator', :ph, 'Fleet Operator', 'business_planner', true)
-        ON CONFLICT (username) DO UPDATE SET
-            password_hash = EXCLUDED.password_hash,
-            full_name = EXCLUDED.full_name,
-            account_type = EXCLUDED.account_type,
-            profile_completed = EXCLUDED.profile_completed;
-    """), {"ph": pw_hash})
+# --- demo accounts -----------------------------------------------------------
+#
+# Everything below is OPT-IN. This script is run against production (see
+# DEPLOY.md), so it must never invent a password and must never mint spendable
+# money on a re-seed.
+#
+#   DEMO_USER_PASSWORD    plaintext password for the demo accounts. UNSET =>
+#                         demo users are not seeded at all (no default).
+#   SEED_DEMO_WALLET      "1"/"true"/"yes"/"on" => also seed a demo wallet
+#                         balance. Default OFF.
+#   DEMO_WALLET_BALANCE_IDR  amount to grant once, in IDR (default 500000).
+#
+DEMO_PASSWORD_ENV = "DEMO_USER_PASSWORD"
+SEED_WALLET_ENV = "SEED_DEMO_WALLET"
+DEMO_WALLET_BALANCE_ENV = "DEMO_WALLET_BALANCE_IDR"
+DEFAULT_DEMO_WALLET_BALANCE_IDR = 500_000
 
-    conn.execute(text("""
-        INSERT INTO wallet (id, user_id, balance_idr)
-        SELECT (SELECT COALESCE(MAX(id), 0) FROM wallet) + row_number() over (), u.id, 500000
+DEMO_USERS = (
+    ("a0000000-0000-0000-0000-000000000001", "demo.driver", "Demo User", "ev_user"),
+    ("a0000000-0000-0000-0000-000000000002", "fleet.operator", "Fleet Operator", "business_planner"),
+)
+
+# Stable per-user external_id, so re-running the seed collides with the row that
+# already exists instead of creating a second grant.
+_TOPUP_EXTERNAL_ID = "seed-demo-grant-{username}"
+_TOPUP_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00cf4fc964ff")
+
+_TRUE = {"1", "true", "yes", "on"}
+
+
+def _flag_enabled(name: str) -> bool:
+    return os.getenv(name, "").strip().casefold() in _TRUE
+
+
+def _demo_wallet_amount() -> int:
+    raw = os.getenv(DEMO_WALLET_BALANCE_ENV, "").strip()
+    if not raw:
+        return DEFAULT_DEMO_WALLET_BALANCE_IDR
+    try:
+        amount = int(raw)
+    except ValueError as exc:
+        raise SystemExit(f"{DEMO_WALLET_BALANCE_ENV} must be an integer number of IDR") from exc
+    if amount <= 0:
+        raise SystemExit(f"{DEMO_WALLET_BALANCE_ENV} must be > 0 (topups.amount_idr has a CHECK > 0)")
+    return amount
+
+
+# Insert the demo users. password_hash is set ONLY on first creation: a re-seed
+# must not silently reset the password of an account somebody is already using.
+_UPSERT_DEMO_USER = text("""
+    INSERT INTO users (id, username, password_hash, full_name, account_type, profile_completed)
+    VALUES (CAST(:id AS uuid), :username, :ph, :full_name, :account_type, true)
+    ON CONFLICT (username) DO UPDATE SET
+        full_name = EXCLUDED.full_name,
+        account_type = EXCLUDED.account_type,
+        profile_completed = EXCLUDED.profile_completed
+""")
+
+# A zero-balance wallet row is not money, so it is always safe to create.
+_ENSURE_WALLET_ROW = text("""
+    INSERT INTO wallet (id, user_id, balance_idr)
+    SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM wallet), u.id, 0
+    FROM users u
+    WHERE u.username = :username
+      AND NOT EXISTS (SELECT 1 FROM wallet w WHERE w.user_id = u.id)
+""")
+
+# Money is only ever created together with its ledger row. The topups insert is
+# the idempotency guard: external_id is UNIQUE, so the second run inserts
+# nothing, returns no rows, and the wallet UPDATE therefore credits nothing.
+_GRANT_DEMO_BALANCE = text("""
+    WITH granted AS (
+        INSERT INTO topups (id, user_id, external_id, xendit_invoice_id, amount_idr,
+                            status, invoice_url, paid_at)
+        SELECT CAST(:topup_id AS uuid), u.id, :external_id, NULL, :amount, 'paid', NULL, now()
         FROM users u
-        WHERE u.username IN ('demo.driver', 'fleet.operator')
-          AND NOT EXISTS (SELECT 1 FROM wallet w WHERE w.user_id = u.id);
-    """))
-    conn.execute(text("""
-        UPDATE wallet SET balance_idr = GREATEST(balance_idr, 500000), updated_at = now()
-        WHERE user_id IN (SELECT id FROM users WHERE username IN ('demo.driver', 'fleet.operator'));
-    """))
+        WHERE u.username = :username
+        ON CONFLICT (external_id) DO NOTHING
+        RETURNING user_id, amount_idr
+    )
+    UPDATE wallet w
+       SET balance_idr = w.balance_idr + g.amount_idr, updated_at = now()
+      FROM granted g
+     WHERE w.user_id = g.user_id
+    RETURNING w.balance_idr
+""")
+
+
+def seed_demo_users(conn) -> str:
+    """Seed the demo accounts. Returns a human-readable summary of what happened."""
+    password = os.getenv(DEMO_PASSWORD_ENV, "")
+    if not password.strip():
+        return (f"skipped demo users: {DEMO_PASSWORD_ENV} is not set "
+                f"(set it to seed demo.driver / fleet.operator)")
+
+    pw_hash = security.hash_password(password)
+    for user_id, username, full_name, account_type in DEMO_USERS:
+        conn.execute(_UPSERT_DEMO_USER, {
+            "id": user_id, "username": username, "ph": pw_hash,
+            "full_name": full_name, "account_type": account_type,
+        })
+        conn.execute(_ENSURE_WALLET_ROW, {"username": username})
+
+    if not _flag_enabled(SEED_WALLET_ENV):
+        return (f"{len(DEMO_USERS)} demo users (no wallet balance: "
+                f"{SEED_WALLET_ENV} is off)")
+
+    amount = _demo_wallet_amount()
+    granted = 0
+    for _user_id, username, _full_name, _account_type in DEMO_USERS:
+        external_id = _TOPUP_EXTERNAL_ID.format(username=username)
+        topup_id = str(uuid.uuid5(_TOPUP_NAMESPACE, external_id))
+        rows = conn.execute(_GRANT_DEMO_BALANCE, {
+            "topup_id": topup_id, "external_id": external_id,
+            "amount": amount, "username": username,
+        }).fetchall()
+        granted += len(rows)
+    return (f"{len(DEMO_USERS)} demo users, {granted} wallet grant(s) of "
+            f"{amount} IDR (each with a matching topups row)")
 
 
 def main() -> None:
@@ -97,8 +198,8 @@ def main() -> None:
                 "status": s.get("status"), "date_verified": s.get("date_verified"),
             })
         n_connectors = conn.execute(_EXPLODE_CONNECTORS).rowcount
-        seed_demo_users(conn)
-    print(f"seeded {len(stations)} stations, {n_connectors} connectors, and 2 demo users")
+        demo_summary = seed_demo_users(conn)
+    print(f"seeded {len(stations)} stations, {n_connectors} connectors; {demo_summary}")
 
 
 if __name__ == "__main__":

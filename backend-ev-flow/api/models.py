@@ -356,9 +356,16 @@ class RoutePlanRequest(BaseModel):
     origin: RouteLocationInput
     destination: RouteLocationInput
     current_soc_pct: float = Field(..., ge=0, le=100, examples=[72.0])
-    minimum_arrival_soc_pct: float = Field(15.0, ge=0, le=50, examples=[15.0])
+    minimum_arrival_soc_pct: Optional[float] = Field(
+        None, ge=0, le=50, examples=[20.0],
+        description="Minimum arrival battery. Defaults to the server reserve (20%, AC 2.1.3). "
+                    "The enforced value may be raised so the reserve is worth at least "
+                    "ROUTE_MIN_RESERVE_KM km; see assumptions.effective_reserve_soc_pct.")
     preferences: Optional[RoutePreferencesInput] = Field(default_factory=RoutePreferencesInput)
     waypoint_station_id: Optional[str] = Field(None, description="Optional station ID to force as a route waypoint.")
+    max_candidate_stops: int = Field(
+        5, ge=1, le=25,
+        description="How many ranked alternative stops to return alongside the recommended one.")
 
 
 class VehicleSummary(BaseModel):
@@ -374,7 +381,18 @@ class TripSummary(BaseModel):
     duration_minutes: float = Field(..., examples=[190.0])
     estimated_energy_kwh: float = Field(..., examples=[31.2])
     estimated_arrival_soc_pct: float = Field(..., examples=[12.0])
-    minimum_arrival_soc_pct: float = Field(..., examples=[15.0])
+    minimum_arrival_soc_pct: float = Field(
+        ..., description="The reserve actually enforced (effective, after the km floor).",
+        examples=[20.0])
+    requested_minimum_arrival_soc_pct: Optional[float] = Field(
+        None, description="What the client asked for, before the km floor was applied.",
+        examples=[20.0])
+    effective_reserve_km: Optional[float] = Field(
+        None, description="The enforced reserve expressed in km of range.", examples=[42.0])
+    direct_arrival_soc_pct: Optional[float] = Field(
+        None, description="Arrival SoC with NO charging stop, for the warning UI.", examples=[8.0])
+    soc_margin_pct: Optional[float] = Field(
+        None, description="Projected arrival SoC minus the enforced reserve.", examples=[3.0])
 
 
 class RoutePlanGeometryAndSteps(BaseModel):
@@ -386,33 +404,158 @@ class RoutePlanGeometryAndSteps(BaseModel):
 class RecommendedStop(BaseModel):
     station: Station
     distance_from_origin_km: float = Field(..., examples=[82.0])
+    distance_to_destination_km: Optional[float] = Field(None, examples=[66.0])
     detour_km: float = Field(..., examples=[2.1])
+    distance_basis: str = Field(
+        "straight_line",
+        description="Measure every distance above shares: 'road' (routing provider) or "
+                    "'straight_line'. Detour never mixes the two.",
+        examples=["road", "straight_line"])
     arrival_soc_pct: float = Field(..., examples=[18.0])
-    recommended_target_soc_pct: float = Field(..., examples=[80.0])
+    recommended_target_soc_pct: float = Field(
+        ..., description="Charge target: 80% by default, raised only as far as the remaining leg needs.",
+        examples=[80.0])
+    required_target_soc_pct: Optional[float] = Field(
+        None, description="Minimum SoC on departure that still finishes the trip with the reserve intact.",
+        examples=[46.0])
+    projected_destination_soc_pct: Optional[float] = Field(
+        None, description="Projected SoC at the destination after charging here.", examples=[24.0])
+    completes_trip: bool = Field(
+        True, description="True when this stop provably gets the driver to the destination above the reserve. "
+                          "Only a driver-forced waypoint can come back False.")
+    blocking_reasons: list[str] = Field(
+        default_factory=list,
+        description="Why a driver-forced waypoint is not viable: 'unreachable', "
+                    "'no_free_compatible_connector', 'cannot_complete_trip'. Always empty for a "
+                    "stop the system recommended itself.",
+        examples=[["unreachable"]])
+    reserve_intact_on_arrival: bool = Field(
+        True,
+        description="True when the driver still holds the reserve on arriving HERE. False only in the "
+                    "degraded case where no station at all is reachable with the reserve intact.")
     energy_to_add_kwh: float = Field(..., examples=[20.0])
     estimated_charging_minutes: float = Field(..., examples=[25.0])
     effective_charging_power_kw: float = Field(..., examples=[50.0])
     connector_compatible: bool = Field(True)
-    availability: str = Field("unknown", examples=["available_now", "unknown"])
+    matched_connector_type: Optional[str] = Field(
+        None, description="The free connector type the vehicle will use here.", examples=["CCS2"])
+    connector_match_inferred: bool = Field(
+        False, description="True when the match relies on the assumed universal AC Type 2 inlet.")
+    vehicle_connector_types: list[str] = Field(
+        default_factory=list, description="Connector standards this vehicle was assumed to accept.",
+        examples=[["CCS2", "AC Type 2"]])
+    available_connector_count: int = Field(
+        0, description="Free connectors of a type this vehicle can use (live `connectors` table).",
+        examples=[2])
+    available_connector_types: list[str] = Field(
+        default_factory=list, description="All connector types with at least one free plug right now.")
+    available_by_type: dict[str, int] = Field(
+        default_factory=dict, description="Free connector count per type.", examples=[{"CCS2": 2}])
+    total_connector_count: int = Field(0, description="All connector rows at this station.", examples=[4])
+    best_available_power_kw: Optional[float] = Field(
+        None, description="Highest power among the free connectors.", examples=[150.0])
+    availability: str = Field("unknown", examples=["available_now", "unavailable", "unknown"])
     data_confidence: str = Field("medium", examples=["high", "medium", "low"])
+    rank_score: float = Field(
+        0.0, description="Deterministic rank score (detour km penalised, available power rewarded); lower is better.",
+        examples=[1.4])
 
 
 class RoutePlanAssumptions(BaseModel):
-    reserve_soc_pct: float = Field(15.0)
+    reserve_soc_pct: float = Field(20.0, description="The reserve actually enforced.")
+    requested_reserve_soc_pct: Optional[float] = Field(None)
+    effective_reserve_km: Optional[float] = Field(None, examples=[42.0])
+    minimum_reserve_km: Optional[float] = Field(None, examples=[15.0])
+    distance_basis: str = Field("straight_line", examples=["road", "straight_line"])
+    vehicle_connector_types: list[str] = Field(default_factory=list, examples=[["CCS2", "AC Type 2"]])
+    connector_source: str = Field("default", examples=["ev_model", "user_profile", "default"])
     weather_applied: bool = Field(False)
     traffic_applied: bool = Field(False)
     connector_data_inferred: bool = Field(True)
     energy_model_version: str = Field("spec-v1")
 
 
+class RouteWarning(BaseModel):
+    """AC 2.1.1 in-app warning payload."""
+    triggered: bool = Field(..., examples=[True])
+    code: str = Field(..., examples=["battery_below_reserve", "battery_margin_tight", "no_suitable_station"])
+    severity: str = Field("warning", examples=["info", "warning", "critical"])
+    message: str = Field(..., examples=["Battery will drop below your 20% reserve before you arrive."])
+    projected_arrival_soc_pct: float = Field(..., examples=[8.0])
+    reserve_soc_pct: float = Field(..., examples=[20.0])
+    shortfall_soc_pct: float = Field(0.0, description="How far below the reserve the projection lands.", examples=[12.0])
+    can_dismiss: bool = Field(True, description="AC 2.1.1 lets the driver dismiss and continue.")
+
+
 class RoutePlanResponse(BaseModel):
     route_plan_id: str = Field(..., examples=["ephemeral-12345"])
+    route_status: str = Field(
+        "direct_route_available",
+        description="'direct_route_available' (AC 2.1.2 green state, charging_stops is empty), "
+                    "'charging_required' (AC 2.1.3), or 'no_suitable_station'.",
+        examples=["direct_route_available", "charging_required", "no_suitable_station"])
+    margin_is_tight: bool = Field(
+        False,
+        description="Arrival is above the reserve but within the tight margin. Still a DIRECT route "
+                    "with no charging stops -- AC 2.1.2 continues to hold.")
     directly_reachable: bool = Field(..., examples=[False])
     vehicle: VehicleSummary
     summary: TripSummary
     route: RoutePlanGeometryAndSteps
-    recommended_stop: Optional[RecommendedStop] = None
+    recommended_stop: Optional[RecommendedStop] = Field(
+        None,
+        description="The stop the SYSTEM recommends. Mirrors charging_stops[0] and is ALWAYS null "
+                    "when route_status == 'direct_route_available' (AC 2.1.2). A stop the driver "
+                    "forced via waypoint_station_id on an otherwise-direct route appears in "
+                    "user_requested_stop instead.")
+    charging_stops: list[RecommendedStop] = Field(
+        default_factory=list,
+        description="Ordered charging stops for this plan. ALWAYS empty when "
+                    "route_status == 'direct_route_available' (AC 2.1.2).")
+    user_requested_stop: Optional[RecommendedStop] = Field(
+        None,
+        description="The waypoint_station_id the driver asked for, honoured on a route that did not "
+                    "need a charging stop. Never a system recommendation; check completes_trip and "
+                    "blocking_reasons before relying on it.")
+    alternative_stops: list[RecommendedStop] = Field(
+        default_factory=list, description="Other viable stations the driver can pick instead.")
+    warning: Optional[RouteWarning] = None
     assumptions: RoutePlanAssumptions = Field(default_factory=RoutePlanAssumptions)
+
+
+# ---- AC 2.1.1: re-evaluating an ACTIVE route -------------------------------
+class ActiveRouteEvaluationRequest(BaseModel):
+    current_position: RouteLocationInput = Field(..., description="Where the driver is right now.")
+    destination: RouteLocationInput
+    current_soc_pct: float = Field(..., ge=0, le=100, examples=[26.0])
+    minimum_arrival_soc_pct: Optional[float] = Field(None, ge=0, le=50, examples=[20.0])
+    route_plan_id: Optional[str] = Field(None, description="Plan being driven, echoed back.")
+    maximum_detour_km: float = Field(15.0, ge=1.0, le=50.0)
+    max_candidate_stops: int = Field(5, ge=1, le=25)
+
+
+class ActiveRouteEvaluationResponse(BaseModel):
+    """What the in-app warning sheet needs (AC 2.1.1).
+
+    'Add as a stop' and 'Dismiss' are client actions; the backend supplies the
+    projection, the warning flag and the nearby stations to choose from.
+    """
+    route_plan_id: Optional[str] = None
+    route_status: str = Field(..., examples=["direct_route_available", "charging_required", "no_suitable_station"])
+    margin_is_tight: bool = Field(False)
+    warning: Optional[RouteWarning] = None
+    remaining_distance_km: float = Field(..., examples=[86.0])
+    remaining_duration_minutes: float = Field(..., examples=[95.0])
+    estimated_energy_kwh: float = Field(..., examples=[18.4])
+    projected_arrival_soc_pct: float = Field(..., examples=[8.0])
+    raw_projected_arrival_soc_pct: float = Field(..., examples=[8.2])
+    reserve_soc_pct: float = Field(..., examples=[20.0])
+    effective_reserve_km: Optional[float] = Field(None, examples=[42.0])
+    distance_basis: str = Field("straight_line", examples=["road", "straight_line"])
+    vehicle: VehicleSummary
+    candidate_stops: list[RecommendedStop] = Field(
+        default_factory=list,
+        description="Nearby stations the driver could add as a stop, best first.")
 
 
 class GeocodingItem(BaseModel):

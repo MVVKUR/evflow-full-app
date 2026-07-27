@@ -13,7 +13,7 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
@@ -30,6 +30,8 @@ from . import google_oauth
 from . import users_repo
 from . import mailer
 from . import password_reset_repo
+from . import log_privacy
+from . import rate_limit
 from .models import (
     EVModel, EVModelList, GeoJSONFeatureCollection, Health, NameCount,
     NearestStationRoute, Route, SourceCount, SpeedTier, Station,
@@ -41,6 +43,7 @@ from .models import (
     ResetPasswordRequest, ResetPasswordResponse, TokenResponse, UserPublic,
     RoutePlanRequest, RoutePlanResponse, GeocodingSearchResponse, VehicleSummary,
     TripSummary, RoutePlanGeometryAndSteps, RecommendedStop, RoutePlanAssumptions, GeocodingItem,
+    RouteWarning, ActiveRouteEvaluationRequest, ActiveRouteEvaluationResponse,
 )
 
 
@@ -58,6 +61,9 @@ TAGS = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Endpoints that take coordinates as GET query params (the frontend contract)
+    # would otherwise put a raw GPS fix into the access log verbatim.
+    log_privacy.install()
     yield
 
 
@@ -630,12 +636,17 @@ def speed_tiers_lookup() -> list[SpeedTier]:
 
 
 # ---- Epic 2.0 Route Planning & Geocoding Endpoints -------------------------
-@app.post("/api/v1/route-plans", response_model=RoutePlanResponse, tags=["routing"],
-          summary="Simulate trip energy consumption and recommend optimal SPKLU charging stop")
-async def create_route_plan(
-    body: RoutePlanRequest,
-    user: dict = Depends(security.current_user)
-) -> RoutePlanResponse:
+ROUTE_STATUS_DIRECT = "direct_route_available"
+ROUTE_STATUS_CHARGING_REQUIRED = "charging_required"
+ROUTE_STATUS_NO_STATION = "no_suitable_station"
+
+# How many ranked candidates may be re-checked against real routed legs before
+# the plan gives up. Each attempt costs two routing calls.
+MAX_ROAD_VALIDATION_CANDIDATES = int(os.getenv("ROUTE_MAX_ROAD_VALIDATION_CANDIDATES", "3"))
+
+
+def _planning_vehicle(user: dict) -> tuple[str, dict]:
+    """Resolve the signed-in driver's EV model, or explain why planning cannot run."""
     ev_model_id = user.get("ev_model_id")
     if not ev_model_id:
         raise HTTPException(
@@ -649,48 +660,244 @@ async def create_route_plan(
             409,
             f"The selected vehicle '{ev_model_id}' lacks usable battery capacity data. Please select another vehicle model in your profile."
         )
+    return ev_model_id, ev_model
+
+
+def _vehicle_summary(ev_model_id: str, ev_model: dict, battery_kwh: float,
+                     efficiency_wh_per_km: float, efficiency_source: str) -> VehicleSummary:
+    return VehicleSummary(
+        id=ev_model.get("id") or ev_model_id,
+        name=ev_model.get("name") or "Selected EV",
+        battery_kwh=battery_kwh,
+        efficiency_wh_per_km=efficiency_wh_per_km,
+        efficiency_source=efficiency_source,
+    )
+
+
+def _distance_basis(route: dict, origin: tuple[float, float],
+                    destination: tuple[float, float]) -> tuple[str, float]:
+    """Pick ONE distance measure for the whole plan and the factor that maps onto it.
+
+    `detour_km = (leg1 + leg2) - direct` is only meaningful when all three come
+    from the same measure. Straight-line legs are therefore scaled by
+    `road_km / straight_line_km` so they live in the same units as the direct
+    distance the routing provider returned; the subtraction stays consistent and
+    (by the triangle inequality) can never go negative.
+    """
+    from api.services.routing_service import haversine_distance_km
+    from api.services.stop_ranker import DISTANCE_BASIS_ROAD, DISTANCE_BASIS_STRAIGHT_LINE
+
+    straight_km = haversine_distance_km(origin[0], origin[1], destination[0], destination[1])
+    route_km = float(route.get("distance_km") or 0.0)
+    scale = (route_km / straight_km) if straight_km > 0.01 and route_km > 0 else 1.0
+    basis = (DISTANCE_BASIS_ROAD
+             if route.get("provider") in ("osrm", "local_dijkstra")
+             else DISTANCE_BASIS_STRAIGHT_LINE)
+    return basis, scale
+
+
+def _classify_route(raw_arrival_soc_pct: float, reserve_pct: float,
+                    tight_margin_pct: float) -> tuple[str, bool]:
+    """AC 2.1.2 / AC 2.1.3 route status.
+
+    At or above the reserve the route is DIRECT and carries no charging stops.
+    `margin_is_tight` is a separate advisory flag so a snug-but-safe trip is
+    still reported as 'direct_route_available' (AC 2.1.2 keeps holding).
+    """
+    if raw_arrival_soc_pct >= reserve_pct:
+        return ROUTE_STATUS_DIRECT, raw_arrival_soc_pct < (reserve_pct + tight_margin_pct)
+    return ROUTE_STATUS_CHARGING_REQUIRED, False
+
+
+def _below_reserve_warning(projected_soc_pct: float, reserve_pct: float) -> RouteWarning:
+    shortfall = max(0.0, reserve_pct - projected_soc_pct)
+    return RouteWarning(
+        triggered=True,
+        code="battery_below_reserve",
+        severity="critical" if projected_soc_pct <= 0 else "warning",
+        message=(
+            f"Projected arrival battery is {projected_soc_pct:.0f}%, below your "
+            f"{reserve_pct:.0f}% reserve. Add a charging stop to reach your destination safely."
+        ),
+        projected_arrival_soc_pct=round(projected_soc_pct, 1),
+        reserve_soc_pct=round(reserve_pct, 1),
+        shortfall_soc_pct=round(shortfall, 1),
+        can_dismiss=True,
+    )
+
+
+def _driver_stop_warning(stop: RecommendedStop, reserve_pct: float,
+                         projected_soc_pct: float) -> RouteWarning:
+    """Explain a driver-forced waypoint: honoured, or honoured-but-impossible.
+
+    A forced waypoint used to skip every AC 2.2.9 filter and still be folded
+    into the summary as though the charge had succeeded, so an unreachable or
+    unusable station produced a comfortably safe-looking trip. It is now
+    surfaced explicitly.
+    """
+    reasons = list(stop.blocking_reasons or [])
+    if not reasons:
+        return RouteWarning(
+            triggered=False,
+            code="stop_added_by_driver",
+            severity="info",
+            message=(
+                f"{stop.station.name} was added to your route as you asked. This trip did not "
+                f"need a charging stop."
+            ),
+            projected_arrival_soc_pct=round(projected_soc_pct, 1),
+            reserve_soc_pct=round(reserve_pct, 1),
+            shortfall_soc_pct=0.0,
+            can_dismiss=True,
+        )
+
+    if "unreachable" in reasons:
+        code = "forced_stop_unreachable"
+        detail = (f"{stop.station.name} is beyond your remaining range: you would run out of "
+                  f"charge before reaching it.")
+    elif "no_free_compatible_connector" in reasons:
+        code = "forced_stop_unavailable"
+        detail = (f"{stop.station.name} has no free connector your vehicle can use right now.")
+    else:
+        code = "forced_stop_cannot_complete"
+        detail = (f"Even a full charge at {stop.station.name} does not get you to your "
+                  f"destination with your reserve intact.")
+
+    return RouteWarning(
+        triggered=True,
+        code=code,
+        severity="critical",
+        message=f"{detail} Pick another charging stop.",
+        projected_arrival_soc_pct=round(projected_soc_pct, 1),
+        reserve_soc_pct=round(reserve_pct, 1),
+        shortfall_soc_pct=round(max(0.0, reserve_pct - projected_soc_pct), 1),
+        can_dismiss=True,
+    )
+
+
+async def _road_validated_stop(
+    routing_service,
+    stop_ranker,
+    ranked: list[RecommendedStop],
+    origin_pos: tuple[float, float],
+    dest_pos: tuple[float, float],
+    direct_distance_km: float,
+    battery_kwh: float,
+    efficiency_wh_per_km: float,
+    current_soc_pct: float,
+    reserve_pct: float,
+    max_dc_charge_kw,
+    distance_basis: str,
+    forced: bool,
+) -> tuple[Optional[RecommendedStop], Optional[dict], list[RecommendedStop]]:
+    """Pick the best ranked stop that still holds on the ACTUAL routed legs.
+
+    Ranking works on `haversine * corridor_average_scale`; the driver is then
+    routed over real roads. A stop->destination leg more winding than the
+    corridor average used to break the "arrive above the reserve" promise
+    silently, so the chosen candidate is re-derived from the routed legs here
+    and the next candidate is tried when it no longer holds.
+
+    Returns ``(stop, route_through_stop, remaining_alternatives)``.
+    """
+    rejected_ids: set[str] = set()
+
+    for candidate in ranked[:MAX_ROAD_VALIDATION_CANDIDATES]:
+        st_pos = (candidate.station.latitude, candidate.station.longitude)
+        via_route = await routing_service.get_route(origin_pos, dest_pos, waypoints=[st_pos])
+        tail_route = await routing_service.get_route(st_pos, dest_pos)
+
+        leg_to_dest_km = float(tail_route["distance_km"])
+        leg_to_stop_km = max(0.0, float(via_route["distance_km"]) - leg_to_dest_km)
+
+        validated = stop_ranker.revalidate_on_road(
+            stop=candidate,
+            road_leg_to_station_km=leg_to_stop_km,
+            road_leg_to_destination_km=leg_to_dest_km,
+            road_direct_distance_km=direct_distance_km,
+            battery_kwh=battery_kwh,
+            efficiency_wh_per_km=efficiency_wh_per_km,
+            current_soc_pct=current_soc_pct,
+            reserve_pct=reserve_pct,
+            max_dc_charge_kw=max_dc_charge_kw,
+            distance_basis=distance_basis,
+            forced=forced,
+        )
+        if validated is not None:
+            alternatives = [s for s in ranked
+                            if s.station.id != validated.station.id
+                            and s.station.id not in rejected_ids]
+            return validated, via_route, alternatives
+
+        rejected_ids.add(candidate.station.id)
+
+    return None, None, [s for s in ranked if s.station.id not in rejected_ids]
+
+
+@app.post("/api/v1/route-plans", response_model=RoutePlanResponse, tags=["routing"],
+          summary="Simulate trip energy consumption and recommend optimal SPKLU charging stop")
+async def create_route_plan(
+    body: RoutePlanRequest,
+    user: dict = Depends(security.current_user)
+) -> RoutePlanResponse:
+    ev_model_id, ev_model = _planning_vehicle(user)
 
     battery_kwh = float(ev_model["battery_kwh"])
     efficiency_wh_per_km = float(ev_model.get("efficiency_wh_per_km") or 180.0)
     efficiency_source = ev_model.get("efficiency_source") or "dataset"
     max_dc_charge_kw = ev_model.get("max_dc_charge_kw")
-    fast_charge_port = ev_model.get("fast_charge_port") or user.get("main_connector_type")
+
+    from api.services.routing_service import RoutingService
+    from api.services.energy_estimator import (
+        MIN_RESERVE_KM, TIGHT_MARGIN_SOC_PCT, EnergyEstimator,
+        effective_reserve_soc_pct, reserve_km_for_soc_pct,
+    )
+    from api.services.connector_compat import vehicle_connector_profile
+    from api.services.stop_ranker import StopRanker
+
+    connector_profile = vehicle_connector_profile(
+        ev_model.get("fast_charge_port"), user.get("main_connector_type")
+    )
 
     # Round coordinates according to DMP (privacy and caching)
-    origin_lat = round(body.origin.latitude, 4)
-    origin_lon = round(body.origin.longitude, 4)
-    dest_lat = round(body.destination.latitude, 4)
-    dest_lon = round(body.destination.longitude, 4)
-
-    origin_pos = (origin_lat, origin_lon)
-    dest_pos = (dest_lat, dest_lon)
-
-    from api.services.routing_service import RoutingService, haversine_distance_km
-    from api.services.energy_estimator import EnergyEstimator
-    from api.services.stop_ranker import StopRanker
+    origin_pos = (round(body.origin.latitude, 4), round(body.origin.longitude, 4))
+    dest_pos = (round(body.destination.latitude, 4), round(body.destination.longitude, 4))
 
     routing_service = RoutingService()
     energy_estimator = EnergyEstimator()
     stop_ranker = StopRanker(energy_estimator, routing_service)
 
-    # Direct route estimation
+    # AC 2.1.3: one reserve, resolved once, used everywhere below.
+    reserve_pct = effective_reserve_soc_pct(
+        battery_kwh, efficiency_wh_per_km, body.minimum_arrival_soc_pct
+    )
+    reserve_km = reserve_km_for_soc_pct(battery_kwh, efficiency_wh_per_km, reserve_pct)
+
     direct_route = await routing_service.get_route(origin_pos, dest_pos)
     distance_km = direct_route["distance_km"]
     duration_mins = direct_route["duration_minutes"]
+    basis, scale = _distance_basis(direct_route, origin_pos, dest_pos)
 
     est_direct = energy_estimator.estimate_trip_energy(
         battery_kwh=battery_kwh,
         efficiency_wh_per_km=efficiency_wh_per_km,
         distance_km=distance_km,
         current_soc_pct=body.current_soc_pct,
-        minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
+        minimum_arrival_soc_pct=reserve_pct,
     )
 
     max_detour_km = body.preferences.maximum_detour_km if body.preferences else 8.0
 
-    stop_required = (not est_direct.directly_reachable) or (body.waypoint_station_id is not None)
+    route_status, margin_is_tight = _classify_route(
+        est_direct.raw_arrival_soc_pct, reserve_pct, TIGHT_MARGIN_SOC_PCT
+    )
+    forced_station_id = body.waypoint_station_id
+    stop_required = (route_status == ROUTE_STATUS_CHARGING_REQUIRED) or (forced_station_id is not None)
 
-    recommended_stop = None
+    recommended_stop: Optional[RecommendedStop] = None
+    user_requested_stop: Optional[RecommendedStop] = None
+    alternative_stops: list[RecommendedStop] = []
+    warning: Optional[RouteWarning] = None
     final_route = direct_route
     final_distance_km = distance_km
     final_duration_mins = duration_mins
@@ -698,58 +905,147 @@ async def create_route_plan(
     final_energy_kwh = est_direct.estimated_trip_energy_kwh
 
     if stop_required:
-        rec_stop = await stop_ranker.select_recommended_stop(
+        # The below-reserve alert belongs to the PROJECTION, never to the mere
+        # presence of a driver-chosen waypoint: a safe route used to come back
+        # with "arrival 79%, below your 20% reserve" and shortfall 0.0.
+        if route_status == ROUTE_STATUS_CHARGING_REQUIRED:
+            warning = _below_reserve_warning(est_direct.raw_arrival_soc_pct, reserve_pct)
+
+        ranked = await stop_ranker.rank_stops(
             origin=origin_pos,
             destination=dest_pos,
             direct_distance_km=distance_km,
             battery_kwh=battery_kwh,
             efficiency_wh_per_km=efficiency_wh_per_km,
             current_soc_pct=body.current_soc_pct,
-            minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
-            vehicle_connector=fast_charge_port,
+            minimum_arrival_soc_pct=reserve_pct,
             max_dc_charge_kw=max_dc_charge_kw,
             maximum_detour_km=max_detour_km,
-            forced_station_id=body.waypoint_station_id,
+            forced_station_id=forced_station_id,
+            connector_profile=connector_profile,
+            distance_scale_factor=scale,
+            distance_basis=basis,
+            limit=body.max_candidate_stops,
         )
 
-        if rec_stop:
-            recommended_stop = rec_stop
-            st_pos = (rec_stop.station.latitude, rec_stop.station.longitude)
+        selected, stop_route, alternative_stops = await _road_validated_stop(
+            routing_service=routing_service,
+            stop_ranker=stop_ranker,
+            ranked=ranked,
+            origin_pos=origin_pos,
+            dest_pos=dest_pos,
+            direct_distance_km=distance_km,
+            battery_kwh=battery_kwh,
+            efficiency_wh_per_km=efficiency_wh_per_km,
+            current_soc_pct=body.current_soc_pct,
+            reserve_pct=reserve_pct,
+            max_dc_charge_kw=max_dc_charge_kw,
+            distance_basis=basis,
+            forced=bool(forced_station_id),
+        )
 
-            stop_route = await routing_service.get_route(origin_pos, dest_pos, waypoints=[st_pos])
+        if selected is not None and stop_route is not None:
             final_route = stop_route
             final_distance_km = stop_route["distance_km"]
+            final_energy_kwh = round(
+                est_direct.estimated_trip_energy_kwh * (final_distance_km / max(1.0, distance_km)), 2)
 
-            est_from_stop = energy_estimator.estimate_trip_energy(
-                battery_kwh=battery_kwh,
-                efficiency_wh_per_km=efficiency_wh_per_km,
-                distance_km=haversine_distance_km(st_pos[0], st_pos[1], dest_pos[0], dest_pos[1]),
-                current_soc_pct=rec_stop.recommended_target_soc_pct,
-                minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
+            if selected.completes_trip:
+                # The driver charges here, so the arrival projection starts from
+                # the charge target and covers the REAL remaining road leg.
+                est_from_stop = energy_estimator.estimate_trip_energy(
+                    battery_kwh=battery_kwh,
+                    efficiency_wh_per_km=efficiency_wh_per_km,
+                    distance_km=selected.distance_to_destination_km or 0.0,
+                    current_soc_pct=selected.recommended_target_soc_pct,
+                    minimum_arrival_soc_pct=reserve_pct,
+                )
+                final_arrival_soc = est_from_stop.estimated_arrival_soc_pct
+                final_duration_mins = (stop_route["duration_minutes"]
+                                       + selected.estimated_charging_minutes)
+            else:
+                # A forced stop that cannot be reached or cannot be used charges
+                # nothing: report the physics of driving the detour, not a
+                # fictional post-charge SoC.
+                est_via = energy_estimator.estimate_trip_energy(
+                    battery_kwh=battery_kwh,
+                    efficiency_wh_per_km=efficiency_wh_per_km,
+                    distance_km=final_distance_km,
+                    current_soc_pct=body.current_soc_pct,
+                    minimum_arrival_soc_pct=reserve_pct,
+                )
+                final_arrival_soc = est_via.estimated_arrival_soc_pct
+                final_duration_mins = stop_route["duration_minutes"]
+
+            if selected.completes_trip and route_status == ROUTE_STATUS_CHARGING_REQUIRED:
+                recommended_stop = selected
+            else:
+                # Either the green direct state, which recommends NO charging
+                # stop (AC 2.1.2), or a forced stop that failed the physics.
+                # `recommended_stop`/`charging_stops` stay reserved for stops the
+                # system can actually stand behind.
+                user_requested_stop = selected
+
+            if forced_station_id:
+                warning = _driver_stop_warning(selected, reserve_pct, final_arrival_soc)
+
+        elif route_status == ROUTE_STATUS_CHARGING_REQUIRED:
+            # Better an explicit "nothing works" than a plan that fails partway.
+            # Nothing survived, so nothing is offered: no contradictory list.
+            route_status = ROUTE_STATUS_NO_STATION
+            alternative_stops = []
+            warning = RouteWarning(
+                triggered=True,
+                code="no_suitable_station",
+                severity="critical",
+                message=(
+                    "No charging station on this corridor is reachable with your reserve intact, "
+                    "has a free connector your vehicle can use, and can get you to the destination. "
+                    "Try charging before departure or widening the detour allowance."
+                ),
+                projected_arrival_soc_pct=round(est_direct.raw_arrival_soc_pct, 1),
+                reserve_soc_pct=round(reserve_pct, 1),
+                shortfall_soc_pct=round(max(0.0, reserve_pct - est_direct.raw_arrival_soc_pct), 1),
+                can_dismiss=True,
+            )
+        elif forced_station_id:
+            warning = RouteWarning(
+                triggered=True,
+                code="forced_stop_not_found",
+                severity="warning",
+                message=("The station you asked to add could not be found, so your original route "
+                         "was kept."),
+                projected_arrival_soc_pct=round(est_direct.raw_arrival_soc_pct, 1),
+                reserve_soc_pct=round(reserve_pct, 1),
+                shortfall_soc_pct=0.0,
+                can_dismiss=True,
             )
 
-            final_arrival_soc = est_from_stop.estimated_arrival_soc_pct
-            final_duration_mins = stop_route["duration_minutes"] + rec_stop.estimated_charging_minutes
-            final_energy_kwh = round(est_direct.estimated_trip_energy_kwh * (final_distance_km / max(1.0, distance_km)), 2)
+    # AC 2.1.2: a direct route carries NO charging stops.
+    charging_stops = [recommended_stop] if recommended_stop else []
+    if route_status == ROUTE_STATUS_DIRECT:
+        charging_stops = []
+        recommended_stop = None
 
     plan_id = f"plan-{uuid.uuid4().hex[:12]}"
 
     return RoutePlanResponse(
         route_plan_id=plan_id,
-        directly_reachable=est_direct.directly_reachable and not recommended_stop,
-        vehicle=VehicleSummary(
-            id=ev_model.get("id") or ev_model_id,
-            name=ev_model.get("name") or "Selected EV",
-            battery_kwh=battery_kwh,
-            efficiency_wh_per_km=efficiency_wh_per_km,
-            efficiency_source=efficiency_source,
-        ),
+        route_status=route_status,
+        margin_is_tight=margin_is_tight,
+        directly_reachable=est_direct.directly_reachable and recommended_stop is None,
+        vehicle=_vehicle_summary(ev_model_id, ev_model, battery_kwh,
+                                 efficiency_wh_per_km, efficiency_source),
         summary=TripSummary(
             distance_km=final_distance_km,
             duration_minutes=round(final_duration_mins, 1),
             estimated_energy_kwh=final_energy_kwh,
             estimated_arrival_soc_pct=final_arrival_soc,
-            minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
+            minimum_arrival_soc_pct=reserve_pct,
+            requested_minimum_arrival_soc_pct=body.minimum_arrival_soc_pct,
+            effective_reserve_km=round(reserve_km, 1),
+            direct_arrival_soc_pct=est_direct.estimated_arrival_soc_pct,
+            soc_margin_pct=round(final_arrival_soc - reserve_pct, 1),
         ),
         route=RoutePlanGeometryAndSteps(
             type="Feature",
@@ -757,37 +1053,231 @@ async def create_route_plan(
             steps=final_route.get("steps") or [],
         ),
         recommended_stop=recommended_stop,
+        charging_stops=charging_stops,
+        user_requested_stop=user_requested_stop,
+        alternative_stops=alternative_stops,
+        warning=warning,
         assumptions=RoutePlanAssumptions(
-            reserve_soc_pct=body.minimum_arrival_soc_pct,
+            reserve_soc_pct=reserve_pct,
+            requested_reserve_soc_pct=body.minimum_arrival_soc_pct,
+            effective_reserve_km=round(reserve_km, 1),
+            minimum_reserve_km=MIN_RESERVE_KM,
+            distance_basis=basis,
+            vehicle_connector_types=list(connector_profile.types),
+            connector_source=connector_profile.source,
             weather_applied=False,
             traffic_applied=False,
-            connector_data_inferred=True,
-            energy_model_version="spec-v1",
+            connector_data_inferred=bool(connector_profile.inferred_types),
+            energy_model_version="spec-v2",
         )
     )
+
+
+@app.post("/api/v1/route-plans/active/evaluate", response_model=ActiveRouteEvaluationResponse,
+          tags=["routing"],
+          summary="Re-evaluate an in-progress route from the driver's current position and SoC (AC 2.1.1)")
+async def evaluate_active_route(
+    body: ActiveRouteEvaluationRequest,
+    user: dict = Depends(security.current_user)
+) -> ActiveRouteEvaluationResponse:
+    """AC 2.1.1: warn mid-route and offer nearby stations to add as a stop.
+
+    Given the driver is on an active route, this recomputes the projection from
+    where they actually are and how much charge they actually have. When the
+    projection drops below the reserve it returns a triggered warning plus the
+    ranked stations that could be added as a stop. Adding the stop and
+    dismissing the alert are client actions.
+    """
+    ev_model_id, ev_model = _planning_vehicle(user)
+
+    battery_kwh = float(ev_model["battery_kwh"])
+    efficiency_wh_per_km = float(ev_model.get("efficiency_wh_per_km") or 180.0)
+    efficiency_source = ev_model.get("efficiency_source") or "dataset"
+    max_dc_charge_kw = ev_model.get("max_dc_charge_kw")
+
+    from api.services.routing_service import RoutingService
+    from api.services.energy_estimator import (
+        TIGHT_MARGIN_SOC_PCT, EnergyEstimator, effective_reserve_soc_pct, reserve_km_for_soc_pct,
+    )
+    from api.services.connector_compat import vehicle_connector_profile
+    from api.services.stop_ranker import StopRanker
+
+    connector_profile = vehicle_connector_profile(
+        ev_model.get("fast_charge_port"), user.get("main_connector_type")
+    )
+
+    current_pos = (round(body.current_position.latitude, 4), round(body.current_position.longitude, 4))
+    dest_pos = (round(body.destination.latitude, 4), round(body.destination.longitude, 4))
+
+    routing_service = RoutingService()
+    energy_estimator = EnergyEstimator()
+    stop_ranker = StopRanker(energy_estimator, routing_service)
+
+    reserve_pct = effective_reserve_soc_pct(
+        battery_kwh, efficiency_wh_per_km, body.minimum_arrival_soc_pct
+    )
+    reserve_km = reserve_km_for_soc_pct(battery_kwh, efficiency_wh_per_km, reserve_pct)
+
+    remaining_route = await routing_service.get_route(current_pos, dest_pos)
+    remaining_km = remaining_route["distance_km"]
+    basis, scale = _distance_basis(remaining_route, current_pos, dest_pos)
+
+    projection = energy_estimator.estimate_trip_energy(
+        battery_kwh=battery_kwh,
+        efficiency_wh_per_km=efficiency_wh_per_km,
+        distance_km=remaining_km,
+        current_soc_pct=body.current_soc_pct,
+        minimum_arrival_soc_pct=reserve_pct,
+    )
+
+    route_status, margin_is_tight = _classify_route(
+        projection.raw_arrival_soc_pct, reserve_pct, TIGHT_MARGIN_SOC_PCT
+    )
+
+    warning: Optional[RouteWarning] = None
+    candidate_stops: list[RecommendedStop] = []
+
+    if route_status == ROUTE_STATUS_CHARGING_REQUIRED:
+        warning = _below_reserve_warning(projection.raw_arrival_soc_pct, reserve_pct)
+        candidate_stops = await stop_ranker.rank_stops(
+            origin=current_pos,
+            destination=dest_pos,
+            direct_distance_km=remaining_km,
+            battery_kwh=battery_kwh,
+            efficiency_wh_per_km=efficiency_wh_per_km,
+            current_soc_pct=body.current_soc_pct,
+            minimum_arrival_soc_pct=reserve_pct,
+            max_dc_charge_kw=max_dc_charge_kw,
+            maximum_detour_km=body.maximum_detour_km,
+            connector_profile=connector_profile,
+            distance_scale_factor=scale,
+            distance_basis=basis,
+            limit=body.max_candidate_stops,
+        )
+        if not candidate_stops:
+            route_status = ROUTE_STATUS_NO_STATION
+            warning = RouteWarning(
+                triggered=True,
+                code="no_suitable_station",
+                severity="critical",
+                message=(
+                    "Battery will drop below your reserve before arrival and no reachable station "
+                    "ahead has a free connector your vehicle can use."
+                ),
+                projected_arrival_soc_pct=round(projection.raw_arrival_soc_pct, 1),
+                reserve_soc_pct=round(reserve_pct, 1),
+                shortfall_soc_pct=round(max(0.0, reserve_pct - projection.raw_arrival_soc_pct), 1),
+                can_dismiss=True,
+            )
+    elif margin_is_tight:
+        warning = RouteWarning(
+            triggered=False,
+            code="battery_margin_tight",
+            severity="info",
+            message=(
+                f"You should arrive with about {projection.estimated_arrival_soc_pct:.0f}%, "
+                f"just above your {reserve_pct:.0f}% reserve."
+            ),
+            projected_arrival_soc_pct=round(projection.estimated_arrival_soc_pct, 1),
+            reserve_soc_pct=round(reserve_pct, 1),
+            shortfall_soc_pct=0.0,
+            can_dismiss=True,
+        )
+
+    return ActiveRouteEvaluationResponse(
+        route_plan_id=body.route_plan_id,
+        route_status=route_status,
+        margin_is_tight=margin_is_tight,
+        warning=warning,
+        remaining_distance_km=remaining_km,
+        remaining_duration_minutes=remaining_route["duration_minutes"],
+        estimated_energy_kwh=projection.estimated_trip_energy_kwh,
+        projected_arrival_soc_pct=projection.estimated_arrival_soc_pct,
+        raw_projected_arrival_soc_pct=projection.raw_arrival_soc_pct,
+        reserve_soc_pct=reserve_pct,
+        effective_reserve_km=round(reserve_km, 1),
+        distance_basis=basis,
+        vehicle=_vehicle_summary(ev_model_id, ev_model, battery_kwh,
+                                 efficiency_wh_per_km, efficiency_source),
+        candidate_stops=candidate_stops,
+    )
+
+
+def _enforce_geocoding_rate_limit(request: Request) -> None:
+    """Budget the endpoints that proxy Nominatim, per caller AND overall.
+
+    These endpoints are deliberately unauthenticated: EVFlow is a permanent demo
+    whose demo password ships in the web bundle, so requiring a token would only
+    add a step for an abuser while breaking the destination picker. The control
+    that actually matters is volume, because the real failure mode is
+    OpenStreetMap banning our egress IP and silently killing destination search.
+
+    Two budgets, because either alone is easy to slip past: per client IP stops
+    one caller looping, and a global budget caps what the whole deployment can
+    send upstream no matter how many callers there are.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    checks = (
+        (f"geocoding:ip:{client_ip}", rate_limit.GEOCODING_RATE_LIMIT_REQUESTS),
+        ("geocoding:global", rate_limit.GEOCODING_GLOBAL_RATE_LIMIT_REQUESTS),
+    )
+    for key, limit in checks:
+        if not rate_limit.allow(key, limit, rate_limit.GEOCODING_RATE_LIMIT_WINDOW_SECONDS):
+            # Neither the query nor any coordinate appears here: this line lands
+            # in access/error logs (AC 2.3.2).
+            logging.warning("geocoding rate limit hit (%s)", key.rsplit(":", 1)[0])
+            raise HTTPException(
+                429,
+                f"too many geocoding requests; try again in "
+                f"{int(rate_limit.GEOCODING_RATE_LIMIT_WINDOW_SECONDS)}s",
+            )
 
 
 @app.get("/api/v1/geocoding/search", response_model=GeocodingSearchResponse, tags=["routing"],
          summary="Search places and SPKLU stations for destination picker")
 async def search_geocoding(
+    request: Request,
     q: str = Query(..., min_length=2, description="Place or station search term"),
     lat: Optional[float] = Query(None, ge=-90, le=90),
     lon: Optional[float] = Query(None, ge=-180, le=180),
     limit: int = Query(5, ge=1, le=10),
 ) -> GeocodingSearchResponse:
-    from api.services.geocoding_service import GeocodingService
+    _enforce_geocoding_rate_limit(request)
+    from api.services.geocoding_service import GeocodingService, round_coord
+    # Round before the service sees them (privacy + caching, same as
+    # /api/v1/route-plans). Raw coordinates are never logged.
+    origin_lat = None if lat is None else round_coord(lat)
+    origin_lon = None if lon is None else round_coord(lon)
     service = GeocodingService()
-    return await service.search(query=q, origin_lat=lat, origin_lon=lon, limit=limit)
+    try:
+        return await service.search(query=q, origin_lat=origin_lat, origin_lon=origin_lon, limit=limit)
+    except HTTPException:
+        raise
+    except Exception:
+        logging.exception("geocoding search failed")
+        raise HTTPException(502, "geocoding provider unavailable")
 
 
 @app.get("/api/v1/geocoding/reverse", tags=["routing"],
          summary="Reverse geocode coordinates to location name")
 async def reverse_geocoding(
+    request: Request,
     lat: float = Query(..., ge=-90, le=90),
     lon: float = Query(..., ge=-180, le=180),
 ) -> dict[str, str]:
-    from api.services.geocoding_service import GeocodingService
+    _enforce_geocoding_rate_limit(request)
+    from api.services.geocoding_service import GeocodingService, REVERSE_COORD_PRECISION_DP, round_coord
+    # The caller's live GPS fix: coarsen it here, before anything downstream can
+    # see or record it.
+    safe_lat = round_coord(lat, REVERSE_COORD_PRECISION_DP)
+    safe_lon = round_coord(lon, REVERSE_COORD_PRECISION_DP)
     service = GeocodingService()
-    return await service.reverse_search(lat=lat, lon=lon)
+    try:
+        return await service.reverse_search(lat=safe_lat, lon=safe_lon)
+    except HTTPException:
+        raise
+    except Exception:
+        logging.exception("reverse geocoding failed")
+        raise HTTPException(502, "geocoding provider unavailable")
 
 

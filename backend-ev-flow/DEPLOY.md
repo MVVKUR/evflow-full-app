@@ -55,6 +55,9 @@ cp .env.deploy.example .env        # CORS_ALLOW_ORIGINS, WEB_CONCURRENCY
 podman compose up -d --build db api web
 podman compose exec api alembic upgrade head        # create the schema
 podman compose exec api python -m scripts.seed_db   # load + dedupe stations (~1147)
+# Stations/connectors only. Demo logins and demo wallet balance are opt-in:
+# see DEMO_USER_PASSWORD / SEED_DEMO_WALLET in .env.example. Leave them unset in
+# production — the seeder then creates no login and no money.
 
 # 4. Check it locally on the VPS
 curl -s http://localhost:8000/health        # direct API
@@ -94,6 +97,8 @@ podman compose up -d --build       # rebuilds + restarts
 
 # refresh station data: replace files in data/raw, then
 podman compose exec api python -m scripts.seed_db   # re-loads + dedupes into the DB
+# Safe to re-run: it never resets an existing demo password and never re-grants
+# wallet balance (a grant is written once, together with its topups ledger row).
 ```
 
 ## Keep it running after a reboot

@@ -40,6 +40,43 @@ def _min_num(s) -> Optional[float]:
     return min(nums) if nums else None
 
 
+# Catalogue columns declared numeric(8,2)/numeric come back from psycopg as
+# Decimal. Mixing Decimal with float (min(), '/') raises TypeError deep inside
+# the energy math and surfaces as an HTTP 500, so every numeric is coerced to
+# float at the repository boundary and no Decimal ever escapes this module.
+_NUMERIC_FIELDS = (
+    "battery_kwh", "battery_kwh_min", "battery_kwh_max",
+    "range_km", "range_km_min", "range_km_max",
+    "efficiency_wh_per_km", "max_dc_charge_kw", "fast_charging_power_kw_dc",
+    "charging_time_minutes", "match_confidence", "power_hp", "seats", "top_speed_kmh",
+)
+
+
+def _to_float(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def coerce_numerics(model: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a copy with every known numeric field as a plain float (or None)."""
+    out = dict(model)
+    for field in _NUMERIC_FIELDS:
+        if field in out:
+            out[field] = _to_float(out[field])
+    # `max_dc_charge_kw` was never populated by the importer; the DC power that
+    # IS populated lives in `fast_charging_power_kw_dc`. Migration 0013
+    # backfills the column, and this keeps older/partial databases working too.
+    if not out.get("max_dc_charge_kw"):
+        fallback = out.get("fast_charging_power_kw_dc")
+        if fallback:
+            out["max_dc_charge_kw"] = fallback
+    return out
+
+
 def _load_from_db() -> List[Dict[str, Any]]:
     try:
         from sqlalchemy import text
@@ -48,12 +85,16 @@ def _load_from_db() -> List[Dict[str, Any]]:
         with engine.connect() as conn:
             rows = conn.execute(text("""
                 SELECT id, name, make, model, brand, battery_kwh, range_km, efficiency_wh_per_km,
-                       efficiency_source, max_dc_charge_kw, fast_charge_port, price_range, charging_time_minutes, source_url
+                       efficiency_source,
+                       COALESCE(max_dc_charge_kw::double precision, fast_charging_power_kw_dc)
+                           AS max_dc_charge_kw,
+                       fast_charging_power_kw_dc,
+                       fast_charge_port, price_range, charging_time_minutes, source_url
                 FROM ev_models
                 ORDER BY name ASC;
             """)).mappings().all()
             if rows:
-                return [dict(r) for r in rows]
+                return [coerce_numerics(dict(r)) for r in rows]
     except Exception:
         pass
     return []
@@ -133,14 +174,14 @@ def load() -> List[Dict[str, Any]]:
 
     json_models = _load_from_json()
     if json_models:
-        _MODELS_CACHE = json_models
+        _MODELS_CACHE = [coerce_numerics(m) for m in json_models]
         return _MODELS_CACHE
 
     seen: dict = {}
     for row in _read_raw_rows():
         m = _parse_fallback(row)
         if m and m["id"] not in seen:
-            seen[m["id"]] = m
+            seen[m["id"]] = coerce_numerics(m)
     _MODELS_CACHE = list(seen.values())
     return _MODELS_CACHE
 
