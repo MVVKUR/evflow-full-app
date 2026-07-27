@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Text, useWindowDimensions, View, Platform } from 'react-native';
 import { useLocation, useNavigate } from 'react-router';
 import { BottomNavigation, evDriverContainerStyles as styles, SideMenu, type NavigationItem } from '@evflow/ui';
@@ -7,6 +7,7 @@ import { DriverAssetIcon } from './components/DriverAssetIcon';
 import { DriverMapScreen } from './DriverMapScreen';
 import { MockDriverScreen } from './MockDriverScreen';
 import { PlanRouteScreen } from './plan_route/PlanRouteScreen';
+import { showDesktopNavigation, showMobileNavigation } from './plan_route/routeViewState';
 import { ProfileScreen } from './ProfileScreen';
 import { TopUpSuccessScreen, TopUpWalletScreen } from './TopUpWalletScreen';
 import { WalletScreen } from './WalletScreen';
@@ -14,12 +15,13 @@ import type { DriverTabKey } from './types';
 
 
 export function EVDriverContainer() {
+  const [immersiveNavigation, setImmersiveNavigation] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { height, width } = useWindowDimensions();
   const insets = useAppSafeAreaInsets();
   const desktop = width >= 768;
-  const bottomNavOffset = desktop ? 0 : 84 + insets.bottom;
+  const bottomNavOffset = desktop || immersiveNavigation ? 0 : 84 + insets.bottom;
   const topInset = insets.top;
   const items = useDriverNavigationItems();
   const activeTab = getActiveDriverTab(location.pathname);
@@ -27,7 +29,7 @@ export function EVDriverContainer() {
 
   return (
     <View style={[styles.shell, styles.viewportShell, { height, maxHeight: height, minHeight: height }]}>
-      {desktop ? (
+      {showDesktopNavigation(desktop, immersiveNavigation) ? (
         <View style={[styles.sidebarWrap, { paddingTop: topInset }]}>
           <SideMenu
             activeKey={activeTab}
@@ -64,13 +66,17 @@ export function EVDriverContainer() {
         ) : activeTab === 'profile' ? (
           <ProfileScreen bottomOffset={bottomNavOffset} topInset={topInset} />
         ) : activeTab === 'plan_route' ? (
-          <PlanRouteScreen bottomOffset={bottomNavOffset} topInset={topInset} />
+          <PlanRouteScreen
+            bottomOffset={bottomNavOffset}
+            onNavigationModeChange={setImmersiveNavigation}
+            topInset={topInset}
+          />
         ) : (
           <MockDriverScreen tabKey={activeTab} topInset={topInset} />
         )}
 
 
-        {!desktop && walletFlow !== 'success' ? (
+        {showMobileNavigation(desktop, immersiveNavigation, walletFlow === 'success') ? (
           <View style={[styles.bottomNavWrap, { paddingBottom: insets.bottom }]}>
             <BottomNavigation
               activeKey={activeTab}

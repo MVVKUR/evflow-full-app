@@ -531,6 +531,43 @@ def test_ac_211_active_route_no_warning_when_comfortable(as_user, offline_routin
     assert data["warning"] is None
 
 
+def test_active_evaluation_derives_current_soc_from_travelled_distance(
+        as_user, offline_routing, monkeypatch):
+    as_user()
+    monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
+    use_stations(monkeypatch, [], {})
+
+    start = client.post("/api/v1/route-plans/active/evaluate", json=active_body(
+        soc=72.0, navigation_start_soc_pct=72.0,
+        cumulative_distance_travelled_km=0.0)).json()
+    moved = client.post("/api/v1/route-plans/active/evaluate", json=active_body(
+        soc=72.0, navigation_start_soc_pct=72.0,
+        cumulative_distance_travelled_km=20.0)).json()
+    repeated = client.post("/api/v1/route-plans/active/evaluate", json=active_body(
+        soc=72.0, navigation_start_soc_pct=72.0,
+        cumulative_distance_travelled_km=20.0)).json()
+
+    assert moved["estimated_current_soc_pct"] < start["estimated_current_soc_pct"]
+    assert moved["estimated_current_soc_pct"] == repeated["estimated_current_soc_pct"]
+    assert moved["estimated_current_soc_pct"] <= 72.0
+    assert moved["current_soc_source"] == "distance_estimate"
+    assert moved["energy_assumptions"]["route_adjustment_method"] == "fixed_fallback"
+    assert moved["energy_assumptions"]["traffic_factor"] == 1.0
+
+
+def test_active_evaluation_uses_measured_soc_without_exceeding_start(
+        as_user, offline_routing, monkeypatch):
+    as_user()
+    monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
+    use_stations(monkeypatch, [], {})
+    data = client.post("/api/v1/route-plans/active/evaluate", json=active_body(
+        soc=72.0, navigation_start_soc_pct=72.0,
+        cumulative_distance_travelled_km=10.0,
+        measured_current_soc_pct=90.0)).json()
+    assert data["estimated_current_soc_pct"] == 72.0
+    assert data["current_soc_source"] == "vehicle_telemetry"
+
+
 def test_ac_211_no_soc_dead_zone_just_above_the_reserve(as_user, offline_routing, monkeypatch):
     """A driver at 24% must not be told "nothing is reachable" when 20% offers five.
 

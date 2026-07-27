@@ -1,80 +1,349 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LeafletMap } from '@evflow/ui';
-import { createRoutePlan, deleteRoutePlan, evaluateActiveRoute, type ActiveRouteEvaluationResponse, type RoutePlanResponse } from '@evflow/shared';
+import {
+  createRoutePlan,
+  evaluateActiveRoute,
+  type ActiveRouteEvaluationResponse,
+  type ManualVehicleInput,
+  type RecommendedStop,
+  type RoutePlanResponse,
+  type RoutePreferencesInput,
+} from '@evflow/shared';
 import { watchNavigationLocation, type NavigationFix } from '../utils/location';
-import { advanceStep, distanceMeters, isOffRoute, matchRoute } from './navigationProgress';
+import { NavigationWatcherSession } from './navigationSession';
+import { buildRouteRequest, formatRouteEta, nonIncreasingDrivingSoc, suitableActiveStops } from './routePlanningLogic';
+import {
+  advanceStep,
+  distanceMeters,
+  isOffRoute,
+  maneuverDistances,
+  matchRoute,
+  monotonicDistance,
+  nextManeuverDistanceM,
+  type RouteMatch,
+} from './navigationProgress';
 import { formatDistance, formatDuration, formatSoc } from './planRouteUtils';
 import type { LocationState } from './planRouteTypes';
 
-type Props = { result: RoutePlanResponse; onOverview: () => void; onEndNavigation: () => void; bottomOffset?: number; destination?: LocationState | null; destinationName?: string; topInset?: number; minimumArrivalSocPct?: number; manualVehicleRangeKm?: number; };
-
-const maneuverIcon = (instruction = '') => {
-  const text = instruction.toLowerCase();
-  if (text.includes('u-turn')) return '↩'; if (text.includes('roundabout')) return '↻';
-  if (text.includes('left')) return '←'; if (text.includes('right')) return '→';
-  if (text.includes('arrive')) return '●'; return '↑';
+export type NavigationSnapshot = {
+  result: RoutePlanResponse;
+  cumulativeDistanceKm: number;
+  estimatedCurrentSocPct: number;
+  routeBaseDistanceKm: number;
 };
 
-export function ActiveNavigationScreen({ result, onOverview, onEndNavigation, bottomOffset = 0, destination, destinationName = 'Destination', topInset = 0, minimumArrivalSocPct = 20, manualVehicleRangeKm }: Props) {
+type Props = {
+  result: RoutePlanResponse;
+  destination: LocationState;
+  navigationStartSocPct: number;
+  initialCumulativeDistanceKm?: number;
+  initialRouteBaseDistanceKm?: number;
+  initialEstimatedCurrentSocPct?: number;
+  manualVehicle?: ManualVehicleInput;
+  preferences: Required<RoutePreferencesInput>;
+  minimumArrivalSocPct: number;
+  onOverview: (snapshot: NavigationSnapshot) => void;
+  onEndNavigation: () => void | Promise<void>;
+  onCancel: () => void | Promise<void>;
+  onCompleted: () => void | Promise<void>;
+  onRouteReplaced: (result: RoutePlanResponse) => void;
+  onRouteSessionReplaced: (oldRoutePlanId: string) => void | Promise<void>;
+  bottomOffset?: number;
+  destinationName?: string;
+  topInset?: number;
+};
+
+function maneuverIcon(instruction = '') {
+  const text = instruction.toLowerCase();
+  if (text.includes('u-turn')) return '↩';
+  if (text.includes('roundabout')) return '↻';
+  if (text.includes('left')) return '←';
+  if (text.includes('right')) return '→';
+  if (text.includes('arrive')) return '●';
+  return '↑';
+}
+
+function connectorLabel(stop: RecommendedStop): string {
+  return stop.matched_connector_type
+    || stop.station.connector_types?.map((connector) => typeof connector === 'string' ? connector : connector.type).filter(Boolean)[0]
+    || 'Connector details unavailable';
+}
+
+export function ActiveNavigationScreen({
+  result,
+  destination,
+  navigationStartSocPct,
+  initialCumulativeDistanceKm = 0,
+  initialRouteBaseDistanceKm = 0,
+  initialEstimatedCurrentSocPct,
+  manualVehicle,
+  preferences,
+  minimumArrivalSocPct,
+  onOverview,
+  onEndNavigation,
+  onCancel,
+  onCompleted,
+  onRouteReplaced,
+  onRouteSessionReplaced,
+  bottomOffset = 0,
+  destinationName = 'Destination',
+  topInset = 0,
+}: Props) {
   const [routeResult, setRouteResult] = useState(result);
   const [fix, setFix] = useState<NavigationFix | null>(null);
+  const [routeMatch, setRouteMatch] = useState<RouteMatch | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [evaluation, setEvaluation] = useState<ActiveRouteEvaluationResponse | null>(null);
-  const [offRoute, setOffRoute] = useState(false);
+  const [status, setStatus] = useState<'navigating' | 'rerouting' | 'routing_unavailable'>('navigating');
   const [gpsUnavailable, setGpsUnavailable] = useState(false);
   const [ending, setEnding] = useState(false);
-  const invalidFixes = useRef(0); const abort = useRef<AbortController | null>(null); const sequence = useRef(0); const lastEvaluation = useRef(0); const lastEvaluationPoint = useRef<NavigationFix | null>(null); const ended = useRef(false); const rerouting = useRef(false);
-  const line = routeResult.route?.geometry?.coordinates || [];
-  const match = useMemo(() => fix && line.length > 1 ? matchRoute(fix, line) : null, [fix, line]);
-  const remainingKm = evaluation?.remaining_distance_km ?? (match ? match.remainingM / 1000 : routeResult.summary.distance_km);
-  const remainingMinutes = evaluation?.remaining_duration_minutes ?? (match ? routeResult.summary.duration_minutes * (match.remainingM / Math.max(1, match.totalM)) : routeResult.summary.duration_minutes);
-  const projectedSoc = evaluation?.projected_arrival_soc_pct ?? routeResult.summary.estimated_arrival_soc_pct;
-  const currentStep = routeResult.route?.steps?.[stepIndex];
+  const [addingStopId, setAddingStopId] = useState<string | null>(null);
 
-  const evaluate = useCallback(async (position: NavigationFix, force = false) => {
-    if (ended.current || !destination) return;
-    const moved = lastEvaluationPoint.current ? distanceMeters(position, lastEvaluationPoint.current) : Infinity;
-    if (!force && Date.now() - lastEvaluation.current < 8000 && moved < 200) return;
-    abort.current?.abort(); const controller = new AbortController(); abort.current = controller; const requestSequence = ++sequence.current;
+  const routeRef = useRef(routeResult);
+  const lineRef = useRef(routeResult.route.geometry.coordinates || []);
+  const stepsRef = useRef(routeResult.route.steps || []);
+  const maneuversRef = useRef(maneuverDistances(stepsRef.current, lineRef.current));
+  const stepIndexRef = useRef(0);
+  const latestFixRef = useRef<NavigationFix | null>(null);
+  const latestEvaluationAtRef = useRef(0);
+  const latestEvaluationLocationRef = useRef<NavigationFix | null>(null);
+  const evaluationRef = useRef<ActiveRouteEvaluationResponse | null>(null);
+  const cumulativeDistanceRef = useRef(initialCumulativeDistanceKm);
+  const routeBaseDistanceRef = useRef(initialRouteBaseDistanceKm);
+  const estimatedCurrentSocRef = useRef(initialEstimatedCurrentSocPct ?? navigationStartSocPct);
+  const invalidFixesRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const requestSequenceRef = useRef(0);
+  const watcherRef = useRef(new NavigationWatcherSession<NavigationFix>(watchNavigationLocation));
+  const stoppedRef = useRef(false);
+  const reroutingRef = useRef(false);
+  const completingRef = useRef(false);
+
+  const updateRoute = useCallback((next: RoutePlanResponse) => {
+    routeRef.current = next;
+    lineRef.current = next.route.geometry.coordinates || [];
+    stepsRef.current = next.route.steps || [];
+    maneuversRef.current = maneuverDistances(stepsRef.current, lineRef.current);
+    stepIndexRef.current = 0;
+    routeBaseDistanceRef.current = cumulativeDistanceRef.current;
+    setRouteResult(next);
+    setStepIndex(0);
+    setRouteMatch(null);
+    setEvaluation(null);
+    evaluationRef.current = null;
+    onRouteReplaced(next);
+  }, [onRouteReplaced]);
+
+  const stopTracking = useCallback(() => {
+    if (stoppedRef.current) return;
+    stoppedRef.current = true;
+    watcherRef.current.stop();
+    abortRef.current?.abort();
+    latestFixRef.current = null;
+    setFix(null);
+    setRouteMatch(null);
+  }, []);
+
+  const replaceRoadRoute = useCallback(async (position: NavigationFix, stationId?: string) => {
+    if (reroutingRef.current || stoppedRef.current) return;
+    reroutingRef.current = true;
+    setStatus('rerouting');
+    abortRef.current?.abort();
+    const oldRouteId = routeRef.current.route_plan_id;
     try {
-      const value = await evaluateActiveRoute({ route_plan_id: routeResult.route_plan_id, current_position: position, destination, current_soc_pct: Math.min(result.summary.estimated_arrival_soc_pct + (match?.remainingM ?? 0) / Math.max(1, match?.totalM ?? 1) * (result.summary.minimum_arrival_soc_pct - result.summary.estimated_arrival_soc_pct), 100), minimum_arrival_soc_pct: minimumArrivalSocPct, maximum_detour_km: routeResult.assumptions.maximum_detour_km ?? 15, vehicle: manualVehicleRangeKm ? { usable_range_km: manualVehicleRangeKm } : undefined }, controller.signal);
-      if (!ended.current && requestSequence === sequence.current) { setEvaluation(value); lastEvaluation.current = Date.now(); lastEvaluationPoint.current = position; }
-    } catch (error: any) { if (error?.name !== 'AbortError') setGpsUnavailable(false); }
-  }, [destination, manualVehicleRangeKm, match?.remainingM, match?.totalM, minimumArrivalSocPct, result.summary, routeResult.assumptions.maximum_detour_km, routeResult.route_plan_id]);
+      const replacement = await createRoutePlan(buildRouteRequest({
+        origin: { latitude: position.latitude, longitude: position.longitude, label: 'Current location' },
+        destination,
+        currentSocPct: estimatedCurrentSocRef.current,
+        minimumArrivalSocPct,
+        preferences,
+        manualVehicle,
+        waypointStationId: stationId || routeRef.current.user_requested_stop?.station.id || undefined,
+      }));
+      if (!stoppedRef.current) {
+        updateRoute(replacement);
+        invalidFixesRef.current = 0;
+        setStatus('navigating');
+        void onRouteSessionReplaced(oldRouteId);
+      }
+    } catch {
+      if (!stoppedRef.current) setStatus('routing_unavailable');
+    } finally {
+      reroutingRef.current = false;
+    }
+  }, [destination, manualVehicle, minimumArrivalSocPct, onRouteSessionReplaced, preferences, updateRoute]);
 
-  const reroute = useCallback(async (position: NavigationFix) => {
-    if (!destination || rerouting.current || ended.current) return;
-    rerouting.current = true; setOffRoute(true); abort.current?.abort();
+  const requestEvaluation = useCallback(async (position: NavigationFix, force = false) => {
+    if (stoppedRef.current) return;
+    const moved = latestEvaluationLocationRef.current
+      ? distanceMeters(position, latestEvaluationLocationRef.current)
+      : Infinity;
+    if (!force && Date.now() - latestEvaluationAtRef.current < 8000 && moved < 200) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const sequence = ++requestSequenceRef.current;
     try {
-      const replacement = await createRoutePlan({ origin: { latitude: position.latitude, longitude: position.longitude, label: 'Current location' }, destination, current_soc_pct: Math.max(0, projectedSoc), minimum_arrival_soc_pct: minimumArrivalSocPct, preferences: { maximum_detour_km: routeResult.assumptions.maximum_detour_km ?? 15 }, waypoint_station_id: routeResult.user_requested_stop?.station.id ?? routeResult.recommended_stop?.station.id, vehicle: manualVehicleRangeKm ? { usable_range_km: manualVehicleRangeKm } : undefined });
-      if (!ended.current) { const oldId = routeResult.route_plan_id; setRouteResult(replacement); setStepIndex(0); invalidFixes.current = 0; setOffRoute(false); void deleteRoutePlan(oldId); }
-    } catch { /* Keep the explicit rerouting state; the driver can retry or end navigation. */ }
-    finally { rerouting.current = false; }
-  }, [destination, manualVehicleRangeKm, minimumArrivalSocPct, projectedSoc, routeResult.assumptions.maximum_detour_km, routeResult.recommended_stop?.station.id, routeResult.route_plan_id, routeResult.user_requested_stop?.station.id]);
+      const value = await evaluateActiveRoute({
+        route_plan_id: routeRef.current.route_plan_id,
+        current_position: position,
+        destination,
+        navigation_start_soc_pct: navigationStartSocPct,
+        cumulative_distance_travelled_km: cumulativeDistanceRef.current,
+        minimum_arrival_soc_pct: minimumArrivalSocPct,
+        maximum_detour_km: preferences.maximum_detour_km,
+        active_waypoint_station_id: routeRef.current.user_requested_stop?.station.id,
+        vehicle: manualVehicle,
+      }, controller.signal);
+      if (!stoppedRef.current && sequence === requestSequenceRef.current) {
+        estimatedCurrentSocRef.current = nonIncreasingDrivingSoc(
+          estimatedCurrentSocRef.current,
+          value.estimated_current_soc_pct,
+        );
+        evaluationRef.current = { ...value, estimated_current_soc_pct: estimatedCurrentSocRef.current };
+        setEvaluation(evaluationRef.current);
+        latestEvaluationAtRef.current = Date.now();
+        latestEvaluationLocationRef.current = position;
+      }
+    } catch (cause: any) {
+      if (cause?.name !== 'AbortError' && !stoppedRef.current) setStatus('routing_unavailable');
+    }
+  }, [destination, manualVehicle, minimumArrivalSocPct, navigationStartSocPct, preferences.maximum_detour_km]);
 
+  const processFixRef = useRef<(position: NavigationFix) => void>(() => undefined);
+  processFixRef.current = (position) => {
+    if (stoppedRef.current) return;
+    latestFixRef.current = position;
+    setFix(position);
+    setGpsUnavailable(false);
+    const line = lineRef.current;
+    if (line.length < 2) {
+      setStatus('routing_unavailable');
+      return;
+    }
+    const matched = matchRoute(position, line);
+    setRouteMatch(matched);
+    const cumulativeKm = routeBaseDistanceRef.current + matched.travelledM / 1000;
+    cumulativeDistanceRef.current = monotonicDistance(cumulativeDistanceRef.current, cumulativeKm);
+    const advanced = advanceStep(
+      stepsRef.current,
+      stepIndexRef.current,
+      matched.point,
+      matched.travelledM,
+      maneuversRef.current,
+    );
+    if (advanced !== stepIndexRef.current) {
+      stepIndexRef.current = advanced;
+      setStepIndex(advanced);
+    }
+    invalidFixesRef.current = matched.distanceM > 50 ? invalidFixesRef.current + 1 : 0;
+    if (isOffRoute(invalidFixesRef.current)) void replaceRoadRoute(position);
+    void requestEvaluation(position, isOffRoute(invalidFixesRef.current));
+    if (matched.remainingM <= 25 && !completingRef.current) {
+      completingRef.current = true;
+      stopTracking();
+      void onCompleted();
+    }
+  };
+
+  // One watcher for this mounted active-navigation session. Mutable route and
+  // progress values are read through refs, so GPS fixes never restart it.
   useEffect(() => {
-    let subscription: { remove(): void } | null = null; let mounted = true;
-    watchNavigationLocation((next) => {
-      if (!mounted || ended.current) return; setFix(next); setGpsUnavailable(false);
-      if (line.length > 1) { const mapped = matchRoute(next, line); invalidFixes.current = mapped.distanceM > 50 ? invalidFixes.current + 1 : 0; const nextIndex = advanceStep(routeResult.route.steps || [], stepIndex, mapped.point); if (nextIndex !== stepIndex) setStepIndex(nextIndex); if (isOffRoute(invalidFixes.current)) void reroute(next); }
-      evaluate(next, isOffRoute(invalidFixes.current));
-    }, () => mounted && setGpsUnavailable(true)).then((value) => { subscription = value; if (!value && mounted) setGpsUnavailable(true); });
-    return () => { mounted = false; subscription?.remove(); abort.current?.abort(); };
-  }, [evaluate, line, reroute, routeResult.route.steps, stepIndex]);
+    stoppedRef.current = false;
+    let disposed = false;
+    void watcherRef.current.start(
+      (position) => processFixRef.current(position),
+      () => { if (!disposed) setGpsUnavailable(true); },
+    );
+    return () => {
+      disposed = true;
+      stopTracking();
+    };
+  }, [stopTracking]);
 
-  const end = useCallback(async () => { if (ended.current) return; ended.current = true; setEnding(true); abort.current?.abort(); try { await deleteRoutePlan(routeResult.route_plan_id); } finally { setFix(null); setEvaluation(null); onEndNavigation(); } }, [onEndNavigation, routeResult.route_plan_id]);
-  const retry = () => { if (fix) { setOffRoute(false); invalidFixes.current = 0; evaluate(fix, true); } };
-  const center = fix || (line[0] ? { latitude: line[0][1], longitude: line[0][0] } : { latitude: -6.2088, longitude: 106.8456 });
-  const distanceToTurn = currentStep?.location && match ? distanceMeters(match.point, { latitude: currentStep.location[1], longitude: currentStep.location[0] }) : currentStep?.distance_m || 0;
+  const finish = useCallback(async (kind: 'end' | 'cancel') => {
+    if (ending) return;
+    setEnding(true);
+    stopTracking();
+    if (kind === 'cancel') await onCancel();
+    else await onEndNavigation();
+  }, [ending, onCancel, onEndNavigation, stopTracking]);
+
+  const showOverview = useCallback(() => {
+    stopTracking();
+    onOverview({
+      result: routeRef.current,
+      cumulativeDistanceKm: cumulativeDistanceRef.current,
+      estimatedCurrentSocPct: estimatedCurrentSocRef.current,
+      routeBaseDistanceKm: routeBaseDistanceRef.current,
+    });
+  }, [onOverview, stopTracking]);
+
+  const addStop = async (stop: RecommendedStop) => {
+    if (!latestFixRef.current || addingStopId) return;
+    setAddingStopId(stop.station.id);
+    await replaceRoadRoute(latestFixRef.current, stop.station.id);
+    setAddingStopId(null);
+  };
+
+  const line = routeResult.route.geometry.coordinates || [];
+  const mapCenter = fix || (line[0]
+    ? { latitude: line[0][1], longitude: line[0][0] }
+    : { latitude: destination.latitude, longitude: destination.longitude });
+  const currentStep = routeResult.route.steps?.[stepIndex];
+  const nextStep = routeResult.route.steps?.[stepIndex + 1];
+  const distanceToManeuverM = routeMatch
+    ? nextManeuverDistanceM(stepIndex, routeMatch.travelledM, maneuversRef.current)
+    : currentStep?.distance_m || 0;
+  const remainingKm = evaluation?.remaining_distance_km
+    ?? (routeMatch ? routeMatch.remainingM / 1000 : routeResult.summary.distance_km);
+  const remainingMinutes = evaluation?.remaining_duration_minutes
+    ?? (routeMatch ? routeResult.summary.duration_minutes * routeMatch.remainingM / Math.max(1, routeMatch.totalM) : routeResult.summary.duration_minutes);
+  const projectedSoc = evaluation?.projected_arrival_soc_pct ?? routeResult.summary.estimated_arrival_soc_pct;
+  const currentSoc = evaluation?.estimated_current_soc_pct ?? navigationStartSocPct;
+  const eta = evaluation?.estimated_arrival_at ?? routeResult.summary.estimated_arrival_at;
+  const candidates = evaluation?.route_status === 'charging_required'
+    ? suitableActiveStops(evaluation.candidate_stops)
+    : [];
 
   return <View style={styles.container}>
-    <View style={styles.mapWrap}><LeafletMap center={center} currentLocation={fix} showCurrentLocationPinpoint polylineCoordinates={line.map(([lon, lat]) => [lat, lon])} polylineColor={offRoute ? '#EAB308' : '#00696F'} markers={destination ? [{ id: 'destination', label: destinationName, latitude: destination.latitude, longitude: destination.longitude, type: 'destination' }] : []} /></View>
-    <View style={[styles.banner, { top: topInset + 16 }]}>{offRoute ? <><Text style={styles.icon}>↻</Text><Text style={styles.instruction}>Rerouting</Text></> : currentStep ? <><Text style={styles.icon}>{maneuverIcon(currentStep.instruction)}</Text><View><Text style={styles.distance}>{formatDistance(distanceToTurn / 1000)}</Text><Text style={styles.instruction}>{currentStep.instruction || 'Continue'}</Text>{currentStep.name ? <Text style={styles.road}>{currentStep.name}</Text> : null}</View></> : <Text style={styles.instruction}>Continue to destination</Text>}</View>
-    {gpsUnavailable ? <View style={styles.notice}><Text>GPS unavailable. Move to an area with a clear view of the sky, then retry.</Text><Pressable onPress={retry}><Text style={styles.link}>Retry</Text></Pressable></View> : null}
-    {evaluation?.warning ? <View style={styles.notice}><Text>{evaluation.warning.message}</Text>{evaluation.candidate_stops[0] ? <Text style={styles.link}>Charging stop available: {evaluation.candidate_stops[0].station.name}</Text> : null}</View> : null}
-    <View style={[styles.sheet, { bottom: bottomOffset }]}><View style={styles.stats}><Text style={styles.duration}>{formatDuration(remainingMinutes)}</Text><Text>{formatDistance(remainingKm)} left</Text><Text style={styles.soc}>{formatSoc(projectedSoc)} at arrival</Text></View><Text style={styles.eta}>{evaluation?.estimated_arrival_at ? `Arrives ${new Date(evaluation.estimated_arrival_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : `${destinationName}`}</Text><View style={styles.actions}><Pressable accessibilityLabel="Show route overview" style={styles.button} onPress={onOverview}><Text>Overview</Text></Pressable><Pressable accessibilityLabel="End navigation" disabled={ending} style={styles.end} onPress={end}><Text style={styles.endText}>{ending ? 'Ending...' : 'End Navigation'}</Text></Pressable></View></View>
+    <View style={styles.mapWrap}><LeafletMap
+      center={mapCenter}
+      currentLocation={fix}
+      showCurrentLocationPinpoint
+      polylineCoordinates={line.map(([longitude, latitude]) => [latitude, longitude])}
+      polylineColor={status === 'rerouting' ? '#EAB308' : '#00696F'}
+      markers={[{ id: 'destination', label: destinationName, latitude: destination.latitude, longitude: destination.longitude, type: 'destination' }]}
+    /></View>
+
+    <View style={[styles.banner, { top: topInset + 12 }]}>
+      {status === 'rerouting' ? <><Text style={styles.icon}>↻</Text><Text style={styles.instruction}>Rerouting</Text></>
+        : <><Text style={styles.icon}>{maneuverIcon(nextStep?.instruction || currentStep?.instruction)}</Text><View style={styles.bannerCopy}><Text style={styles.distance}>{formatDistance(distanceToManeuverM / 1000)}</Text><Text style={styles.instruction}>{nextStep?.instruction || currentStep?.instruction || 'Continue to destination'}</Text>{(nextStep?.name || currentStep?.name) ? <Text style={styles.road}>{nextStep?.name || currentStep?.name}</Text> : null}</View></>}
+    </View>
+
+    {gpsUnavailable ? <View style={[styles.notice, { top: topInset + 104 }]}><Text style={styles.noticeTitle}>GPS unavailable</Text><Text>Enable precise location and move where the device has a clear signal.</Text></View> : null}
+    {status === 'routing_unavailable' ? <View style={[styles.notice, { top: topInset + 104 }]}><Text style={styles.noticeTitle}>Road routing unavailable</Text><Text>Navigation will not use a straight-line substitute.</Text><View style={styles.noticeActions}><Pressable style={styles.secondaryAction} onPress={() => latestFixRef.current && replaceRoadRoute(latestFixRef.current)}><Text>Retry</Text></Pressable><Pressable style={styles.dangerAction} onPress={() => finish('end')}><Text style={styles.dangerText}>End Navigation</Text></Pressable></View></View> : null}
+
+    {evaluation?.warning ? <View style={[styles.warningPanel, { top: topInset + 104 }]}><Text style={styles.noticeTitle}>{evaluation.warning.code === 'no_suitable_station' ? 'No suitable charging station' : 'Battery reserve warning'}</Text><Text>{evaluation.warning.message}</Text>{candidates.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stopList}>{candidates.map((stop) => <View style={styles.stopCard} key={stop.station.id}><Text style={styles.stopName}>{stop.station.name || 'Charging station'}</Text><Text>{formatDistance(stop.distance_from_origin_km)} away · {formatDistance(stop.detour_km)} detour</Text><Text>{connectorLabel(stop)} · {stop.best_available_power_kw ?? stop.station.power_kw ?? '—'} kW</Text><Text>{stop.available_connector_count} free · {Math.round(stop.estimated_charging_minutes)} min charge</Text><Pressable disabled={Boolean(addingStopId)} style={styles.addStop} onPress={() => void addStop(stop)}>{addingStopId === stop.station.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.addStopText}>Add Stop to Route</Text>}</Pressable></View>)}</ScrollView> : null}</View> : null}
+
+    <View style={[styles.sheet, { bottom: bottomOffset }]}>
+      <View style={styles.stats}><Text style={styles.duration}>{formatDuration(remainingMinutes)}</Text><Text>{formatDistance(remainingKm)} left</Text><Text style={styles.soc}>{formatSoc(projectedSoc)} at arrival</Text></View>
+      <Text style={styles.currentBattery}>Current battery {formatSoc(currentSoc)} · {formatRouteEta(eta)}</Text>
+      <View style={styles.actions}><Pressable accessibilityLabel="Show route overview" style={styles.secondaryAction} onPress={showOverview}><Text>Overview</Text></Pressable><Pressable accessibilityLabel="Cancel navigation" style={styles.secondaryAction} onPress={() => void finish('cancel')}><Text>Cancel</Text></Pressable><Pressable accessibilityLabel="End navigation" disabled={ending} style={styles.endAction} onPress={() => void finish('end')}><Text style={styles.endText}>{ending ? 'Ending…' : 'End'}</Text></Pressable></View>
+    </View>
   </View>;
 }
 
-const styles = StyleSheet.create({ container:{flex:1,backgroundColor:'#0F172A'},mapWrap:{...StyleSheet.absoluteFillObject},banner:{position:'absolute',left:16,right:16,backgroundColor:'#00565F',borderRadius:12,padding:14,flexDirection:'row',gap:12,alignItems:'center'},icon:{fontSize:28,color:'#fff'},distance:{color:'#CFFAFE',fontWeight:'700'},instruction:{color:'#fff',fontSize:17,fontWeight:'800'},road:{color:'#E2E8F0'},notice:{position:'absolute',left:16,right:16,top:120,backgroundColor:'#FFFBEB',padding:12,borderRadius:8,gap:4},link:{color:'#00696F',fontWeight:'700'},sheet:{position:'absolute',left:0,right:0,backgroundColor:'#fff',padding:20,borderTopLeftRadius:20,borderTopRightRadius:20},stats:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8},duration:{fontSize:25,fontWeight:'800'},soc:{color:'#166534',fontWeight:'700'},eta:{color:'#475569',marginVertical:8},actions:{flexDirection:'row',gap:12},button:{minHeight:48,justifyContent:'center',paddingHorizontal:16},end:{minHeight:48,justifyContent:'center',paddingHorizontal:16,backgroundColor:'#00696F',borderRadius:8},endText:{color:'#fff',fontWeight:'800'} });
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0F172A' },
+  mapWrap: { ...StyleSheet.absoluteFillObject },
+  banner: { position: 'absolute', left: 12, right: 12, minHeight: 80, backgroundColor: '#00565F', borderRadius: 8, padding: 14, flexDirection: 'row', gap: 12, alignItems: 'center', zIndex: 20 },
+  bannerCopy: { flex: 1 }, icon: { fontSize: 30, color: '#FFFFFF' }, distance: { color: '#CFFAFE', fontWeight: '700' }, instruction: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' }, road: { color: '#E2E8F0' },
+  notice: { position: 'absolute', left: 12, right: 12, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, padding: 14, zIndex: 22, gap: 6 },
+  warningPanel: { position: 'absolute', left: 12, right: 12, maxHeight: 280, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 8, padding: 12, zIndex: 21, gap: 5 },
+  noticeTitle: { color: '#0F172A', fontWeight: '800', fontSize: 16 }, noticeActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  stopList: { gap: 8, paddingTop: 8 }, stopCard: { width: 245, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 8, padding: 10, gap: 3 }, stopName: { fontWeight: '800', color: '#0F172A' }, addStop: { minHeight: 44, marginTop: 6, borderRadius: 6, backgroundColor: '#00696F', alignItems: 'center', justifyContent: 'center' }, addStopText: { color: '#FFFFFF', fontWeight: '800' },
+  sheet: { position: 'absolute', left: 0, right: 0, backgroundColor: '#FFFFFF', padding: 18, borderTopLeftRadius: 20, borderTopRightRadius: 20, zIndex: 20 },
+  stats: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, duration: { fontSize: 24, fontWeight: '800' }, soc: { color: '#166534', fontWeight: '700' }, currentBattery: { color: '#475569', marginVertical: 10 }, actions: { flexDirection: 'row', gap: 8 }, secondaryAction: { minHeight: 48, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8 }, dangerAction: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 14, backgroundColor: '#B91C1C', borderRadius: 8 }, dangerText: { color: '#FFFFFF', fontWeight: '800' }, endAction: { minHeight: 48, flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#00696F', borderRadius: 8 }, endText: { color: '#FFFFFF', fontWeight: '800' },
+});

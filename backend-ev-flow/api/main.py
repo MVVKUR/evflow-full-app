@@ -1351,8 +1351,43 @@ async def evaluate_active_route(
     )
     reserve_km = reserve_km_for_soc_pct(battery_kwh, efficiency_wh_per_km, reserve_pct)
 
+    navigation_start_soc = (
+        body.navigation_start_soc_pct
+        if body.navigation_start_soc_pct is not None
+        else body.current_soc_pct
+    )
+    if navigation_start_soc is None:
+        raise HTTPException(
+            status_code=422,
+            detail="navigation_start_soc_pct or current_soc_pct is required",
+        )
+    estimated_current = energy_estimator.estimate_current_soc(
+        battery_kwh=battery_kwh,
+        efficiency_wh_per_km=efficiency_wh_per_km,
+        navigation_start_soc_pct=navigation_start_soc,
+        cumulative_distance_travelled_km=body.cumulative_distance_travelled_km,
+    )
+    if body.measured_current_soc_pct is not None:
+        current_soc_pct = min(float(navigation_start_soc), float(body.measured_current_soc_pct))
+        remaining_energy_kwh = battery_kwh * current_soc_pct / 100.0
+        current_soc_source = "vehicle_telemetry"
+    elif body.navigation_start_soc_pct is not None:
+        current_soc_pct = estimated_current.estimated_current_soc_pct
+        remaining_energy_kwh = estimated_current.remaining_energy_kwh
+        current_soc_source = "distance_estimate"
+    else:
+        current_soc_pct = float(body.current_soc_pct)
+        remaining_energy_kwh = battery_kwh * current_soc_pct / 100.0
+        current_soc_source = "legacy_current_soc"
+
+    active_waypoints = None
+    if body.active_waypoint_station_id:
+        waypoint = repo.get_station(body.active_waypoint_station_id)
+        if waypoint:
+            active_waypoints = [(float(waypoint["latitude"]), float(waypoint["longitude"]))]
     try:
-        remaining_route = await routing_service.get_route(current_pos, dest_pos)
+        remaining_route = await routing_service.get_route(
+            current_pos, dest_pos, waypoints=active_waypoints)
     except RouteUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     remaining_km = remaining_route["distance_km"]
@@ -1362,7 +1397,7 @@ async def evaluate_active_route(
         battery_kwh=battery_kwh,
         efficiency_wh_per_km=efficiency_wh_per_km,
         distance_km=remaining_km,
-        current_soc_pct=body.current_soc_pct,
+        current_soc_pct=current_soc_pct,
         minimum_arrival_soc_pct=reserve_pct,
     )
 
@@ -1381,7 +1416,7 @@ async def evaluate_active_route(
             direct_distance_km=remaining_km,
             battery_kwh=battery_kwh,
             efficiency_wh_per_km=efficiency_wh_per_km,
-            current_soc_pct=body.current_soc_pct,
+            current_soc_pct=current_soc_pct,
             minimum_arrival_soc_pct=reserve_pct,
             max_dc_charge_kw=max_dc_charge_kw,
             maximum_detour_km=body.maximum_detour_km,
@@ -1461,6 +1496,26 @@ async def evaluate_active_route(
         remaining_distance_km=remaining_km,
         remaining_duration_minutes=remaining_route["duration_minutes"],
         estimated_energy_kwh=projection.estimated_trip_energy_kwh,
+        estimated_current_soc_pct=round(current_soc_pct, 1),
+        current_soc_source=current_soc_source,
+        remaining_energy_kwh=round(remaining_energy_kwh, 2),
+        energy_model_version="spec-v2",
+        energy_assumptions={
+            "efficiency_wh_per_km": efficiency_wh_per_km,
+            "efficiency_source": efficiency_source,
+            "traffic_factor": 1.0,
+            "traffic_source": "unavailable_default",
+            "elevation_factor": 1.0,
+            "elevation_source": "unavailable_default",
+            "weather_factor": 1.0,
+            "weather_source": "unavailable_default",
+            "auxiliary_power_kw": None,
+            "auxiliary_source": "configured_trip_energy",
+            "auxiliary_energy_kwh": energy_estimator.auxiliary_energy_kwh,
+            "route_adjustment_factor": energy_estimator.route_adjustment_factor,
+            "route_adjustment_method": "fixed_fallback",
+            "reserve_soc_pct": reserve_pct,
+        },
         projected_arrival_soc_pct=projection.estimated_arrival_soc_pct,
         raw_projected_arrival_soc_pct=projection.raw_arrival_soc_pct,
         reserve_soc_pct=reserve_pct,
@@ -1607,4 +1662,3 @@ async def reverse_geocoding(
     except Exception:
         logging.exception("reverse geocoding failed")
         raise HTTPException(502, "geocoding provider unavailable")
-

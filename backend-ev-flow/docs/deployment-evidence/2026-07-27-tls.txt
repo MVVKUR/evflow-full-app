@@ -1,0 +1,10 @@
+EV-FLOW TLS deployment verification
+host=ev-flow-api.opensoft.id
+checked_at_utc=2026-07-27T15:15:10Z
+result=NOT_VERIFIED
+failure=DNS resolution failed for the deployment hostname
+
+The documented production hostname did not resolve from either the managed
+workspace network or an approved unrestricted network run. AC 2.3.1 must not
+be marked fulfilled until a valid deployed hostname is supplied and
+scripts/verify_tls.sh completes with result=PASS.

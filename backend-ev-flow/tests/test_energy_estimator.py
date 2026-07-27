@@ -135,3 +135,17 @@ def test_default_charging_power_constant_replaces_the_bare_literal():
         battery_kwh=60.0, arrival_soc_pct=10.0, target_soc_pct=80.0,
         vehicle_max_dc_charge_kw=None, station_power_kw=None)
     assert info["effective_charging_power_kw"] == DEFAULT_CHARGING_POWER_KW
+
+
+def test_current_soc_uses_only_cumulative_travelled_distance_and_never_increases():
+    estimator = EnergyEstimator(route_adjustment_factor=1.0, auxiliary_energy_kwh=0.0)
+    at_start = estimator.estimate_current_soc(60.0, 150.0, 80.0, 0.0)
+    after_20_km = estimator.estimate_current_soc(60.0, 150.0, 80.0, 20.0)
+    repeated = estimator.estimate_current_soc(60.0, 150.0, 80.0, 20.0)
+
+    assert at_start.estimated_current_soc_pct == 80.0
+    assert after_20_km.travelled_energy_kwh == 3.0
+    assert after_20_km.remaining_energy_kwh == 45.0
+    assert after_20_km.estimated_current_soc_pct == 75.0
+    assert repeated == after_20_km
+    assert after_20_km.estimated_current_soc_pct <= 80.0
