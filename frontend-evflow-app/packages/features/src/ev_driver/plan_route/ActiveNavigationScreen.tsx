@@ -4,19 +4,26 @@ import { LeafletMap } from '@evflow/ui';
 import type { RoutePlanResponse } from '@evflow/shared';
 import { getUserLocation } from '../utils/location';
 import { formatDistance, formatDuration, formatEta, formatSoc } from './planRouteUtils';
+import type { LocationState } from './planRouteTypes';
 
 type ActiveNavigationScreenProps = {
   result: RoutePlanResponse;
   onOverview: () => void;
   onEndNavigation: () => void;
+  bottomOffset?: number;
+  destination?: LocationState | null;
   destinationName?: string;
+  topInset?: number;
 };
 
 export function ActiveNavigationScreen({
   result,
   onOverview,
   onEndNavigation,
+  bottomOffset = 0,
+  destination,
   destinationName = 'Bogor',
+  topInset = 0,
 }: ActiveNavigationScreenProps) {
   const { summary, route } = result;
 
@@ -81,12 +88,25 @@ export function ActiveNavigationScreen({
           showCurrentLocationPinpoint
           polylineCoordinates={polylineCoordinates}
           polylineColor="#00696F"
+          markers={
+            destination || polylineCoordinates.length > 0
+              ? [
+                  {
+                    id: 'destination',
+                    label: destinationName,
+                    latitude: destination?.latitude ?? polylineCoordinates[polylineCoordinates.length - 1][0],
+                    longitude: destination?.longitude ?? polylineCoordinates[polylineCoordinates.length - 1][1],
+                    type: 'destination',
+                  },
+                ]
+              : []
+          }
           autoFitBounds
         />
       </View>
 
       {/* Top Turn-by-Turn Maneuver Banner */}
-      <View style={styles.topManeuverBanner}>
+      <View style={[styles.topManeuverBanner, { top: 16 + topInset }]}>
         <View style={styles.turnIconCircle}>
           <Text style={styles.turnArrow}>⬆</Text>
         </View>
@@ -97,7 +117,7 @@ export function ActiveNavigationScreen({
       </View>
 
       {/* Bottom Sheet */}
-      <View style={styles.bottomSheet}>
+      <View style={[styles.bottomSheet, { bottom: bottomOffset }]}>
         <View style={styles.dragHandle} />
 
         <View style={styles.statsRow}>
@@ -138,7 +158,6 @@ const styles = StyleSheet.create({
   },
   topManeuverBanner: {
     position: 'absolute',
-    top: 16,
     left: 16,
     right: 16,
     backgroundColor: '#00565F',
@@ -151,6 +170,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
+    zIndex: 20,
   },
   turnIconCircle: {
     width: 40,
@@ -182,7 +202,6 @@ const styles = StyleSheet.create({
   },
   bottomSheet: {
     position: 'absolute',
-    bottom: 0,
     left: 0,
     right: 0,
     backgroundColor: '#FFFFFF',
@@ -196,6 +215,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 10,
+    zIndex: 20,
   },
   dragHandle: {
     width: 40,
@@ -209,23 +229,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
     marginBottom: 6,
   },
   durationBig: {
     fontSize: 26,
     fontWeight: '800',
     color: '#0F172A',
+    flexShrink: 0,
   },
   distanceLeft: {
     fontSize: 14,
     fontWeight: '600',
     color: '#475569',
+    flexShrink: 1,
+    textAlign: 'center',
   },
   socPill: {
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
+    flexShrink: 0,
   },
   socPillText: {
     fontSize: 13,
@@ -236,6 +261,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#64748B',
     marginBottom: 20,
+    lineHeight: 18,
   },
   actionsRow: {
     flexDirection: 'row',

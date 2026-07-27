@@ -24,11 +24,12 @@ type LeafletMapProps = {
 };
 
 
-type LeafletMapMarker = {
+export type LeafletMapMarker = {
   id: string;
   label?: string;
   latitude: number;
   longitude: number;
+  type?: 'origin' | 'destination' | 'charging_stop' | 'station' | 'default';
 };
 
 type LeafletNamespace = typeof import('leaflet');
@@ -141,21 +142,46 @@ export function LeafletMap({
     stationMarkersRef.current = nextMarkers.map((marker) => {
       const isSelected = selectedMarkerId != null && marker.id === selectedMarkerId;
       const iconSvg = isSelected ? selectedMarkerIconSvg ?? markerIconSvg : markerIconSvg;
-      const stationMarker = iconSvg
+
+      let markerIconHtml: string | undefined = iconSvg;
+      let iconAnchor: [number, number] = isSelected ? [22, 22] : [16, 16];
+      let iconSize: [number, number] = isSelected ? [44, 44] : [32, 32];
+      let popupAnchor: [number, number] = isSelected ? [0, -26] : [0, -20];
+      let zIndex = isSelected ? 1000 : 0;
+
+      if (marker.type === 'origin' || marker.id === 'origin') {
+        markerIconHtml = `<div style="width: 20px; height: 20px; background: #1A73E8; border: 3px solid #FFFFFF; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.35);"></div>`;
+        iconAnchor = [10, 10];
+        iconSize = [20, 20];
+        popupAnchor = [0, -12];
+        zIndex = 800;
+      } else if (marker.type === 'destination' || marker.id === 'destination') {
+        markerIconHtml = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 5px rgba(0,0,0,0.4));"><path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" fill="#DC2626"/><circle cx="12" cy="9" r="2.5" fill="#FFFFFF"/></svg>`;
+        iconAnchor = [16, 32];
+        iconSize = [32, 32];
+        popupAnchor = [0, -32];
+        zIndex = 900;
+      } else if (marker.type === 'charging_stop') {
+        markerIconHtml = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 5px rgba(0,0,0,0.4));"><path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2Z" fill="#F59E0B"/><path d="M13 7.5L9.5 11H12V14.5L15.5 11H13V7.5Z" fill="#FFFFFF"/></svg>`;
+        iconAnchor = [16, 32];
+        iconSize = [32, 32];
+        popupAnchor = [0, -32];
+        zIndex = 850;
+      }
+
+      const stationMarker = markerIconHtml
         ? leafletRef.current!
             .marker([marker.latitude, marker.longitude], {
               icon: leafletRef.current!.divIcon({
                 className: isSelected
                   ? 'evflow-station-marker evflow-station-marker--selected'
                   : 'evflow-station-marker',
-                html: iconSvg,
-                // Circular badge: anchor at the centre, popup just above the rim.
-                iconAnchor: isSelected ? [22, 22] : [16, 16],
-                iconSize: isSelected ? [44, 44] : [32, 32],
-                popupAnchor: isSelected ? [0, -26] : [0, -20]
+                html: markerIconHtml,
+                iconAnchor,
+                iconSize,
+                popupAnchor
               }),
-              // Keep the highlighted pin above its neighbours in dense areas.
-              zIndexOffset: isSelected ? 1000 : 0
+              zIndexOffset: zIndex
             })
             .addTo(mapRef.current!)
         : leafletRef.current!
@@ -241,6 +267,7 @@ export function LeafletMap({
       userMarkerRef.current = null;
       stationMarkersRef.current = [];
       radiusCircleRef.current = null;
+      polylineLayersRef.current = [];
     };
   }, [center.latitude, center.longitude, mapContainerId, zoom]);
 
@@ -253,7 +280,7 @@ export function LeafletMap({
     mapRef.current?.setView([center.latitude, center.longitude], zoom);
   }, [center.latitude, center.longitude, zoom]);
 
-  const polylineRef = useRef<import('leaflet').Polyline | null>(null);
+  const polylineLayersRef = useRef<import('leaflet').Layer[]>([]);
 
   useEffect(() => {
     renderStationMarkers(markers);
@@ -269,25 +296,45 @@ export function LeafletMap({
       return;
     }
 
-    if (polylineRef.current) {
-      polylineRef.current.remove();
-      polylineRef.current = null;
-    }
+    polylineLayersRef.current.forEach((layer) => layer.remove());
+    polylineLayersRef.current = [];
 
     if (polylineCoordinates && polylineCoordinates.length > 1) {
-      const poly = leafletRef.current.polyline(polylineCoordinates, {
-        color: polylineColor || '#00696F',
-        weight: 5,
-        opacity: 0.85
+      const coreColor = polylineColor || '#00696F';
+      const casingColor = coreColor === '#EAB308' || coreColor === '#F59E0B' || coreColor === '#D97706' ? '#854D0E' : '#044E54';
+
+      const casingPolyline = leafletRef.current.polyline(polylineCoordinates, {
+        color: casingColor,
+        weight: 8,
+        opacity: 0.85,
+        lineCap: 'round',
+        lineJoin: 'round',
       }).addTo(mapRef.current);
 
-      polylineRef.current = poly;
+      const corePolyline = leafletRef.current.polyline(polylineCoordinates, {
+        color: coreColor,
+        weight: 5,
+        opacity: 1.0,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(mapRef.current);
+
+      polylineLayersRef.current = [casingPolyline, corePolyline];
 
       if (autoFitBounds) {
-        mapRef.current.fitBounds(poly.getBounds(), { padding: [40, 40] });
+        const bounds = casingPolyline.getBounds();
+        markers.forEach((marker) => {
+          bounds.extend([marker.latitude, marker.longitude]);
+        });
+        mapRef.current.fitBounds(bounds, { padding: [50, 50] });
       }
     }
-  }, [polylineCoordinates, polylineColor, autoFitBounds]);
+
+    return () => {
+      polylineLayersRef.current.forEach((layer) => layer.remove());
+      polylineLayersRef.current = [];
+    };
+  }, [mapRevision, markers, polylineCoordinates, polylineColor, autoFitBounds]);
 
 
   useEffect(() => {

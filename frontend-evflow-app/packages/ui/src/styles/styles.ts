@@ -91,10 +91,10 @@ export const bottomNavigationStyles = StyleSheet.create({
     borderTopColor: colors.border,
     borderTopWidth: 1,
     flexDirection: 'row',
-    gap: 8,
+    gap: 4,
     minHeight: 84,
     paddingBottom: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     paddingTop: 8
   },
   item: {
@@ -104,7 +104,7 @@ export const bottomNavigationStyles = StyleSheet.create({
     gap: 4,
     justifyContent: 'center',
     minHeight: 56,
-    paddingHorizontal: 8
+    paddingHorizontal: 4
   },
   activeItem: {
     backgroundColor: colors.primary
@@ -135,9 +135,9 @@ export const bottomNavigationStyles = StyleSheet.create({
   },
   label: {
     color: colors.mutedText,
-    fontSize: fontSizes.caption,
+    fontSize: fontSizes.tiny,
     fontWeight: '700',
-    lineHeight: 16,
+    lineHeight: 14,
     textAlign: 'center'
   },
   activeLabel: {

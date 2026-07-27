@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import heapq
 import os
+import re
 from math import inf
 from pathlib import Path
 from typing import Optional
@@ -39,6 +40,12 @@ BBOX = {
 
 # Fallback when an edge has no travel_time attribute (km/h).
 DEFAULT_SPEED_KMH = float(os.getenv("ROUTING_DEFAULT_SPEED_KMH", 40))
+
+# Maximum acceptable distance from a requested endpoint to the nearest node in
+# the loaded local graph. If this is not enforced, a Jakarta-only GraphML can
+# "route" Jakarta -> Bandung by snapping Bandung back to the nearest Jakarta
+# graph node and returning a visually tiny, physically wrong trip.
+MAX_SNAP_DISTANCE_KM = float(os.getenv("ROUTING_MAX_SNAP_DISTANCE_KM", 5.0))
 
 
 class GraphUnavailable(RuntimeError):
@@ -103,6 +110,35 @@ _NODE_LON = None               # np.ndarray of longitudes
 _STATION_SNAP = None           # (signature, np.ndarray of snapped node ids); cache
 
 
+def _parse_edge_geometry(value) -> Optional[list[list[float]]]:
+    """Return GeoJSON-style [lon, lat] pairs from an OSMnx edge geometry."""
+    if value in (None, ""):
+        return None
+    if hasattr(value, "coords"):
+        return [[float(x), float(y)] for x, y in value.coords]
+    if isinstance(value, (list, tuple)):
+        try:
+            return [[float(p[0]), float(p[1])] for p in value]
+        except (TypeError, ValueError, IndexError):
+            return None
+    if not isinstance(value, str):
+        return None
+
+    match = re.match(r"^\s*LINESTRING\s*\((.+)\)\s*$", value, flags=re.IGNORECASE)
+    if not match:
+        return None
+    coords: list[list[float]] = []
+    for pair in match.group(1).split(","):
+        parts = pair.strip().split()
+        if len(parts) < 2:
+            return None
+        try:
+            coords.append([float(parts[0]), float(parts[1])])
+        except ValueError:
+            return None
+    return coords if len(coords) >= 2 else None
+
+
 def _build_adjacency(graph):
     """Convert a NetworkX (Multi)DiGraph into our adjacency map + node coords.
 
@@ -117,7 +153,7 @@ def _build_adjacency(graph):
         length = float(edata.get("length", 0.0) or 0.0)
         tt = edata.get("travel_time")
         time_s = float(tt) if tt not in (None, "") else (length / 1000.0) / DEFAULT_SPEED_KMH * 3600.0
-        adj.setdefault(u, []).append((v, length, time_s))
+        adj.setdefault(u, []).append((v, length, time_s, _parse_edge_geometry(edata.get("geometry"))))
         adj.setdefault(v, [])
     return adj, nodes
 
@@ -193,6 +229,56 @@ def nearest_node(lat: float, lon: float):
     return _NODE_IDS[i], float(d[i])
 
 
+def _coord_distance_sq(a: list[float], b: list[float]) -> float:
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def _node_coord(node) -> list[float]:
+    return [_NODES[node][1], _NODES[node][0]]
+
+
+def _edge_geometry(u, v, weight_idx: int) -> Optional[list[list[float]]]:
+    candidates = [edge for edge in _ADJ.get(u, ()) if edge[0] == v]
+    if not candidates:
+        return None
+    edge = min(candidates, key=lambda item: item[1 + weight_idx])
+    if len(edge) < 4 or not edge[3]:
+        return None
+
+    coords = [list(coord) for coord in edge[3]]
+    u_coord = _node_coord(u)
+    v_coord = _node_coord(v)
+    forward = _coord_distance_sq(coords[0], u_coord) + _coord_distance_sq(coords[-1], v_coord)
+    reverse = _coord_distance_sq(coords[0], v_coord) + _coord_distance_sq(coords[-1], u_coord)
+    if reverse < forward:
+        coords.reverse()
+    return coords
+
+
+def _append_coords(out: list[list[float]], coords: list[list[float]]) -> None:
+    for coord in coords:
+        if out and coord == out[-1]:
+            continue
+        out.append(coord)
+
+
+def _path_coordinates(path: list, weight_idx: int) -> list[list[float]]:
+    """Expand a node path into road-following edge geometry where available."""
+    coords: list[list[float]] = []
+    for u, v in zip(path, path[1:]):
+        segment = _edge_geometry(u, v, weight_idx)
+        if segment:
+            _append_coords(coords, segment)
+            continue
+        if not coords:
+            coords.append(_node_coord(u))
+        _append_coords(coords, [_node_coord(v)])
+
+    if not coords and path:
+        coords.append(_node_coord(path[0]))
+    return coords
+
+
 def shortest_path(orig_lat: float, orig_lon: float,
                   dest_lat: float, dest_lon: float, weight: str = "length") -> Optional[dict]:
     """Shortest driving path between two points.
@@ -206,6 +292,8 @@ def shortest_path(orig_lat: float, orig_lon: float,
     weight_idx = 1 if weight == "travel_time" else 0
     o_node, o_km = nearest_node(orig_lat, orig_lon)
     d_node, d_km = nearest_node(dest_lat, dest_lon)
+    if MAX_SNAP_DISTANCE_KM >= 0 and (o_km > MAX_SNAP_DISTANCE_KM or d_km > MAX_SNAP_DISTANCE_KM):
+        return None
 
     _, prev, edge_used = dijkstra(_ADJ, o_node, target=d_node, weight_idx=weight_idx)
     path = reconstruct(prev, o_node, d_node)
@@ -214,7 +302,7 @@ def shortest_path(orig_lat: float, orig_lon: float,
 
     total_len = sum(edge_used[v][0] for v in path[1:])
     total_time = sum(edge_used[v][1] for v in path[1:])
-    coords = [[_NODES[n][1], _NODES[n][0]] for n in path]  # [lon, lat]
+    coords = _path_coordinates(path, weight_idx)
     if len(coords) == 1:  # origin == destination node -> valid 2-point LineString
         coords = [coords[0], coords[0]]
 
@@ -289,7 +377,7 @@ def nearest_station_route(orig_lat: float, orig_lon: float,
     path = reconstruct(prev, o_node, best_node)
     total_len = sum(edge_used[v][0] for v in path[1:]) if len(path) > 1 else 0.0
     total_time = sum(edge_used[v][1] for v in path[1:]) if len(path) > 1 else 0.0
-    coords = [[_NODES[n][1], _NODES[n][0]] for n in path]
+    coords = _path_coordinates(path, weight_idx)
     if len(coords) == 1:
         coords = [coords[0], coords[0]]
 

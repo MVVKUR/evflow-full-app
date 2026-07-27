@@ -5,9 +5,12 @@ Fallback provider: Local NetworkX Dijkstra graph router in `api.routing`.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import math
 import os
+import shutil
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import httpx
@@ -15,7 +18,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 OSRM_BASE_URL = os.getenv("OSRM_BASE_URL", "https://router.project-osrm.org")
-ROUTING_TIMEOUT_SECONDS = float(os.getenv("ROUTING_TIMEOUT_SECONDS", "3.0"))
+ROUTING_TIMEOUT_SECONDS = float(os.getenv("ROUTING_TIMEOUT_SECONDS", "10.0"))
 
 # A provider that answers "0 km" for two points this far apart is off its map
 # and is reporting nonsense (two identical coordinates for a 111 km ocean pair).
@@ -25,6 +28,9 @@ DEGENERATE_ROUTE_KM = float(os.getenv("ROUTING_DEGENERATE_ROUTE_KM", "0.5"))
 # Providers whose geometry is real road geometry (as opposed to a straight line).
 ROAD_PROVIDERS = ("osrm", "local_dijkstra")
 
+
+class RouteUnavailable(RuntimeError):
+    """Raised when no road-following route geometry can be produced."""
 
 
 def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -70,7 +76,8 @@ class RoutingService:
                 # logs. The client still gets a 200 with `routing_provider` set.
                 logger.warning("routing: OSRM request failed, falling back", exc_info=True)
 
-        # Fallback to local graph or straight-line estimation
+        # Fallback to the local OSM road graph. Do not fabricate geometry: every
+        # route returned to the map must come from a road-routing provider.
         return self._local_fallback_route(coords)
 
     async def _fetch_osrm_route(self, coords: List[Tuple[float, float]]) -> Optional[Dict[str, Any]]:
@@ -78,56 +85,104 @@ class RoutingService:
         coord_str = ";".join([f"{lon:.6f},{lat:.6f}" for lat, lon in coords])
         url = f"{self.osrm_base_url}/route/v1/driving/{coord_str}?overview=full&geometries=geojson&steps=true"
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.get(url)
+        data = await self._request_osrm_json(url)
+        if not data or data.get("code") != "Ok" or not data.get("routes"):
+            return None
+
+        route = data["routes"][0]
+        dist_km = route["distance"] / 1000.0
+        dur_mins = route["duration"] / 60.0
+
+        # Reject a degenerate answer instead of reporting it as a healthy
+        # plan: OSRM snapped both ends to the same off-map node.
+        requested_km = sum(
+            haversine_distance_km(a[0], a[1], b[0], b[1])
+            for a, b in zip(coords, coords[1:])
+        )
+        if dist_km < DEGENERATE_ROUTE_KM <= requested_km:
+            logger.warning(
+                "routing: provider returned a degenerate 0 km route for a %.1f km request; "
+                "discarding", requested_km)
+            return None
+
+        geometry = route["geometry"]  # GeoJSON LineString
+        steps = []
+        for leg_index, leg in enumerate(route.get("legs", [])):
+            for step in leg.get("steps", []):
+                maneuver = step.get("maneuver", {})
+                steps.append({
+                    "instruction": f"{maneuver.get('type', 'turn')} {maneuver.get('modifier', '')}".strip(),
+                    "name": step.get("name", ""),
+                    "distance_m": step.get("distance", 0),
+                    "duration_s": step.get("duration", 0),
+                    "location": maneuver.get("location", []),
+                    # Which leg the step belongs to, so the client can tell
+                    # where the charging stop falls in a multi-leg plan.
+                    "leg_index": leg_index,
+                })
+
+        return {
+            "distance_km": round(dist_km, 2),
+            "duration_minutes": round(dur_mins, 1),
+            "geometry": geometry,
+            "steps": steps,
+            "provider": "osrm",
+        }
+
+    async def _request_osrm_json(self, url: str) -> Optional[Dict[str, Any]]:
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                headers={"User-Agent": "EVFlow/1.0"},
+            ) as client:
+                resp = await client.get(url)
             if resp.status_code != 200:
                 return None
-            data = resp.json()
-            if data.get("code") != "Ok" or not data.get("routes"):
-                return None
+            return resp.json()
+        except Exception as exc:
+            logger.warning("routing: httpx OSRM request failed, trying curl fallback: %s", exc)
+            return await self._request_osrm_json_with_curl(url)
 
-            route = data["routes"][0]
-            dist_km = route["distance"] / 1000.0
-            dur_mins = route["duration"] / 60.0
+    async def _request_osrm_json_with_curl(self, url: str) -> Optional[Dict[str, Any]]:
+        curl = shutil.which("curl")
+        if not curl:
+            return None
 
-            # Reject a degenerate answer instead of reporting it as a healthy
-            # plan: OSRM snapped both ends to the same off-map node.
-            requested_km = sum(
-                haversine_distance_km(a[0], a[1], b[0], b[1])
-                for a, b in zip(coords, coords[1:])
-            )
-            if dist_km < DEGENERATE_ROUTE_KM <= requested_km:
-                logger.warning(
-                    "routing: provider returned a degenerate 0 km route for a %.1f km request; "
-                    "discarding", requested_km)
-                return None
+        proc = await asyncio.create_subprocess_exec(
+            curl,
+            "--globoff",
+            "--silent",
+            "--show-error",
+            "--fail",
+            "--location",
+            "--compressed",
+            "--max-time",
+            str(max(1, int(math.ceil(self.timeout)))),
+            "--user-agent",
+            "EVFlow/1.0",
+            url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.timeout + 1)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            return None
 
-            geometry = route["geometry"]  # GeoJSON LineString
-            steps = []
-            for leg_index, leg in enumerate(route.get("legs", [])):
-                for step in leg.get("steps", []):
-                    maneuver = step.get("maneuver", {})
-                    steps.append({
-                        "instruction": f"{maneuver.get('type', 'turn')} {maneuver.get('modifier', '')}".strip(),
-                        "name": step.get("name", ""),
-                        "distance_m": step.get("distance", 0),
-                        "duration_s": step.get("duration", 0),
-                        "location": maneuver.get("location", []),
-                        # Which leg the step belongs to, so the client can tell
-                        # where the charging stop falls in a multi-leg plan.
-                        "leg_index": leg_index,
-                    })
+        if proc.returncode != 0:
+            logger.warning("routing: curl OSRM fallback failed: %s", stderr.decode("utf-8", "ignore").strip())
+            return None
 
-            return {
-                "distance_km": round(dist_km, 2),
-                "duration_minutes": round(dur_mins, 1),
-                "geometry": geometry,
-                "steps": steps,
-                "provider": "osrm",
-            }
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError:
+            logger.warning("routing: curl OSRM fallback returned invalid JSON")
+            return None
 
     def _local_fallback_route(self, coords: List[Tuple[float, float]]) -> Dict[str, Any]:
-        """Local Dijkstra router fallback or straight-line segment generator."""
+        """Local Dijkstra router fallback."""
         from api.routing import GraphUnavailable, shortest_path
 
         total_dist_km = 0.0
@@ -160,27 +215,9 @@ class RoutingService:
                 ],
                 "provider": "local_dijkstra",
             }
+        except GraphUnavailable as exc:
+            logger.warning("routing: local road graph unavailable", exc_info=True)
+            raise RouteUnavailable("road routing is unavailable; no route geometry was generated") from exc
         except Exception:
-            # Simple Haversine fallback for synthetic/test environments
-            line_coords = []
-            for i in range(len(coords) - 1):
-                p1 = coords[i]
-                p2 = coords[i + 1]
-                total_dist_km += haversine_distance_km(p1[0], p1[1], p2[0], p2[1]) * 1.25  # 1.25 winding factor
-                if not line_coords:
-                    line_coords.append([p1[1], p1[0]])
-                line_coords.append([p2[1], p2[0]])
-
-            total_duration_mins = (total_dist_km / 50.0) * 60.0
-            return {
-                "distance_km": round(total_dist_km, 2),
-                "duration_minutes": round(total_duration_mins, 1),
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": line_coords,
-                },
-                "steps": [
-                    {"instruction": "Proceed along route", "name": "Highway", "distance_m": total_dist_km * 1000, "duration_s": total_duration_mins * 60, "location": line_coords[0], "leg_index": 0}
-                ],
-                "provider": "haversine_fallback",
-            }
+            logger.warning("routing: local road graph could not find a route", exc_info=True)
+            raise RouteUnavailable("no drivable road route found between the selected points")

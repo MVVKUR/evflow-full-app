@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from api import evmodels, security
 from api.main import app
-from api.services.routing_service import RoutingService, haversine_distance_km
+from api.services.routing_service import RouteUnavailable, RoutingService, haversine_distance_km
 from api.services import stop_ranker as stop_ranker_module
 from api.services.station_availability import StationConnectorAvailability
 from api.services.stop_ranker import StopRanker
@@ -153,6 +153,22 @@ def test_route_plan_missing_ev_model(as_user):
     res = client.post("/api/v1/route-plans", json=plan_body(soc=72))
     assert res.status_code == 409
     assert "select an EV model" in res.json()["detail"]
+
+
+def test_route_plan_does_not_return_synthetic_geometry_when_road_routing_fails(
+        as_user, monkeypatch):
+    as_user()
+    monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
+
+    async def fail_get_route(self, origin, destination, waypoints=None):
+        raise RouteUnavailable("no drivable road route found between the selected points")
+
+    monkeypatch.setattr(RoutingService, "get_route", fail_get_route)
+
+    res = client.post("/api/v1/route-plans", json=plan_body(soc=72))
+
+    assert res.status_code == 503
+    assert "no drivable road route" in res.json()["detail"]
 
 
 def test_route_plan_direct_comfortably(as_user, offline_routing, monkeypatch):

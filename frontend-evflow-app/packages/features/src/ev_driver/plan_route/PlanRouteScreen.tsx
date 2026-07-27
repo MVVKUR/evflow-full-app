@@ -113,7 +113,10 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0 }: PlanRouteScr
     return (
       <ActiveNavigationScreen
         result={simulationResult}
+        bottomOffset={bottomOffset}
+        destination={destination}
         destinationName={destination?.label || 'Destination'}
+        topInset={topInset}
         onOverview={() => setViewMode('simulation')}
         onEndNavigation={handleEndNavigation}
       />
@@ -125,6 +128,8 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0 }: PlanRouteScr
       {viewMode === 'simulation' && simulationResult ? (
         <TripSimulationScreen
           result={simulationResult}
+          origin={origin}
+          destination={destination}
           originLabel={origin?.label.split('—')[0].trim() || 'Origin'}
           destinationLabel={destination?.label || 'Destination'}
           onEditTrip={() => setViewMode('input')}

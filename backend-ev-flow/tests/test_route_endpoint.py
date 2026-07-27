@@ -27,6 +27,20 @@ def client(tmp_path, monkeypatch):
     for u, v in [(1, 2), (2, 3), (3, 4)]:
         g.add_edge(u, v, length=1000.0, travel_time=60.0)
         g.add_edge(v, u, length=1000.0, travel_time=60.0)
+    g.add_edge(
+        2,
+        3,
+        length=950.0,
+        travel_time=55.0,
+        geometry="LINESTRING (106.810000 -6.200000, 106.815000 -6.195000, 106.820000 -6.200000)",
+    )
+    g.add_edge(
+        3,
+        2,
+        length=950.0,
+        travel_time=55.0,
+        geometry="LINESTRING (106.820000 -6.200000, 106.815000 -6.195000, 106.810000 -6.200000)",
+    )
 
     graph_path = tmp_path / "tiny.graphml"
     nx.write_graphml(g, graph_path)
@@ -51,6 +65,7 @@ def test_route_between_points_returns_linestring(client):
     assert body["weight"] == "length"
     # path should traverse all four nodes 1->2->3->4
     assert body["node_count"] == 4
+    assert [106.815, -6.195] in body["geometry"]["coordinates"]
 
 
 @pytest.mark.integration
@@ -60,6 +75,14 @@ def test_route_fastest_weight_accepted(client):
                            "dest_lon": 106.829, "weight": "travel_time"})
     assert r.status_code == 200
     assert r.json()["duration_s"] > 0
+
+
+@pytest.mark.integration
+def test_route_rejects_destination_outside_local_graph_coverage(client):
+    r = client.get("/api/v1/route",
+                   params={"lat": -6.20, "lon": 106.801, "dest_lat": -6.20, "dest_lon": 107.50})
+    assert r.status_code == 404
+    assert "no drivable route" in r.json()["detail"]
 
 
 @pytest.mark.integration

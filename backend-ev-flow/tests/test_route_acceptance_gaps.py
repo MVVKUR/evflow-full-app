@@ -754,18 +754,17 @@ def test_ac_241_next_instruction_is_typed_and_carries_a_leg_index(
 
 
 def test_ac_241_degraded_routing_is_advertised_not_disguised(as_user, monkeypatch):
-    """OSRM down: still 200, but the client can SEE that navigation degraded."""
+    """OSRM and local routing down: the API must not publish fake navigation."""
     as_user()
     monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
     use_stations(monkeypatch, [], {})
     monkeypatch.setattr(RoutingService, "_fetch_osrm_route",
                         lambda self, coords: (_ for _ in ()).throw(RuntimeError("upstream down")))
 
-    data = client.post("/api/v1/route-plans", json=plan_body(soc=95.0)).json()
+    res = client.post("/api/v1/route-plans", json=plan_body(soc=95.0))
 
-    assert data["assumptions"]["turn_by_turn_available"] is False
-    assert data["assumptions"]["routing_provider"] == "haversine_fallback"
-    assert len(data["route"]["steps"]) == 1
+    assert res.status_code == 503
+    assert "road route" in res.json()["detail"] or "road routing" in res.json()["detail"]
 
 
 def test_ac_241_osrm_step_parsing_populates_leg_index(monkeypatch):
@@ -818,6 +817,56 @@ def test_ac_241_osrm_step_parsing_populates_leg_index(monkeypatch):
     assert result["steps"][0]["instruction"] == "depart"
     assert result["steps"][1]["instruction"] == "turn slight left"
     assert result["steps"][1]["name"] == "Tol Cipularang"
+
+
+def test_osrm_curl_fallback_is_used_when_httpx_fails(monkeypatch):
+    """Local macOS Python can fail TLS to public OSRM while system curl works."""
+    import asyncio
+    import json
+
+    payload = {
+        "code": "Ok",
+        "routes": [{
+            "distance": 163240.0, "duration": 7404.0,
+            "geometry": {"type": "LineString", "coordinates": [[106.8, -6.2], [107.6, -6.9]]},
+            "legs": [{"steps": []}],
+        }],
+    }
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            raise RuntimeError("tls failed")
+
+    class _Proc:
+        returncode = 0
+
+        async def communicate(self):
+            return json.dumps(payload).encode("utf-8"), b""
+
+    async def fake_exec(*args, **kwargs):
+        assert args[0] == "/usr/bin/curl"
+        assert "--max-time" in args
+        assert args[-1].startswith("https://router.project-osrm.org/route/v1/driving/")
+        return _Proc()
+
+    import api.services.routing_service as rs
+    monkeypatch.setattr(rs.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(rs.shutil, "which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr(rs.asyncio, "create_subprocess_exec", fake_exec)
+
+    result = asyncio.run(rs.RoutingService()._fetch_osrm_route([(-6.2, 106.8), (-6.9, 107.6)]))
+
+    assert result["provider"] == "osrm"
+    assert result["distance_km"] == 163.24
 
 
 def test_degenerate_provider_answer_is_discarded_not_published(monkeypatch):

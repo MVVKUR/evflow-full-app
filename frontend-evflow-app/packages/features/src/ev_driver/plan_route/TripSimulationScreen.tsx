@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { LeafletMap } from '@evflow/ui';
+import { LeafletMap, type LeafletMapMarker } from '@evflow/ui';
 import type { RoutePlanResponse } from '@evflow/shared';
 import { ChargingStopCard } from './ChargingStopCard';
 import { formatDistance, formatDuration, formatEnergy, formatSoc } from './planRouteUtils';
+import type { LocationState } from './planRouteTypes';
 
 type TripSimulationScreenProps = {
   result: RoutePlanResponse;
   onEditTrip: () => void;
   onStartNavigation: () => void;
   onAddStopToRoute: (stationId: string) => void;
+  origin?: LocationState | null;
+  destination?: LocationState | null;
   originLabel?: string;
   destinationLabel?: string;
 };
@@ -19,6 +22,8 @@ export function TripSimulationScreen({
   onEditTrip,
   onStartNavigation,
   onAddStopToRoute,
+  origin,
+  destination,
   originLabel = 'Jakarta Pusat',
   destinationLabel = 'Bandung',
 }: TripSimulationScreenProps) {
@@ -43,22 +48,33 @@ export function TripSimulationScreen({
   }, [polylineCoordinates]);
 
   const mapMarkers = React.useMemo(() => {
-    const markers: any[] = [];
-    if (polylineCoordinates.length > 0) {
-      const first = polylineCoordinates[0];
-      const last = polylineCoordinates[polylineCoordinates.length - 1];
+    const markers: LeafletMapMarker[] = [];
+    const routeStart = polylineCoordinates[0];
+    const routeEnd = polylineCoordinates[polylineCoordinates.length - 1];
+    const originPoint = origin
+      ? [origin.latitude, origin.longitude]
+      : routeStart;
+    const destinationPoint = destination
+      ? [destination.latitude, destination.longitude]
+      : routeEnd;
 
+    if (originPoint) {
       markers.push({
         id: 'origin',
         label: originLabel,
-        latitude: first[0],
-        longitude: first[1],
+        latitude: originPoint[0],
+        longitude: originPoint[1],
+        type: 'origin',
       });
+    }
+
+    if (destinationPoint) {
       markers.push({
         id: 'destination',
         label: destinationLabel,
-        latitude: last[0],
-        longitude: last[1],
+        latitude: destinationPoint[0],
+        longitude: destinationPoint[1],
+        type: 'destination',
       });
     }
 
@@ -68,11 +84,12 @@ export function TripSimulationScreen({
         label: recommended_stop.station.name,
         latitude: recommended_stop.station.latitude,
         longitude: recommended_stop.station.longitude,
+        type: 'charging_stop',
       });
     }
 
     return markers;
-  }, [polylineCoordinates, originLabel, destinationLabel, recommended_stop]);
+  }, [destination, destinationLabel, origin, originLabel, polylineCoordinates, recommended_stop]);
 
   function handleAddStop() {
     if (recommended_stop) {

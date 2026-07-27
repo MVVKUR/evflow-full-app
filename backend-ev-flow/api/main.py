@@ -981,13 +981,19 @@ async def _road_validated_stop(
         from api.services.stop_ranker import DEFAULT_RANKING_WEIGHTS
         weights = DEFAULT_RANKING_WEIGHTS
 
+    from api.services.routing_service import RouteUnavailable
+
     rejected_ids: set[str] = set()
     over_budget: Optional[tuple[RecommendedStop, dict]] = None
 
     for candidate in ranked[:MAX_ROAD_VALIDATION_CANDIDATES]:
         st_pos = (candidate.station.latitude, candidate.station.longitude)
-        via_route = await routing_service.get_route(origin_pos, dest_pos, waypoints=[st_pos])
-        tail_route = await routing_service.get_route(st_pos, dest_pos)
+        try:
+            via_route = await routing_service.get_route(origin_pos, dest_pos, waypoints=[st_pos])
+            tail_route = await routing_service.get_route(st_pos, dest_pos)
+        except RouteUnavailable:
+            rejected_ids.add(candidate.station.id)
+            continue
 
         leg_to_dest_km = float(tail_route["distance_km"])
         leg_to_stop_km = max(0.0, float(via_route["distance_km"]) - leg_to_dest_km)
@@ -1041,7 +1047,7 @@ async def create_route_plan(
     efficiency_source = ev_model.get("efficiency_source") or "dataset"
     max_dc_charge_kw = ev_model.get("max_dc_charge_kw")
 
-    from api.services.routing_service import ROAD_PROVIDERS, RoutingService
+    from api.services.routing_service import ROAD_PROVIDERS, RouteUnavailable, RoutingService
     from api.services.energy_estimator import (
         MIN_RESERVE_KM, TIGHT_MARGIN_SOC_PCT, EnergyEstimator,
         effective_reserve_soc_pct, reserve_km_for_soc_pct,
@@ -1067,7 +1073,10 @@ async def create_route_plan(
     )
     reserve_km = reserve_km_for_soc_pct(battery_kwh, efficiency_wh_per_km, reserve_pct)
 
-    direct_route = await routing_service.get_route(origin_pos, dest_pos)
+    try:
+        direct_route = await routing_service.get_route(origin_pos, dest_pos)
+    except RouteUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     distance_km = direct_route["distance_km"]
     duration_mins = direct_route["duration_minutes"]
     basis, scale = _distance_basis(direct_route, origin_pos, dest_pos)
@@ -1319,7 +1328,7 @@ async def evaluate_active_route(
     efficiency_source = ev_model.get("efficiency_source") or "dataset"
     max_dc_charge_kw = ev_model.get("max_dc_charge_kw")
 
-    from api.services.routing_service import RoutingService
+    from api.services.routing_service import RouteUnavailable, RoutingService
     from api.services.energy_estimator import (
         TIGHT_MARGIN_SOC_PCT, EnergyEstimator, effective_reserve_soc_pct, reserve_km_for_soc_pct,
     )
@@ -1342,7 +1351,10 @@ async def evaluate_active_route(
     )
     reserve_km = reserve_km_for_soc_pct(battery_kwh, efficiency_wh_per_km, reserve_pct)
 
-    remaining_route = await routing_service.get_route(current_pos, dest_pos)
+    try:
+        remaining_route = await routing_service.get_route(current_pos, dest_pos)
+    except RouteUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     remaining_km = remaining_route["distance_km"]
     basis, scale = _distance_basis(remaining_route, current_pos, dest_pos)
 
@@ -1595,5 +1607,4 @@ async def reverse_geocoding(
     except Exception:
         logging.exception("reverse geocoding failed")
         raise HTTPException(502, "geocoding provider unavailable")
-
 
