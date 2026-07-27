@@ -101,12 +101,11 @@ def build_connectors(connections: list[dict], charge_type: Optional[str] = None)
     return [agg[k] for k in order]
 
 
-def merge_connectors(lists: list[list[dict]]) -> list[dict]:
-    """Merge several connector lists, grouping by (type, power_kw), count = MAX.
+def _combine(lists: list[list[dict]], reduce_count) -> list[dict]:
+    """Group connector entries by (type, power_kw), folding counts with `reduce_count`.
 
-    Used when dedup clusters points from multiple sources that describe the same
-    physical station: taking the max avoids double-counting shared connectors while
-    keeping the union of all known types.
+    Shared spine for `merge_connectors` (MAX) and `sum_connectors` (SUM). Entries
+    are copied, never mutated, and first-seen ordering is preserved.
     """
     agg: dict = {}
     order: list = []
@@ -117,8 +116,31 @@ def merge_connectors(lists: list[list[dict]]) -> list[dict]:
                 agg[key] = dict(c)
                 order.append(key)
             else:
-                agg[key]["count"] = max(agg[key].get("count", 1), c.get("count", 1))
+                agg[key]["count"] = reduce_count(agg[key].get("count", 1), c.get("count", 1))
     return [agg[k] for k in order]
+
+
+def merge_connectors(lists: list[list[dict]]) -> list[dict]:
+    """Merge several connector lists, grouping by (type, power_kw), count = MAX.
+
+    Used when dedup clusters points that describe the same physical station:
+    taking the max avoids double-counting shared connectors while keeping the
+    union of all known types. This is the right rule ACROSS sources (PLN and OCM
+    both listing one site) and for two same-source rows judged to be one listing;
+    `dedup` decides which lists get this treatment. Contract unchanged.
+    """
+    return _combine(lists, max)
+
+
+def sum_connectors(lists: list[list[dict]]) -> list[dict]:
+    """Merge several connector lists, grouping by (type, power_kw), count = SUM.
+
+    The counterpart to `merge_connectors`, for lists known to describe DISTINCT
+    hardware standing at one location -- a venue whose separate charger cabinets
+    each arrive as their own source row. Summing there is the only way to keep
+    plugs that MAX would silently discard.
+    """
+    return _combine(lists, lambda a, b: a + b)
 
 
 def derive_station_fields(conns: list[dict]) -> dict:

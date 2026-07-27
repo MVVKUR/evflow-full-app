@@ -90,6 +90,32 @@ def test_merge_connectors_takes_max_count_not_sum():
 
 
 @pytest.mark.unit
+def test_sum_connectors_adds_counts_on_the_same_key():
+    a = [{"type": "CCS2", "count": 2, "speed_tier": "fast", "power_kw": 120, "type_inferred": True}]
+    b = [{"type": "CCS2", "count": 4, "speed_tier": "fast", "power_kw": 120, "type_inferred": True},
+         {"type": "AC Type 2", "count": 1, "speed_tier": "slow", "power_kw": 7, "type_inferred": True}]
+    out = conn.sum_connectors([a, b])
+    assert {c["type"]: c["count"] for c in out} == {"CCS2": 6, "AC Type 2": 1}
+
+
+@pytest.mark.unit
+def test_sum_and_merge_do_not_mutate_their_inputs():
+    a = [{"type": "CCS2", "count": 2, "speed_tier": "fast", "power_kw": 120, "type_inferred": True}]
+    b = [{"type": "CCS2", "count": 4, "speed_tier": "fast", "power_kw": 120, "type_inferred": True}]
+    conn.sum_connectors([a, b])
+    conn.merge_connectors([a, b])
+    assert a[0]["count"] == 2 and b[0]["count"] == 4
+
+
+@pytest.mark.unit
+def test_sum_and_merge_agree_on_disjoint_keys():
+    """Only a shared (type, power_kw) key distinguishes the two rules."""
+    a = [{"type": "AC Type 2", "count": 2, "speed_tier": "medium", "power_kw": 22, "type_inferred": True}]
+    b = [{"type": "CCS2", "count": 3, "speed_tier": "fast", "power_kw": 120, "type_inferred": True}]
+    assert conn.sum_connectors([a, b]) == conn.merge_connectors([a, b])
+
+
+@pytest.mark.unit
 def test_derive_station_fields():
     conns = [{"type": "AC Type 2", "count": 1, "speed_tier": "slow", "power_kw": 7, "type_inferred": True},
              {"type": "CCS2", "count": 2, "speed_tier": "ultra_fast", "power_kw": 200, "type_inferred": True}]
