@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import text
@@ -73,9 +74,23 @@ def get_by_google_sub(sub: str) -> Optional[dict]:
 
 
 def update_password(user_id: str, password_hash: str) -> None:
+    """Set a new password hash and stamp when it changed.
+
+    The stamp comes from the APPLICATION clock, not the database's now(). It is
+    only ever compared against a JWT `iat`, which is minted from that same clock
+    (see api.security), and reading both from one clock is what makes the
+    comparison exact. With database now() a few tens of milliseconds of ordinary
+    app/database clock skew was enough to reject the token a user was issued
+    right after resetting their password -- and there is no honest tolerance to
+    paper over that, because any tolerance is also a window in which a stolen
+    pre-reset token survives the reset.
+    """
+    changed_at = datetime.now(timezone.utc)
     with engine.begin() as c:
-        c.execute(text("UPDATE users SET password_hash = :ph, password_changed_at = now() WHERE id = :id"),
-                  {"ph": password_hash, "id": user_id})
+        c.execute(
+            text("UPDATE users SET password_hash = :ph, password_changed_at = :changed_at "
+                 "WHERE id = :id"),
+            {"ph": password_hash, "changed_at": changed_at, "id": user_id})
 
 
 def update_profile(user_id: str, fields: dict, profile_completed: bool) -> dict:

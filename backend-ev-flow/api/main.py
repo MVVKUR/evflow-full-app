@@ -15,8 +15,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from . import __version__, evmodels
 from . import connectors as conn
@@ -164,6 +166,30 @@ app = FastAPI(
     ],
     lifespan=lifespan,
 )
+
+
+# Field names whose submitted value must never travel back to the caller. FastAPI's
+# default validation handler echoes the offending input in detail[].input, which for
+# a rejected password means the plaintext lands in the response body, and from there
+# in browser consoles, proxy logs and error-tracking tools.
+_REDACTED_INPUT_FIELDS = frozenset({"password", "new_password", "current_password", "token"})
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_without_echoing_secrets(request: Request, exc: RequestValidationError):
+    """Standard 422 body, minus any echoed secret.
+
+    detail[].loc is preserved exactly, because the frontend attaches each message
+    to the field it names (AC 2.2.2). Only the echoed value is dropped.
+    """
+    detail = []
+    for err in exc.errors():
+        item = {k: v for k, v in err.items() if k != "ctx"}
+        loc = item.get("loc") or ()
+        if any(str(part) in _REDACTED_INPUT_FIELDS for part in loc):
+            item.pop("input", None)
+        detail.append(jsonable_encoder(item))
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 # Frontend calls this from a browser, so allow CORS. Auth/write endpoints are now live, so set
 # CORS_ALLOW_ORIGINS (comma-separated) to the frontend origin(s) in production; it defaults to "*"
@@ -750,6 +776,16 @@ NO_STATION_SUGGESTED_ACTIONS = [
 WARNING_OUT_OF_SERVICE_AREA = "out_of_service_area"
 SUGGEST_RETURN_TO_SERVICE_AREA = "return_to_service_area"
 
+# Advisory-only, never blocking: every road-routing provider is down, so the
+# ACTIVE-route evaluation fell back to a straight-line estimate. Reported next to
+# (never instead of) the battery warning -- they are different conditions and both
+# must be able to fire at once.
+WARNING_ROUTING_DEGRADED = "routing_degraded"
+ROUTING_DEGRADED_MESSAGE = (
+    "Road routing is unavailable right now, so distance and arrival time are a "
+    "straight-line approximation and turn-by-turn navigation is off. Your battery "
+    "projection is still being updated; treat the distance as a best case.")
+
 # AC 2.2.3 manual-range branch: a bare range says nothing about pack size, so a
 # pack consistent with the entered range is assumed at this efficiency. Same
 # 180 Wh/km already used when a catalogue model has no efficiency figure.
@@ -1328,9 +1364,12 @@ async def evaluate_active_route(
     efficiency_source = ev_model.get("efficiency_source") or "dataset"
     max_dc_charge_kw = ev_model.get("max_dc_charge_kw")
 
-    from api.services.routing_service import RouteUnavailable, RoutingService
+    from api.services.routing_service import (
+        ROAD_PROVIDERS, RouteUnavailable, RoutingService, straight_line_route,
+    )
     from api.services.energy_estimator import (
-        TIGHT_MARGIN_SOC_PCT, EnergyEstimator, effective_reserve_soc_pct, reserve_km_for_soc_pct,
+        MIN_RESERVE_KM, TIGHT_MARGIN_SOC_PCT, EnergyEstimator,
+        effective_reserve_soc_pct, reserve_km_for_soc_pct,
     )
     from api.services.connector_compat import vehicle_connector_profile
     from api.services.stop_ranker import StopRanker
@@ -1351,11 +1390,26 @@ async def evaluate_active_route(
     )
     reserve_km = reserve_km_for_soc_pct(battery_kwh, efficiency_wh_per_km, reserve_pct)
 
+    # AC 2.1.1 / AC 2.4.2: a driver ALREADY ON THE ROAD must keep being evaluated.
+    # Letting RouteUnavailable out of here turned a routing outage into a 503 that
+    # withheld the remaining distance, the arrival projection, the below-reserve
+    # warning AND the candidate stops from a driver at 12% -- precisely the moment
+    # those two ACs exist to cover. A straight-line estimate is used instead, and
+    # is LABELLED as degraded (assumptions.routing_provider / turn_by_turn_available
+    # plus a 'routing_degraded' advisory) so the client can tell the driver that
+    # navigation is approximate. POST /api/v1/route-plans keeps its 503: refusing
+    # to PLAN is honest, refusing to keep watching a trip already under way is not.
+    routing_degraded = False
     try:
         remaining_route = await routing_service.get_route(current_pos, dest_pos)
-    except RouteUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except RouteUnavailable:
+        logging.warning(
+            "active route evaluation: road routing unavailable, falling back to a "
+            "straight-line estimate", exc_info=True)
+        routing_degraded = True
+        remaining_route = straight_line_route(current_pos, dest_pos)
     remaining_km = remaining_route["distance_km"]
+    routing_provider = remaining_route.get("provider")
     basis, scale = _distance_basis(remaining_route, current_pos, dest_pos)
 
     projection = energy_estimator.estimate_trip_energy(
@@ -1436,6 +1490,19 @@ async def evaluate_active_route(
         ("destination", body.destination.latitude, body.destination.longitude),
     ])
     advisories = []
+    # Degraded routing is an advisory, NEVER the `warning` slot: `warning` stays
+    # reserved for the battery projection so both can fire at the same time.
+    if routing_degraded:
+        advisories.append(RouteWarning(
+            triggered=True,
+            code=WARNING_ROUTING_DEGRADED,
+            severity="warning",
+            message=ROUTING_DEGRADED_MESSAGE,
+            projected_arrival_soc_pct=round(projection.estimated_arrival_soc_pct, 1),
+            reserve_soc_pct=round(reserve_pct, 1),
+            shortfall_soc_pct=0.0,
+            can_dismiss=True,
+        ))
     if out_of_area_fields:
         advisories.append(RouteWarning(
             triggered=True,
@@ -1471,6 +1538,25 @@ async def evaluate_active_route(
         candidate_stops=candidate_stops,
         computed_at=computed_at,
         estimated_arrival_at=_eta(computed_at, remaining_route["duration_minutes"]),
+        assumptions=RoutePlanAssumptions(
+            reserve_soc_pct=reserve_pct,
+            requested_reserve_soc_pct=body.minimum_arrival_soc_pct,
+            effective_reserve_km=round(reserve_km, 1),
+            minimum_reserve_km=MIN_RESERVE_KM,
+            distance_basis=basis,
+            vehicle_connector_types=list(connector_profile.types),
+            connector_source=connector_profile.source,
+            weather_applied=False,
+            traffic_applied=False,
+            connector_data_inferred=bool(connector_profile.inferred_types),
+            energy_model_version="spec-v2",
+            service_area=ServiceAreaSummary(**service_area.describe()),
+            maximum_detour_km=body.maximum_detour_km,
+            routing_provider=routing_provider,
+            turn_by_turn_available=bool(
+                routing_provider in ROAD_PROVIDERS
+                and len(remaining_route.get("steps") or []) > 1),
+        ),
     )
 
 

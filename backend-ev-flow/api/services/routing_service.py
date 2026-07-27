@@ -28,6 +28,23 @@ DEGENERATE_ROUTE_KM = float(os.getenv("ROUTING_DEGENERATE_ROUTE_KM", "0.5"))
 # Providers whose geometry is real road geometry (as opposed to a straight line).
 ROAD_PROVIDERS = ("osrm", "local_dijkstra")
 
+# Not a routing provider: the label a DEGRADED, straight-line estimate carries so
+# a client can tell it apart from real road geometry. Deliberately excluded from
+# ROAD_PROVIDERS, which keeps `distance_basis` at 'straight_line' and
+# `turn_by_turn_available` at False wherever it is used.
+HAVERSINE_FALLBACK_PROVIDER = "haversine_fallback"
+
+# Average speed used to turn a straight-line distance into a duration when no
+# road provider answered. Matches the local Dijkstra fallback's own assumption.
+ROUTING_FALLBACK_SPEED_KMH = float(os.getenv("ROUTING_FALLBACK_SPEED_KMH", "40.0"))
+
+# Straight-line distance under-reports the real drive, and in the degraded path
+# that error runs in the unsafe direction: a shorter distance means a rosier
+# arrival SoC, which can hide the below-reserve warning. 1.3 is the usual road
+# circuity ratio for a dense urban network like Jabodetabek. Raising it makes the
+# fallback more cautious; lowering it below 1.0 would be actively unsafe.
+ROUTING_CIRCUITY_FACTOR = max(1.0, float(os.getenv("ROUTING_CIRCUITY_FACTOR", "1.3")))
+
 
 class RouteUnavailable(RuntimeError):
     """Raised when no road-following route geometry can be produced."""
@@ -43,6 +60,50 @@ def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) ->
     )
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
+
+
+def straight_line_route(
+    origin: Tuple[float, float],
+    destination: Tuple[float, float],
+    waypoints: Optional[List[Tuple[float, float]]] = None,
+) -> Dict[str, Any]:
+    """A clearly-labelled DEGRADED estimate for when every road provider is down.
+
+    This is NOT a route and must never be published as one. It exists so a driver
+    who is ALREADY UNDER WAY keeps receiving a remaining distance, an arrival-SoC
+    projection and a battery warning when road routing dies mid-trip (AC 2.1.1 /
+    AC 2.4.2) instead of being cut off with a 503.
+
+    `provider` is 'haversine_fallback' and is absent from ROAD_PROVIDERS, so every
+    existing consumer already treats the numbers as straight-line rather than
+    road, and reports turn-by-turn as unavailable. TRIP PLANNING deliberately does
+    NOT use this: POST /api/v1/route-plans still refuses rather than draw a line
+    across the map.
+    """
+    coords = [origin, *(waypoints or []), destination]
+    straight_km = sum(
+        haversine_distance_km(a[0], a[1], b[0], b[1])
+        for a, b in zip(coords, coords[1:])
+    )
+    # Roads do not run in straight lines. Publishing the raw haversine distance
+    # would understate the real drive by 20-40%, which makes the arrival-SoC
+    # projection OPTIMISTIC and can suppress the below-reserve battery warning at
+    # the exact moment routing is broken and the driver is relying on it. Erring
+    # short here is the dangerous direction, so the estimate is inflated by a
+    # circuity factor before any energy maths sees it.
+    distance_km = straight_km * ROUTING_CIRCUITY_FACTOR
+    speed_kmh = ROUTING_FALLBACK_SPEED_KMH if ROUTING_FALLBACK_SPEED_KMH > 0 else 40.0
+    return {
+        "distance_km": round(distance_km, 2),
+        "straight_line_km": round(straight_km, 2),
+        "circuity_factor": ROUTING_CIRCUITY_FACTOR,
+        "duration_minutes": round((distance_km / speed_kmh) * 60.0, 1),
+        "geometry": {"type": "LineString", "coordinates": [[c[1], c[0]] for c in coords]},
+        # No steps at all rather than a fabricated instruction: there is nothing
+        # honest to say about which roads to take.
+        "steps": [],
+        "provider": HAVERSINE_FALLBACK_PROVIDER,
+    }
 
 
 class RoutingService:

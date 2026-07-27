@@ -302,18 +302,54 @@ class ChargingSession(BaseModel):
 
 
 # ---- authentication / accounts (Epic 5.0) ------------------------------------
+def _validated_password(value: str) -> str:
+    """Reject a password bcrypt cannot hash, at the boundary, in BYTES.
+
+    A `max_length` on the field would count CHARACTERS; bcrypt's 72 limit counts
+    UTF-8 BYTES. 72 accented characters passed a character check and then raised
+    inside bcrypt, which surfaced as an unhandled 500 on the public,
+    unauthenticated POST /api/v1/auth/register. Raising here instead makes it a
+    422 that names the offending field.
+    """
+    from api import security
+
+    problem = security.password_length_problem(value)
+    if problem:
+        raise ValueError(problem)
+    return value
+
+
+# `max_length` below is a published, client-usable hint only. It is NOT the real
+# limit: JSON Schema cannot express "72 UTF-8 bytes", and 72 characters is always
+# >= 72 bytes' worth, so it can only ever reject input the byte check rejects too.
+# The authoritative check is _validated_password.
+PASSWORD_MAX_CHARS_HINT = 72
+_PASSWORD_BYTE_LIMIT_NOTE = (
+    "Capped at 72 UTF-8 BYTES (bcrypt's limit), not 72 characters: accented and "
+    "non-Latin characters cost more than one byte each, so a 40-character "
+    "password can still be too long.")
+
+
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, examples=["budi"])
-    password: str = Field(..., min_length=8, examples=["s3cret123"])
+    password: str = Field(..., min_length=8, max_length=PASSWORD_MAX_CHARS_HINT,
+                          examples=["s3cret123"], description=_PASSWORD_BYTE_LIMIT_NOTE)
     email: Optional[str] = Field(None, examples=["budi@example.com"])
     full_name: Optional[str] = Field(None, examples=["Budi Santoso"])
     ev_model_id: Optional[str] = Field(None, examples=["hyundai-ioniq-5"])
     main_connector_type: Optional[str] = Field(None, examples=["CCS2"])
     location_consent: bool = False
 
+    _check_password = field_validator("password")(_validated_password)
+
 
 class LoginRequest(BaseModel):
     username: str
+    # DELIBERATELY no length cap. Accounts created before the byte cap existed
+    # may hold a hash of only the first 72 bytes of a longer password (older
+    # bcrypt truncated silently); refusing the full password here would lock
+    # those users out for good. security.verify_password truncates instead, so
+    # such a login still succeeds and can never 500.
     password: str
 
 
@@ -327,8 +363,12 @@ class ForgotPasswordResponse(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str = Field(..., examples=["k3y-from-the-emailed-link"])
-    # bcrypt only uses the first 72 bytes; cap length so nothing is silently truncated.
-    new_password: str = Field(..., min_length=8, max_length=72, examples=["n3ws3cret123"])
+    # bcrypt only uses the first 72 BYTES. max_length is kept as the published
+    # client hint it always was; the real cap is the byte check below.
+    new_password: str = Field(..., min_length=8, max_length=PASSWORD_MAX_CHARS_HINT,
+                              examples=["n3ws3cret123"], description=_PASSWORD_BYTE_LIMIT_NOTE)
+
+    _check_new_password = field_validator("new_password")(_validated_password)
 
 
 class ResetPasswordResponse(BaseModel):
@@ -749,8 +789,16 @@ class ActiveRouteEvaluationResponse(BaseModel):
     advisories: list[RouteWarning] = Field(
         default_factory=list,
         description="Non-blocking notices that do not displace `warning` (which stays "
-                    "reserved for the battery projection). Currently carries the "
-                    "'out_of_service_area' notice.")
+                    "reserved for the battery projection). Carries the "
+                    "'out_of_service_area' notice and the 'routing_degraded' notice "
+                    "(road routing was unavailable, so distance/ETA are a straight-line "
+                    "approximation -- see assumptions.routing_provider). Both can be "
+                    "present alongside a triggered battery `warning`.")
+    assumptions: RoutePlanAssumptions = Field(
+        default_factory=RoutePlanAssumptions,
+        description="Same shape POST /api/v1/route-plans returns, so a client can read "
+                    "routing_provider / turn_by_turn_available / distance_basis the same "
+                    "way on both endpoints. Additive: no pre-existing field changed.")
 
 
 DISTANCE_FROM_ORIGIN = "origin"

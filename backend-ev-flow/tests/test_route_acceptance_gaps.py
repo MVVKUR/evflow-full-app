@@ -907,3 +907,163 @@ def test_degenerate_provider_answer_is_discarded_not_published(monkeypatch):
     monkeypatch.setattr(rs.httpx, "AsyncClient", _Client)
 
     assert asyncio.run(rs.RoutingService()._fetch_osrm_route([(0.0, -160.0), (1.0, -160.0)])) is None
+
+
+# --------------------------------------------------------------------------
+# AC 2.1.1 / AC 2.4.2 -- a driver ALREADY ON THE ROAD keeps being evaluated
+# even when every road-routing provider is down.
+#
+# These pin the degraded-provider contract on /route-plans/active/evaluate.
+# The three assertions that used to pin it lived on POST /route-plans and were
+# removed when planning correctly started refusing to fabricate a route; that
+# left the contract completely unguarded. It is guarded here instead, on the
+# endpoint where degrading is the RIGHT answer.
+# --------------------------------------------------------------------------
+@pytest.fixture
+def road_routing_down(monkeypatch):
+    """Every road provider fails: RoutingService.get_route raises RouteUnavailable."""
+    from api.services.routing_service import RouteUnavailable
+
+    async def dead(self, origin, destination, waypoints=None):
+        raise RouteUnavailable("road routing is unavailable; no route geometry was generated")
+
+    monkeypatch.setattr(RoutingService, "get_route", dead)
+
+
+def _advisory_codes(data: dict) -> list[str]:
+    return [a["code"] for a in data["advisories"]]
+
+
+def test_degraded_routing_still_evaluates_an_active_trip_and_says_it_degraded(
+        as_user, road_routing_down, monkeypatch):
+    """Was HTTP 503 with no distance, no battery warning and no stations."""
+    as_user()
+    monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
+    use_stations(monkeypatch, [], {})
+
+    res = client.post("/api/v1/route-plans/active/evaluate", json=active_body(soc=60.0))
+
+    assert res.status_code == 200, res.text
+    data = res.json()
+    # LABELLED as degraded, not disguised as a real route.
+    assert data["assumptions"]["routing_provider"] == "haversine_fallback"
+    assert data["assumptions"]["turn_by_turn_available"] is False
+    assert data["assumptions"]["distance_basis"] == "straight_line"
+    assert data["distance_basis"] == "straight_line"
+    assert "routing_degraded" in _advisory_codes(data)
+    advisory = next(a for a in data["advisories"] if a["code"] == "routing_degraded")
+    assert advisory["triggered"] is True
+    assert advisory["can_dismiss"] is True
+    # The driver still gets the numbers the sheet is made of.
+    from api.services import routing_service
+    from api.services.routing_service import haversine_distance_km
+    straight_km = haversine_distance_km(*MIDPOINT, *BANDUNG)
+    # The estimate must NEVER be shorter than the straight line. Under-reporting
+    # distance here inflates the projected arrival SoC, which can suppress the
+    # below-reserve warning at exactly the moment routing is broken and the
+    # driver is depending on that warning. Erring long is the safe direction.
+    assert data["remaining_distance_km"] >= straight_km
+    assert data["remaining_distance_km"] == pytest.approx(
+        straight_km * routing_service.ROUTING_CIRCUITY_FACTOR, rel=0.02)
+    assert data["remaining_duration_minutes"] > 0
+    assert data["estimated_arrival_at"] is not None
+    assert data["projected_arrival_soc_pct"] is not None
+
+
+def test_degraded_routing_never_displaces_the_below_reserve_battery_warning(
+        as_user, road_routing_down, monkeypatch):
+    """Mid-trip AND below reserve AND routing degraded: all three must be reported.
+
+    The battery warning and the routing advisory are different things and both
+    have to fire at once -- the advisory must not take over the `warning` slot,
+    and the outage must not suppress the candidate stops.
+    """
+    as_user()
+    monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
+    near_mid = (MIDPOINT[0] - 0.05, MIDPOINT[1] + 0.05)
+    use_stations(monkeypatch,
+                 [make_station("st-free", *near_mid, power_kw=150.0)],
+                 {"st-free": availability("st-free", {"CCS2": 2}, power_by_type={"CCS2": 150.0})})
+
+    res = client.post("/api/v1/route-plans/active/evaluate",
+                      json=active_body(soc=12.0, route_plan_id="plan-mid-trip"))
+
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["route_plan_id"] == "plan-mid-trip"
+    # 1. the battery warning, in its own slot, untouched by the routing problem
+    assert data["route_status"] == "charging_required"
+    assert data["warning"] is not None
+    assert data["warning"]["code"] == "battery_below_reserve"
+    assert data["warning"]["triggered"] is True
+    assert data["warning"]["shortfall_soc_pct"] > 0
+    # 2. the routing advisory, alongside it rather than instead of it
+    assert "routing_degraded" in _advisory_codes(data)
+    assert data["assumptions"]["routing_provider"] == "haversine_fallback"
+    # 3. the stops the driver is supposed to choose from
+    assert [s["station"]["id"] for s in data["candidate_stops"]] == ["st-free"]
+
+
+def test_degraded_routing_and_out_of_service_area_advisories_coexist(
+        as_user, road_routing_down, monkeypatch):
+    """Two independent advisories; neither one may swallow the other or `warning`."""
+    as_user()
+    monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
+    use_stations(monkeypatch, [], {})
+
+    res = client.post("/api/v1/route-plans/active/evaluate",
+                      json=active_body(position=SYDNEY, destination=SYDNEY_NORTH, soc=80.0))
+
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert set(_advisory_codes(data)) == {"routing_degraded", "out_of_service_area"}
+    assert data["out_of_service_area"] is True
+
+
+def test_planning_still_refuses_while_the_active_trip_degrades(
+        as_user, road_routing_down, monkeypatch):
+    """The two endpoints diverge DELIBERATELY under one and the same outage."""
+    as_user()
+    monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
+    use_stations(monkeypatch, [], {})
+
+    planning = client.post("/api/v1/route-plans", json=plan_body(soc=95.0))
+    active = client.post("/api/v1/route-plans/active/evaluate", json=active_body(soc=95.0))
+
+    assert planning.status_code == 503        # may honestly refuse to plan
+    assert active.status_code == 200          # must not abandon a trip under way
+
+
+def test_healthy_routing_is_not_reported_as_degraded(as_user, offline_routing, monkeypatch):
+    """Guards the other direction: the fallback must not become the normal path."""
+    as_user()
+    monkeypatch.setattr(evmodels, "get", lambda mid: dict(IONIQ_5))
+    use_stations(monkeypatch, [], {})
+
+    data = client.post("/api/v1/route-plans/active/evaluate",
+                       json=active_body(soc=80.0)).json()
+
+    assert data["assumptions"]["routing_provider"] == "osrm"
+    assert "routing_degraded" not in _advisory_codes(data)
+
+
+def test_straight_line_fallback_is_labelled_and_never_claims_road_geometry():
+    """Unit-level: the fallback can never be mistaken for a road provider."""
+    from api.services import routing_service as rs
+
+    route = rs.straight_line_route(MIDPOINT, BANDUNG)
+
+    assert route["provider"] == rs.HAVERSINE_FALLBACK_PROVIDER == "haversine_fallback"
+    assert route["provider"] not in rs.ROAD_PROVIDERS
+    assert route["steps"] == []          # no fabricated turn-by-turn instructions
+
+    straight = rs.haversine_distance_km(*MIDPOINT, *BANDUNG)
+    assert route["straight_line_km"] == pytest.approx(straight, abs=0.01)
+    # Inflated by the circuity factor, never shorter than the straight line: a
+    # short distance produces an optimistic arrival SoC, which is the one error
+    # that can silence the below-reserve warning.
+    assert route["distance_km"] >= route["straight_line_km"]
+    assert route["distance_km"] == pytest.approx(straight * rs.ROUTING_CIRCUITY_FACTOR, abs=0.01)
+    expected_mins = (route["distance_km"] / rs.ROUTING_FALLBACK_SPEED_KMH) * 60.0
+    assert route["duration_minutes"] == pytest.approx(expected_mins, abs=0.2)
+    assert route["geometry"]["coordinates"][0] == [MIDPOINT[1], MIDPOINT[0]]

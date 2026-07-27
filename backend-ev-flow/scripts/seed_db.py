@@ -149,6 +149,12 @@ def seed_demo_users(conn) -> str:
         return (f"skipped demo users: {DEMO_PASSWORD_ENV} is not set "
                 f"(set it to seed demo.driver / fleet.operator)")
 
+    # Same 72-BYTE bcrypt limit the HTTP boundary enforces. Reported as a skip
+    # with a readable reason rather than a bcrypt traceback mid-seed.
+    length_problem = security.password_length_problem(password)
+    if length_problem:
+        return f"skipped demo users: {DEMO_PASSWORD_ENV} is unusable -- {length_problem}"
+
     pw_hash = security.hash_password(password)
     for user_id, username, full_name, account_type in DEMO_USERS:
         conn.execute(_UPSERT_DEMO_USER, {
