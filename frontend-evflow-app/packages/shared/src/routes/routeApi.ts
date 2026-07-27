@@ -1,6 +1,6 @@
 import { getEvflowApiBaseUrl } from '../api/baseUrl';
 import { getAuthHeaders } from '../auth/session';
-import type { GeocodingSearchResponse, RoutePlanRequest, RoutePlanResponse } from './routeTypes';
+import type { ActiveRouteEvaluationRequest, ActiveRouteEvaluationResponse, GeocodingSearchResponse, RoutePlanRequest, RoutePlanResponse } from './routeTypes';
 
 export async function createRoutePlan(request: RoutePlanRequest, signal?: AbortSignal): Promise<RoutePlanResponse> {
   const baseUrl = getEvflowApiBaseUrl();
@@ -28,6 +28,22 @@ export async function createRoutePlan(request: RoutePlanRequest, signal?: AbortS
   }
 
   return response.json();
+}
+
+export async function evaluateActiveRoute(request: ActiveRouteEvaluationRequest, signal?: AbortSignal): Promise<ActiveRouteEvaluationResponse> {
+  const response = await fetch(`${getEvflowApiBaseUrl()}/api/v1/route-plans/active/evaluate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(getAuthHeaders() || {}) },
+    body: JSON.stringify(request), signal,
+  });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Route evaluation failed');
+  return response.json();
+}
+
+export async function deleteRoutePlan(routePlanId: string, signal?: AbortSignal): Promise<void> {
+  const response = await fetch(`${getEvflowApiBaseUrl()}/api/v1/route-plans/${encodeURIComponent(routePlanId)}`, {
+    method: 'DELETE', headers: { ...(getAuthHeaders() || {}) }, signal,
+  });
+  if (!response.ok && response.status !== 404) throw new Error('Unable to end route session');
 }
 
 export async function searchGeocoding(
@@ -77,4 +93,3 @@ export async function reverseGeocode(
     return { label: `Location (${lat.toFixed(4)}, ${lon.toFixed(4)})`, address: '', city: '' };
   }
 }
-

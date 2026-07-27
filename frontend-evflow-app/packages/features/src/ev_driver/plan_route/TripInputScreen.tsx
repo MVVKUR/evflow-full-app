@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigate } from 'react-router';
 import { fetchEvModels, getMe, reverseGeocode, type EVModelApiItem, type UserPublic } from '@evflow/shared';
 import { getUserLocation } from '../utils/location';
@@ -20,12 +20,6 @@ type TripInputScreenProps = {
   error?: string | null;
 };
 
-const defaultJakartaPusat: LocationState = {
-  latitude: -6.2088,
-  longitude: 106.8456,
-  label: 'Current Location — Jl. Sudirman, Jakarta Pusat',
-};
-
 export function TripInputScreen({
   origin,
   destination,
@@ -44,6 +38,8 @@ export function TripInputScreen({
   const [user, setUser] = useState<UserPublic | null>(null);
   const [selectedEvModel, setSelectedEvModel] = useState<EVModelApiItem | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [locationDenied, setLocationDenied] = useState(false);
+  const [manualOrigin, setManualOrigin] = useState('');
 
   // Auto-fill origin from location helper & reverse geocode to location name
   useEffect(() => {
@@ -67,10 +63,7 @@ export function TripInputScreen({
             label: `Current Location — ${locationName}`,
           });
         });
-      } else if (!origin) {
-        // Fallback manual default origin when location denied or unavailable
-        onSetOrigin(defaultJakartaPusat);
-      }
+      } else if (!origin) setLocationDenied(true);
     });
 
     return () => {
@@ -128,6 +121,14 @@ export function TripInputScreen({
       !isSimulating
   );
 
+  function applyManualOrigin() {
+    const [lat, lon] = manualOrigin.split(',').map((part) => Number(part.trim()));
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      onSetOrigin({ latitude: lat, longitude: lon, label: 'Manual origin' });
+      setLocationDenied(false);
+    }
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -166,6 +167,12 @@ export function TripInputScreen({
           </View>
         </Pressable>
       </View>
+
+      {locationDenied && !origin ? <View style={styles.permissionBox}>
+        <Text style={styles.warningTitle}>Location permission is unavailable</Text>
+        <Text style={styles.warningSub}>Enter your starting coordinates to plan this trip.</Text>
+        <View style={styles.manualOriginRow}><TextInput accessibilityLabel="Manual origin latitude and longitude" value={manualOrigin} onChangeText={setManualOrigin} placeholder="-6.2088, 106.8456" style={styles.manualOriginInput} /><Pressable accessibilityLabel="Use manual origin" onPress={applyManualOrigin} style={styles.manualOriginButton}><Text style={styles.manualOriginButtonText}>Use</Text></Pressable></View>
+      </View> : null}
 
       {/* Vehicle Profile Warning Banner if no EV model selected */}
       {missingEvModel ? (
@@ -258,6 +265,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  permissionBox: { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 8, padding: 14, marginBottom: 16 },
+  manualOriginRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  manualOriginInput: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 6, paddingHorizontal: 10 },
+  manualOriginButton: { minWidth: 52, minHeight: 44, backgroundColor: '#00696F', borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  manualOriginButtonText: { color: '#FFFFFF', fontWeight: '700' },
   routeRow: {
     flexDirection: 'row',
     alignItems: 'center',

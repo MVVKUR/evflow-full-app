@@ -18,10 +18,6 @@ export type ChargerFilter = {
   onlyAvailable?: boolean;
 };
 
-export type RoutePlanRequest = {
-  origin: string;
-  destination: string;
-  vehicleRangeKm: number;
-  preferredConnectorTypes: string[];
-};
+export type { RoutePlanRequest } from './routes/routeTypes';
+
 

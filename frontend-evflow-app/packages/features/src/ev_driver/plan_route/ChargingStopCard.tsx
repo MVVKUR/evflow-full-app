@@ -10,7 +10,8 @@ type ChargingStopCardProps = {
 
 export function ChargingStopCard({ stop, onAddStop, isAdded = false }: ChargingStopCardProps) {
   const station = stop.station;
-  const connectorType = station.connector_types?.[0] || 'CCS2';
+  const rawConnector = station.connector_types?.[0];
+  const connectorType = typeof rawConnector === 'string' ? rawConnector : rawConnector?.type || 'CCS2';
   const speedTier = station.speed_tier === 'ultra_fast' ? 'Ultra-Fast' : 'Fast';
 
   return (

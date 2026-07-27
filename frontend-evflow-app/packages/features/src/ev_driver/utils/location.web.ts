@@ -5,6 +5,43 @@ export type UserLocationResult = {
   status: LocationPermissionStatus;
 };
 
+export type NavigationFix = {
+  latitude: number;
+  longitude: number;
+  heading?: number | null;
+  speed?: number | null;
+  accuracy?: number | null;
+  timestamp: number;
+};
+
+export type NavigationLocationSubscription = { remove: () => void };
+
+/** Browser counterpart of Expo's location subscription. */
+export async function watchNavigationLocation(
+  onFix: (fix: NavigationFix) => void,
+  onError?: () => void
+): Promise<NavigationLocationSubscription | null> {
+  if (typeof window === 'undefined' || !window.isSecureContext || !navigator.geolocation) {
+    onError?.();
+    return null;
+  }
+
+  const watchId = navigator.geolocation.watchPosition(
+    (position) => onFix({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      heading: position.coords.heading,
+      speed: position.coords.speed,
+      accuracy: position.coords.accuracy,
+      timestamp: position.timestamp,
+    }),
+    () => onError?.(),
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+  );
+
+  return { remove: () => navigator.geolocation.clearWatch(watchId) };
+}
+
 export async function getUserLocation(options: { requestPermission?: boolean } = {}): Promise<UserLocationResult> {
   return new Promise((resolve) => {
     if (typeof window !== 'undefined' && !window.isSecureContext) {
@@ -13,7 +50,6 @@ export async function getUserLocation(options: { requestPermission?: boolean } =
     }
 
     if (!navigator.geolocation) {
-      console.log('Geolocation is not supported by this browser.');
       return resolve({ coordinates: null, status: 'unavailable' });
     }
 
@@ -28,7 +64,6 @@ export async function getUserLocation(options: { requestPermission?: boolean } =
         });
       },
       (error) => {
-        console.error('Error getting location on web:', error);
         resolve({
           coordinates: null,
           status: error.code === error.PERMISSION_DENIED ? 'denied' : 'unavailable'

@@ -1,0 +1,10 @@
+import type { RouteStep } from '@evflow/shared';
+
+export type Point = { latitude: number; longitude: number };
+const earthRadiusM = 6371008.8;
+const radians = (n: number) => n * Math.PI / 180;
+export function distanceMeters(a: Point, b: Point) { const dLat = radians(b.latitude - a.latitude), dLon = radians(b.longitude - a.longitude), x = Math.sin(dLat / 2) ** 2 + Math.cos(radians(a.latitude)) * Math.cos(radians(b.latitude)) * Math.sin(dLon / 2) ** 2; return 2 * earthRadiusM * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)); }
+function project(point: Point, a: Point, b: Point) { const latScale = 111320, lonScale = latScale * Math.cos(radians(a.latitude)); const px = (point.longitude - a.longitude) * lonScale, py = (point.latitude - a.latitude) * latScale, bx = (b.longitude - a.longitude) * lonScale, by = (b.latitude - a.latitude) * latScale, d = bx * bx + by * by, t = d ? Math.max(0, Math.min(1, (px * bx + py * by) / d)) : 0; return { point: { latitude: a.latitude + (b.latitude - a.latitude) * t, longitude: a.longitude + (b.longitude - a.longitude) * t }, t }; }
+export function matchRoute(point: Point, line: [number, number][]) { let best = { distanceM: Infinity, travelledM: 0, point }; let before = 0; for (let i = 1; i < line.length; i++) { const a = { latitude: line[i - 1][1], longitude: line[i - 1][0] }, b = { latitude: line[i][1], longitude: line[i][0] }, hit = project(point, a, b), distanceM = distanceMeters(point, hit.point); if (distanceM < best.distanceM) best = { distanceM, travelledM: before + distanceMeters(a, b) * hit.t, point: hit.point }; before += distanceMeters(a, b); } return { ...best, totalM: before, remainingM: Math.max(0, before - best.travelledM) }; }
+export function advanceStep(steps: RouteStep[], index: number, matched: Point, thresholdM = 35) { let next = index; while (next < steps.length - 1) { const location = steps[next].location; if (!location || distanceMeters(matched, { latitude: location[1], longitude: location[0] }) > thresholdM) break; next++; } return next; }
+export function isOffRoute(consecutiveInvalidFixes: number) { return consecutiveInvalidFixes >= 3; }

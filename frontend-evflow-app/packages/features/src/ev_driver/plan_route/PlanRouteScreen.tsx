@@ -61,8 +61,8 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0 }: PlanRouteScr
     }
   }
 
-  async function handleSimulateRoute(waypointStationId?: string) {
-    if (!origin || !destination) return;
+  async function handleSimulateRoute(waypointStationId?: string): Promise<RoutePlanResponse> {
+    if (!origin || !destination) throw new Error('Choose an origin and destination first');
 
     setIsSimulating(true);
     setError(null);
@@ -80,7 +80,7 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0 }: PlanRouteScr
           label: destination.label,
         },
         current_soc_pct: currentSocPct,
-        minimum_arrival_soc_pct: 15.0,
+        minimum_arrival_soc_pct: 20.0,
         preferences: {
           route_type: 'fastest',
           maximum_detour_km: 15.0,
@@ -91,15 +91,17 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0 }: PlanRouteScr
 
       setSimulationResult(res);
       setViewMode('simulation');
+      return res;
     } catch (err: any) {
       setError(err.message || 'Failed to simulate route');
+      throw err;
     } finally {
       setIsSimulating(false);
     }
   }
 
-  function handleAddStopToRoute(stationId: string) {
-    handleSimulateRoute(stationId);
+  async function handleAddStopToRoute(stationId: string) {
+    return handleSimulateRoute(stationId);
   }
 
   function handleEndNavigation() {
@@ -119,6 +121,7 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0 }: PlanRouteScr
         topInset={topInset}
         onOverview={() => setViewMode('simulation')}
         onEndNavigation={handleEndNavigation}
+        minimumArrivalSocPct={20}
       />
     );
   }

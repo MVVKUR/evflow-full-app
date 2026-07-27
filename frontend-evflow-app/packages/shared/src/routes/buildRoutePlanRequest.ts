@@ -1,6 +1,11 @@
-import type { RoutePlanRequest } from '../types';
+export interface RoutePlanInputLegacy {
+  origin: string;
+  destination: string;
+  vehicleRangeKm: number;
+  preferredConnectorTypes: string[];
+}
 
-export function buildRoutePlanRequest(input: RoutePlanRequest): RoutePlanRequest {
+export function buildRoutePlanRequest(input: RoutePlanInputLegacy) {
   return {
     origin: input.origin.trim(),
     destination: input.destination.trim(),

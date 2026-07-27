@@ -5,6 +5,7 @@ import { BottomNavigation, evDriverContainerStyles as styles, SideMenu, type Nav
 import { useAppSafeAreaInsets } from '../shared/useAppSafeAreaInsets';
 import { DriverAssetIcon } from './components/DriverAssetIcon';
 import { DriverMapScreen } from './DriverMapScreen';
+import { MockDriverScreen } from './MockDriverScreen';
 import { PlanRouteScreen } from './plan_route/PlanRouteScreen';
 import { ProfileScreen } from './ProfileScreen';
 import { TopUpSuccessScreen, TopUpWalletScreen } from './TopUpWalletScreen';

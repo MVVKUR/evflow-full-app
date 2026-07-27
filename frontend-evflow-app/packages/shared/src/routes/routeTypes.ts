@@ -1,4 +1,4 @@
-import type { Station } from '../types';
+import type { StationApiItem as Station } from '../stations/api';
 
 export interface RouteLocationInput {
   latitude: number;
@@ -12,10 +12,20 @@ export interface RoutePreferencesInput {
   prefer_fast_charging?: boolean;
 }
 
+export interface ManualVehicleInput {
+  usable_range_km: number;
+  battery_kwh?: number;
+  name?: string;
+  max_dc_charge_kw?: number;
+  connector_type?: string;
+}
+
 export interface RoutePlanRequest {
   origin: RouteLocationInput;
   destination: RouteLocationInput;
   current_soc_pct: number;
+  ev_model_id?: string;
+  vehicle?: ManualVehicleInput;
   minimum_arrival_soc_pct?: number;
   preferences?: RoutePreferencesInput;
   waypoint_station_id?: string;
@@ -48,6 +58,7 @@ export interface RouteStep {
   distance_m?: number;
   duration_s?: number;
   location?: [number, number];
+  leg_index?: number;
 }
 
 export interface RoutePlanGeometryAndSteps {
@@ -76,6 +87,7 @@ export interface RoutePlanAssumptions {
   traffic_applied: boolean;
   connector_data_inferred: boolean;
   energy_model_version: string;
+  maximum_detour_km?: number;
 }
 
 export interface RoutePlanResponse {
@@ -85,7 +97,32 @@ export interface RoutePlanResponse {
   summary: TripSummary;
   route: RoutePlanGeometryAndSteps;
   recommended_stop?: RecommendedStop | null;
+  user_requested_stop?: RecommendedStop | null;
+  charging_stops?: RecommendedStop[];
+  alternative_stops?: RecommendedStop[];
   assumptions: RoutePlanAssumptions;
+}
+
+export interface ActiveRouteEvaluationRequest {
+  route_plan_id: string;
+  current_position: RouteLocationInput;
+  destination: RouteLocationInput;
+  current_soc_pct: number;
+  minimum_arrival_soc_pct?: number;
+  maximum_detour_km?: number;
+  ev_model_id?: string;
+  vehicle?: ManualVehicleInput;
+}
+
+export interface ActiveRouteEvaluationResponse {
+  route_plan_id?: string;
+  route_status: 'direct_route_available' | 'charging_required' | 'no_suitable_station' | string;
+  remaining_distance_km: number;
+  remaining_duration_minutes: number;
+  projected_arrival_soc_pct: number;
+  estimated_arrival_at?: string | null;
+  candidate_stops: RecommendedStop[];
+  warning?: { message: string; suggested_actions?: string[]; severity?: string } | null;
 }
 
 export interface GeocodingItem {

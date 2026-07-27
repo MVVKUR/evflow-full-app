@@ -10,7 +10,7 @@ type TripSimulationScreenProps = {
   result: RoutePlanResponse;
   onEditTrip: () => void;
   onStartNavigation: () => void;
-  onAddStopToRoute: (stationId: string) => void;
+  onAddStopToRoute: (stationId: string) => Promise<RoutePlanResponse>;
   origin?: LocationState | null;
   destination?: LocationState | null;
   originLabel?: string;
@@ -28,6 +28,7 @@ export function TripSimulationScreen({
   destinationLabel = 'Bandung',
 }: TripSimulationScreenProps) {
   const [stopAdded, setStopAdded] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
   const { summary, route, recommended_stop, directly_reachable } = result;
 
@@ -81,7 +82,7 @@ export function TripSimulationScreen({
     if (recommended_stop) {
       markers.push({
         id: recommended_stop.station.id,
-        label: recommended_stop.station.name,
+        label: recommended_stop.station.name ?? undefined,
         latitude: recommended_stop.station.latitude,
         longitude: recommended_stop.station.longitude,
         type: 'charging_stop',
@@ -91,17 +92,19 @@ export function TripSimulationScreen({
     return markers;
   }, [destination, destinationLabel, origin, originLabel, polylineCoordinates, recommended_stop]);
 
-  function handleAddStop() {
+  async function handleAddStop() {
     if (recommended_stop) {
-      setStopAdded(true);
-      onAddStopToRoute(recommended_stop.station.id);
+      setIsRecalculating(true);
+      try { await onAddStopToRoute(recommended_stop.station.id); setStopAdded(true); }
+      finally { setIsRecalculating(false); }
     }
   }
 
-  function handleStartNavPress() {
+  async function handleStartNavPress() {
     if (recommended_stop && !stopAdded && !directly_reachable) {
-      // Confirmation flow: Add recommended stop before starting navigation
-      handleAddStop();
+      await handleAddStop();
+      onStartNavigation();
+      return;
     }
     onStartNavigation();
   }
@@ -196,8 +199,8 @@ export function TripSimulationScreen({
       ) : null}
 
       {/* Start Navigation Action Button */}
-      <Pressable style={styles.startNavButton} onPress={handleStartNavPress}>
-        <Text style={styles.startNavButtonText}>Start Navigation</Text>
+      <Pressable disabled={isRecalculating} style={[styles.startNavButton, isRecalculating && { opacity: 0.55 }]} onPress={handleStartNavPress}>
+        <Text style={styles.startNavButtonText}>{isRecalculating ? 'Recalculating route...' : 'Start Navigation'}</Text>
       </Pressable>
     </ScrollView>
   );
