@@ -213,3 +213,52 @@ def routing_coords(source: Optional[str] = None) -> list[dict]:
     sql = f"SELECT id, ST_Y(geom) AS latitude, ST_X(geom) AS longitude FROM stations{where}"
     with engine.connect() as c:
         return [dict(r) for r in c.execute(text(sql), params).mappings().all()]
+
+
+# <Aidil> 2026-07-29
+def get_hourly_occupancy(station_id: str) -> dict:
+    """Retrieve hourly occupancy data for a station structured by day and hour."""
+    sql = """
+        SELECT 
+            station_id,
+            day_of_week,
+            CASE day_of_week
+                WHEN 1 THEN 'Monday'
+                WHEN 2 THEN 'Tuesday'
+                WHEN 3 THEN 'Wednesday'
+                WHEN 4 THEN 'Thursday'
+                WHEN 5 THEN 'Friday'
+                WHEN 6 THEN 'Saturday'
+                WHEN 7 THEN 'Sunday'
+            END AS day_name,
+            hour_of_day,
+            avg_occupancy
+        FROM station_hourly_occupancy
+        WHERE station_id = :sid
+        ORDER BY 
+            day_of_week ASC, 
+            hour_of_day ASC;
+    """
+    with engine.connect() as c:
+        rows = c.execute(text(sql), {"sid": station_id}).mappings().all()
+
+    # Structure the flat rows into days -> hours
+    days_map = {}
+    for r in rows:
+        dow = int(r["day_of_week"])
+        if dow not in days_map:
+            days_map[dow] = {
+                "day_of_week": dow,
+                "day_name": r["day_name"],
+                "hours": []
+            }
+        days_map[dow]["hours"].append({
+            "hour_of_day": int(r["hour_of_day"]),
+            "avg_occupancy": float(r["avg_occupancy"]) if r["avg_occupancy"] is not None else 0.0
+        })
+        
+    return {
+        "station_id": station_id,
+        "days": list(days_map.values())
+    }
+# </Aidil> 2026-07-29
