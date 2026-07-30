@@ -112,3 +112,97 @@ def release(c, connector_id: str) -> None:
         UPDATE connectors SET status = 'available', updated_at = now()
         WHERE id = :cid AND status = 'in_use'
     """), {"cid": connector_id})
+
+
+# <Aidil> 2026-07-29
+def get_station_realtime_status(station_id: str) -> dict:
+    """Retrieve full status summary for a station including connector status."""
+    connectors_sql = """
+        SELECT 
+            c.type,
+            c.speed_tier,
+            COUNT(CASE WHEN c.status = 'available' THEN 1 END) AS available,
+            COUNT(c.id) AS total,
+            CASE 
+                -- If all connectors in this group are in use, calculate remaining waiting time in minutes
+                WHEN COUNT(CASE WHEN c.status = 'available' THEN 1 END) = 0 THEN
+                    ROUND(
+                        GREATEST(
+                            0,
+                            EXTRACT(
+                                EPOCH FROM (
+                                    MIN(
+                                        cs.created_at + (((cs.energy_kwh / NULLIF(cs.power_kw, 0)) * 60.0) || ' minutes')::INTERVAL
+                                    ) - NOW()
+                                )
+                            ) / 60.0
+                        )::NUMERIC,
+                        2
+                    )
+                ELSE 0.00 -- Available connectors have 0 waiting time
+            END AS waiting_time
+        FROM connectors c
+        LEFT JOIN charging_sessions cs 
+            ON c.id = cs.connector_id 
+        AND cs.status = 'active'
+        WHERE c.station_id = :sid
+        GROUP BY 
+            c.station_id,
+            c.type,
+            c.speed_tier,
+            c.power_kw
+        ORDER BY c.type, c.speed_tier;
+    """
+    
+    with engine.connect() as c:
+        connector_rows = c.execute(text(connectors_sql), {"sid": station_id}).mappings().all()
+        
+    if not connector_rows:
+        return {
+            "station_id": station_id,
+            "station_status": 0,
+            "available": "0",
+            "total": "0",
+            "waiting_time": 0.0,
+            "connectors": []
+        }
+        
+    connectors = []
+    total_available = 0
+    total_total = 0
+    waiting_times = []
+    
+    for r in connector_rows:
+        available_val = int(r["available"])
+        total_val = int(r["total"])
+        total_available += available_val
+        total_total += total_val
+        
+        # Format waiting_time as string for connectors (e.g. "0" if zero, otherwise decimal string)
+        wt = r["waiting_time"]
+        if wt is None or float(wt) == 0:
+            wt_str = "0"
+        else:
+            wt_float = float(wt)
+            wt_str = str(int(wt_float)) if wt_float.is_integer() else str(wt)
+        
+        waiting_times.append(float(wt) if wt is not None else 0.0)
+        
+        connectors.append({
+            "type": r["type"],
+            "speed_tier": r["speed_tier"],
+            "available": str(available_val),
+            "total": str(total_val),
+            "waiting_time": wt_str
+        })
+        
+    summary = {
+        "station_id": station_id,
+        "station_status": 1 if total_available > 0 else 0,
+        "available": str(total_available),
+        "total": str(total_total),
+        "waiting_time": 0.0 if total_available > 0 else min(waiting_times),
+        "connectors": connectors
+    }
+    return summary
+# </Aidil> 2026-07-29
