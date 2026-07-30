@@ -60,7 +60,11 @@ export function EVDriverContainer() {
         ) : walletFlow === 'success' ? (
           <TopUpSuccessScreen bottomOffset={insets.bottom} topInset={topInset} />
         ) : activeTab === 'map' ? (
-          <DriverMapScreen bottomOffset={bottomNavOffset} topInset={topInset} />
+          <DriverMapScreen
+            bottomOffset={bottomNavOffset}
+            onChargeHere={() => navigate('/charging-flow/scan')}
+            topInset={topInset}
+          />
         ) : activeTab === 'wallet' ? (
           <WalletScreen bottomInset={insets.bottom} bottomOffset={bottomNavOffset} topInset={topInset} />
         ) : activeTab === 'profile' ? (

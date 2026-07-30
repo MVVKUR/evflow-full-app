@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, UIManager, View, useWindowDimensions, type ViewStyle } from 'react-native';
+import { ActivityIndicator, LayoutAnimation, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, UIManager, View, useWindowDimensions, type ViewStyle } from 'react-native';
 import { driverMapStyles as styles, LeafletMap } from '@evflow/ui';
 import { fetchConnectorTypes, fetchNearbyStations, fetchSpeedTiers, fetchStations, type ConnectorTypeApiItem, type SpeedTierApiItem, type StationApiItem, type StationConnectorApiItem, type StationConnectorTypeApiItem } from '@evflow/shared';
 import { getUserLocation, type LocationPermissionStatus } from './utils/location';
@@ -8,13 +8,23 @@ import { selectedSpkluMarkerSvg, spkluMarkerSvg } from './components/spkluMarker
 import { PlatformSlider } from '../shared/PlatformSlider';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import { closeButtonIcon, filterSettingIcon, lightningIcon, searchIcon } from './components/driverMapIcons';
+import { ConnectorAvailabilityRow } from './components/ConnectorAvailabilityRow';
+import { PeakHoursChart } from './components/PeakHoursChart';
+import { StationAvailabilitySummary } from './components/StationAvailabilitySummary';
+import { StationDetailActions } from './components/StationDetailActions';
+import { aggregateConnectorStatuses } from './station-status/aggregateConnectorStatuses';
+import { getMockStationLiveStatus as defaultStationStatusLoader } from './station-status/mockStationStatus';
+import { getDrawerAwareMapCenter, getDrawerModeAfterClosingStationDetail, isCurrentStationStatusRequest, loadValidStationStatus, shouldRenderSearchBar } from './station-status/stationDetailState';
+import { type StationLiveStatus, type StationStatusLoader } from './station-status/types';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-type DriverMapScreenProps = {
+export type DriverMapScreenProps = {
   bottomOffset?: number;
+  onChargeHere?: (stationId: string) => void;
+  stationStatusLoader?: StationStatusLoader;
   topInset?: number;
 };
 
@@ -51,6 +61,9 @@ type MapViewState = {
 
 const defaultStationLimit = 1000;
 const defaultDistanceKm = 8;
+const collapsedSheetHeight = 104;
+const collapsedDetailSheetHeight = 204;
+const stationDetailZoom = 15;
 const distanceOptions = [3, 5, 8, 10] as const;
 const defaultMapView: MapViewState = {
   center: {
@@ -59,7 +72,12 @@ const defaultMapView: MapViewState = {
   },
   zoom: 13
 };
-export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScreenProps) {
+export function DriverMapScreen({
+  bottomOffset = 0,
+  onChargeHere,
+  stationStatusLoader = defaultStationStatusLoader,
+  topInset = 0
+}: DriverMapScreenProps) {
   const { height, width } = useWindowDimensions();
   const [expanded, setExpanded] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>('results');
@@ -82,6 +100,10 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
   const [locationPermissionLoading, setLocationPermissionLoading] = useState(false);
   const [locationResolved, setLocationResolved] = useState(false);
   const [mapView, setMapView] = useState<MapViewState>(defaultMapView);
+  const [stationLiveStatus, setStationLiveStatus] = useState<StationLiveStatus | null>(null);
+  const [stationStatusError, setStationStatusError] = useState<string | null>(null);
+  const [stationStatusLoading, setStationStatusLoading] = useState(false);
+  const [stationStatusRetry, setStationStatusRetry] = useState(0);
   const previousMapViewRef = useRef<MapViewState>(defaultMapView);
   const previousResultsExpandedRef = useRef(false);
   const requestedLocationPermissionRef = useRef(false);
@@ -89,7 +111,9 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
   const expandedRef = useRef(expanded);
   const searchQueryRef = useRef(searchQuery);
   const searchRestoreStateRef = useRef<{ drawerMode: DrawerMode; expanded: boolean; selectedStation: Station | null } | null>(null);
-  const searchActive = searchFocused || searchQuery.trim().length > 0;
+  const stationStatusCacheRef = useRef(new Map<string, StationLiveStatus>());
+  const stationStatusRequestRef = useRef(0);
+  const searchActive = drawerMode !== 'detail' && (searchFocused || searchQuery.trim().length > 0);
   useEffect(() => {
     selectedStationRef.current = selectedStation;
   }, [selectedStation]);
@@ -97,6 +121,56 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
   useEffect(() => {
     expandedRef.current = expanded;
   }, [expanded]);
+
+  useEffect(() => {
+    if (drawerMode !== 'detail' || !selectedStation) {
+      setStationLiveStatus(null);
+      setStationStatusError(null);
+      setStationStatusLoading(false);
+      return;
+    }
+
+    const stationId = selectedStation.id;
+    const cachedStatus = stationStatusCacheRef.current.get(stationId);
+    if (cachedStatus) {
+      setStationLiveStatus(cachedStatus);
+      setStationStatusError(null);
+      setStationStatusLoading(false);
+      return;
+    }
+
+    const request = { requestId: ++stationStatusRequestRef.current, stationId };
+    let active = true;
+    setStationLiveStatus(null);
+    setStationStatusError(null);
+    setStationStatusLoading(true);
+
+    void loadValidStationStatus(stationStatusLoader, stationId)
+      .then((status) => {
+        if (!active || !isCurrentStationStatusRequest(request, stationStatusRequestRef.current, selectedStationRef.current?.id ?? null)) {
+          return;
+        }
+        stationStatusCacheRef.current.set(stationId, status);
+        setStationLiveStatus(status);
+        setStationStatusError(null);
+      })
+      .catch((error: unknown) => {
+        if (!active || !isCurrentStationStatusRequest(request, stationStatusRequestRef.current, selectedStationRef.current?.id ?? null)) {
+          return;
+        }
+        setStationLiveStatus(null);
+        setStationStatusError(error instanceof Error ? error.message : 'Unable to load live station status.');
+      })
+      .finally(() => {
+        if (active && isCurrentStationStatusRequest(request, stationStatusRequestRef.current, selectedStationRef.current?.id ?? null)) {
+          setStationStatusLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [drawerMode, selectedStation?.id, stationStatusLoader, stationStatusRetry]);
 
   const isScrolledToTopRef = useRef(true);
 
@@ -312,9 +386,23 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
   // Selected badge: same artwork ringed in dark teal + white and slightly larger,
   // so the tapped station is unmistakable among its neighbours.
   const selectedStationMarkerIcon = useMemo(() => selectedSpkluMarkerSvg(44), []);
-  const detailSheetHeight = width < 768 ? Math.floor((height - bottomOffset) / 2) : undefined;
+  const detailSheetHeight = width < 768
+    ? Math.floor((height - bottomOffset) * 0.8)
+    : Math.min(720, height - bottomOffset - 32);
   const filterSheetHeight = width < 768 ? getMobileFilterSheetHeight(height, topInset, bottomOffset) : undefined;
   const searchSheetHeight = getSearchResultsSheetHeight(height, topInset, bottomOffset);
+
+  useEffect(() => {
+    if (drawerMode !== 'detail' || !selectedStation) {
+      return;
+    }
+
+    const drawerHeight = expanded ? detailSheetHeight : collapsedDetailSheetHeight;
+    setMapView({
+      center: getDrawerAwareMapCenter(selectedStation, stationDetailZoom, bottomOffset + drawerHeight),
+      zoom: stationDetailZoom
+    });
+  }, [bottomOffset, detailSheetHeight, drawerMode, expanded, selectedStation?.id]);
 
   const activateSearchResults = () => {
     searchRestoreStateRef.current ??= { drawerMode, expanded, selectedStation };
@@ -322,7 +410,7 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
     animateNext();
     setSearchFocused(true);
     setSelectedStation(null);
-    setDrawerMode('results');
+    setDrawerMode(getDrawerModeAfterClosingStationDetail());
     setExpanded(true);
   };
 
@@ -369,24 +457,23 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
     }
 
     animateNext();
+    selectedStationRef.current = station;
     setSelectedStation(station);
-    const latOffset = width < 768 ? 0.008 : 0;
 
     setMapView({
-      center: {
-        latitude: station.latitude - latOffset,
-        longitude: station.longitude
-      },
-      zoom: 15
+      center: getDrawerAwareMapCenter(station, stationDetailZoom, bottomOffset + collapsedDetailSheetHeight),
+      zoom: stationDetailZoom
     });
     setDrawerMode('detail');
-    setExpanded(true);
+    setExpanded(false);
   };
   const closeStationDetail = () => {
+    stationStatusRequestRef.current += 1;
     animateNext();
+    selectedStationRef.current = null;
     setSelectedStation(null);
     setMapView(previousMapViewRef.current);
-    setDrawerMode('results');
+    setDrawerMode(getDrawerModeAfterClosingStationDetail());
     setExpanded(previousResultsExpandedRef.current);
   };
 
@@ -413,7 +500,7 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
         zoom={mapView.zoom}
       />
 
-      <View style={[styles.searchBar, { top: 24 + topInset }]}>
+      {shouldRenderSearchBar(drawerMode) ? <View style={[styles.searchBar, { top: 24 + topInset }]}>
         <View style={styles.searchIcon}>
           <SvgAssetIcon color="#6B7A7B" height={18} name="search" svg={searchIcon} width={18} />
         </View>
@@ -439,10 +526,11 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
         >
           <SvgAssetIcon color="#005F64" height={18} name="filter" svg={filterSettingIcon} width={18} />
         </Pressable>
-      </View>
+      </View> : null}
 
         <View style={[styles.sheet, getSheetStateStyle(drawerMode, expanded, detailSheetHeight, filterSheetHeight, searchSheetHeight), { bottom: bottomOffset }]} {...drawerPanResponder.panHandlers}>
           <Pressable
+            accessibilityLabel={expanded ? 'Collapse drawer' : 'Expand drawer'}
             accessibilityRole="button"
             accessibilityState={{ expanded }}
             onPress={() => {
@@ -525,9 +613,14 @@ export function DriverMapScreen({ bottomOffset = 0, topInset = 0 }: DriverMapScr
           {drawerMode === 'detail' && selectedStation ? (
             <StationDetailDrawer
               expanded={expanded}
+              liveStatus={stationLiveStatus}
               onScroll={handleScroll}
               station={selectedStation}
               onClose={closeStationDetail}
+              onChargeHere={onChargeHere ? () => onChargeHere(selectedStation.id) : undefined}
+              onRetry={() => setStationStatusRetry((current) => current + 1)}
+              statusError={stationStatusError}
+              statusLoading={stationStatusLoading}
             />
           ) : null}
         </View>
@@ -757,12 +850,32 @@ function getLocationPermissionButtonLabel(status: LocationPermissionStatus) {
 
 type StationDetailDrawerProps = {
   expanded: boolean;
+  liveStatus: StationLiveStatus | null;
   station: Station;
   onClose: () => void;
+  onChargeHere?: () => void;
+  onRetry: () => void;
   onScroll?: (e: any) => void;
+  statusError: string | null;
+  statusLoading: boolean;
 };
 
-function StationDetailDrawer({ expanded, station, onClose, onScroll }: StationDetailDrawerProps) {
+function StationDetailDrawer({
+  expanded,
+  liveStatus,
+  station,
+  onChargeHere,
+  onClose,
+  onRetry,
+  onScroll,
+  statusError,
+  statusLoading
+}: StationDetailDrawerProps) {
+  const availability = useMemo(
+    () => aggregateConnectorStatuses(liveStatus?.connectors ?? []),
+    [liveStatus]
+  );
+
   return (
     <View style={styles.drawerBody}>
       <View style={styles.sheetHeader}>
@@ -774,19 +887,39 @@ function StationDetailDrawer({ expanded, station, onClose, onScroll }: StationDe
         </Pressable>
       </View>
 
-      <View style={[styles.expandedContent, getExpandedContentStateStyle(expanded)]}>
+      <View style={{ gap: 9 }}>
+        <Text numberOfLines={expanded ? 2 : 1} style={styles.stationAddress}>{station.address}</Text>
+        <StationAvailabilitySummary availability={availability} />
+      </View>
+
+      <View style={[styles.expandedContent, { marginTop: 12 }, getExpandedContentStateStyle(expanded)]}>
         <ScrollView
           contentContainerStyle={styles.stationDetailContent}
           showsVerticalScrollIndicator={false}
           onScroll={onScroll}
           scrollEventThrottle={16}
         >
-          <Text style={styles.stationAddress}>{station.address}</Text>
-          <View style={styles.connectorList}>
-            {station.connectors.map((connector, index) => (
-              <ConnectorRow connector={connector} key={`${connector.type}-${connector.speedTier ?? 'unknown'}-${connector.powerKw ?? 'unknown'}-${index}`} />
-            ))}
-          </View>
+          {statusLoading ? (
+            <View accessibilityLabel="Loading live station status" accessibilityLiveRegion="polite" style={{ alignItems: 'center', flexDirection: 'row', gap: 10, minHeight: 48 }}>
+              <ActivityIndicator color="#00696F" />
+              <Text style={styles.stationAddress}>Loading live connector status...</Text>
+            </View>
+          ) : null}
+          {statusError ? (
+            <View accessibilityLiveRegion="polite" style={{ backgroundColor: '#FFF7ED', borderColor: '#F4C384', borderRadius: 12, borderWidth: 1, gap: 8, padding: 12 }}>
+              <Text style={{ color: '#7A4410', fontSize: 13, lineHeight: 18 }}>{statusError}</Text>
+              <Pressable accessibilityLabel="Retry station status" accessibilityRole="button" onPress={onRetry} style={{ alignItems: 'center', alignSelf: 'flex-start', borderColor: '#00696F', borderRadius: 8, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 16 }}>
+                <Text style={{ color: '#005F64', fontSize: 13, fontWeight: '900' }}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {liveStatus ? (
+            <View style={{ gap: 8 }}>
+              {availability.groups.map((group) => <ConnectorAvailabilityRow group={group} key={group.key} />)}
+            </View>
+          ) : null}
+          {liveStatus ? <PeakHoursChart availabilityState={availability.state} peakHours={liveStatus.peakHours} /> : null}
+          <StationDetailActions availability={availability} onBack={onClose} onChargeHere={onChargeHere} />
         </ScrollView>
       </View>
     </View>
@@ -1091,7 +1224,7 @@ function getSheetStateStyle(mode: DrawerMode, expanded: boolean, detailSheetHeig
   };
 
   return {
-    height: expanded ? expandedHeights[mode] : 104,
+    height: expanded ? expandedHeights[mode] : mode === 'detail' ? collapsedDetailSheetHeight : collapsedSheetHeight,
     ...getWebTransition('height', '240ms', 'cubic-bezier(0.22, 1, 0.36, 1)')
   };
 }
