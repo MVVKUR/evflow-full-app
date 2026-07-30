@@ -48,6 +48,7 @@ from .models import (
     TripSummary, RoutePlanGeometryAndSteps, RecommendedStop, RoutePlanAssumptions, GeocodingItem,
     RouteWarning, ActiveRouteEvaluationRequest, ActiveRouteEvaluationResponse,
     ManualVehicleInput, RoutePreferencesInput, ServiceAreaSummary,
+    StationStatusResponse, StationOccupancyResponse,
 )
 from .services import service_area
 
@@ -1763,3 +1764,23 @@ async def reverse_geocoding(
     except Exception:
         logging.exception("reverse geocoding failed")
         raise HTTPException(502, "geocoding provider unavailable")
+
+
+# <Aidil> 2026-07-29
+@app.get("/api/v1/stations/{station_id}/status", response_model=StationStatusResponse,
+         tags=["stations"], summary="Get station real-time status and waiting time",
+         responses={404: {"description": "Station not found"}})
+def get_station_status(station_id: str) -> StationStatusResponse:
+    if repo.get_station(station_id) is None:
+        raise HTTPException(404, f"station '{station_id}' not found")
+    return StationStatusResponse(**connectors_repo.get_station_realtime_status(station_id))
+
+
+@app.get("/api/v1/stations/{station_id}/occupancy", response_model=StationOccupancyResponse,
+         tags=["stations"], summary="Get station hourly occupancy data",
+         responses={404: {"description": "Station not found"}})
+def get_station_occupancy(station_id: str) -> StationOccupancyResponse:
+    if repo.get_station(station_id) is None:
+        raise HTTPException(404, f"station '{station_id}' not found")
+    return StationOccupancyResponse(**repo.get_hourly_occupancy(station_id))
+# </Aidil> 2026-07-29

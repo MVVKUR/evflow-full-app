@@ -908,3 +908,34 @@ class GeocodingSearchResponse(BaseModel):
         description="How many otherwise-matching suggestions were dropped because "
                     "in_service_area_only=true. Always 0 when the flag is off.",
         examples=[0])
+
+
+# <Aidil> 2026-07-29
+class StationConnectorStatus(BaseModel):
+    type: str = Field(..., description="Connector standard/type.", examples=["CCS2"])
+    speed_tier: Optional[str] = Field(None, description="Connector speed tier.", examples=["fast"])
+    available: str = Field(..., description="Number of available connectors in this group.", examples=["3"])
+    total: str = Field(..., description="Total number of connectors in this group.", examples=["5"])
+    waiting_time: str = Field(..., description="Waiting Time (minutes) status message.", examples=["0", "12.4"])
+
+class StationStatusResponse(BaseModel):
+    station_id: str = Field(..., description="ID of the station.", examples=["pln_spklu-1"])
+    station_status: int = Field(..., description="Station status (1 if available, 0 if in use).", examples=[1])
+    available: str = Field(..., description="Total number of available connectors at the station.", examples=["3"])
+    total: str = Field(..., description="Total number of connectors at the station.", examples=["8"])
+    waiting_time: float = Field(..., description="Waiting time details if busy.", examples=[0.0, 5.0])
+    connectors: list[StationConnectorStatus]
+
+class StationOccupancyHour(BaseModel):
+    hour_of_day: int = Field(..., description="Hour of day (0 to 23).", examples=[14])
+    avg_occupancy: float = Field(..., description="Average occupancy percentage.", examples=[45.5])
+
+class StationOccupancyDay(BaseModel):
+    day_of_week: int = Field(..., description="Day of week (1=Monday, ..., 7=Sunday).", examples=[1])
+    day_name: str = Field(..., description="Day name.", examples=["Monday"])
+    hours: list[StationOccupancyHour]
+
+class StationOccupancyResponse(BaseModel):
+    station_id: str = Field(..., description="ID of the station.", examples=["pln_spklu-6"])
+    days: list[StationOccupancyDay]
+# </Aidil> 2026-07-29

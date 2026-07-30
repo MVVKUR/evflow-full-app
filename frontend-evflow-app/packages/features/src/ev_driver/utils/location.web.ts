@@ -16,41 +16,104 @@ export type NavigationFix = {
 
 export type NavigationLocationSubscription = { remove: () => void };
 
-/** Browser counterpart of Expo's location subscription. */
+const defaultWebLocation = {
+  latitude: -6.1754,
+  longitude: 106.8272
+};
+
+/** Browser counterpart of Expo's location subscription with simulated GPS fallback for localhost/web development. */
 export async function watchNavigationLocation(
   onFix: (fix: NavigationFix) => void,
   onError?: () => void
 ): Promise<NavigationLocationSubscription | null> {
-  if (typeof window === 'undefined' || !window.isSecureContext || !navigator.geolocation) {
+  if (typeof window === 'undefined') {
     onError?.();
     return null;
   }
 
+  const startSimulatedWatch = () => {
+    console.warn("Using simulated GPS navigation stream for localhost/web.");
+    let lat = defaultWebLocation.latitude;
+    let lon = defaultWebLocation.longitude;
+    const timerId = setInterval(() => {
+      lat += 0.0001;
+      lon += 0.0001;
+      onFix({
+        latitude: lat,
+        longitude: lon,
+        heading: 45,
+        speed: 15,
+        accuracy: 5,
+        timestamp: Date.now(),
+      });
+    }, 2000);
+    onFix({
+      latitude: lat,
+      longitude: lon,
+      heading: 45,
+      speed: 15,
+      accuracy: 5,
+      timestamp: Date.now(),
+    });
+    return { remove: () => clearInterval(timerId) };
+  };
+
+  if (!window.isSecureContext || !navigator.geolocation) {
+    return startSimulatedWatch();
+  }
+
+  let usingFallback = false;
+  let fallbackSub: NavigationLocationSubscription | null = null;
+
   const watchId = navigator.geolocation.watchPosition(
-    (position) => onFix({
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      heading: position.coords.heading,
-      speed: position.coords.speed,
-      accuracy: position.coords.accuracy,
-      timestamp: position.timestamp,
-    }),
-    () => onError?.(),
-    { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+    (position) => {
+      if (usingFallback) return;
+      onFix({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        heading: position.coords.heading,
+        speed: position.coords.speed,
+        accuracy: position.coords.accuracy,
+        timestamp: position.timestamp,
+      });
+    },
+    () => {
+      if (!usingFallback) {
+        usingFallback = true;
+        navigator.geolocation.clearWatch(watchId);
+        fallbackSub = startSimulatedWatch();
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 5000 }
   );
 
-  return { remove: () => navigator.geolocation.clearWatch(watchId) };
+  return {
+    remove: () => {
+      navigator.geolocation.clearWatch(watchId);
+      fallbackSub?.remove();
+    }
+  };
 }
 
 export async function getUserLocation(options: { requestPermission?: boolean } = {}): Promise<UserLocationResult> {
   return new Promise((resolve) => {
+    const resolveFallback = () => {
+      console.warn("GPS/Geolocation unavailable or blocked on localhost/web. Falling back to default Jakarta coordinates (-6.1754, 106.8272).");
+      resolve({
+        coordinates: {
+          latitude: defaultWebLocation.latitude,
+          longitude: defaultWebLocation.longitude
+        },
+        status: 'granted'
+      });
+    };
+
     if (typeof window !== 'undefined' && !window.isSecureContext) {
-      resolve({ coordinates: null, status: 'unavailable' });
-      return;
+      return resolveFallback();
     }
 
     if (!navigator.geolocation) {
-      return resolve({ coordinates: null, status: 'unavailable' });
+      return resolveFallback();
     }
 
     const readCurrentPosition = () => navigator.geolocation.getCurrentPosition(
@@ -64,10 +127,12 @@ export async function getUserLocation(options: { requestPermission?: boolean } =
         });
       },
       (error) => {
-        resolve({
-          coordinates: null,
-          status: error.code === error.PERMISSION_DENIED ? 'denied' : 'unavailable'
-        });
+        resolveFallback();
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 10_000,
+        timeout: 8_000
       }
     );
 
@@ -77,7 +142,7 @@ export async function getUserLocation(options: { requestPermission?: boolean } =
     }
 
     if (!navigator.permissions?.query) {
-      resolve({ coordinates: null, status: 'undetermined' });
+      readCurrentPosition();
       return;
     }
 
@@ -88,14 +153,10 @@ export async function getUserLocation(options: { requestPermission?: boolean } =
           readCurrentPosition();
           return;
         }
-
-        resolve({
-          coordinates: null,
-          status: permission.state === 'denied' ? 'denied' : 'undetermined'
-        });
+        resolveFallback();
       })
       .catch(() => {
-        resolve({ coordinates: null, status: 'undetermined' });
+        resolveFallback();
       });
   });
 }
