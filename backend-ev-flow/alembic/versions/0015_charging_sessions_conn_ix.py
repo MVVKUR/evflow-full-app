@@ -14,13 +14,17 @@ Plain CREATE INDEX, not CONCURRENTLY: Alembic wraps each migration in a
 transaction and CONCURRENTLY cannot run inside one. IF NOT EXISTS keeps this a
 no-op where the index was already created by hand against a live database.
 
-Revision ID: 0015_index_charging_sessions_connector
+Revision ID: 0015_charging_sessions_conn_ix
 Revises: 0014_dataset_tables
+
+Keep revision ids at 32 characters or fewer: alembic_version.version_num is
+varchar(32), and a longer id only fails at the very end of the upgrade, after
+the migration's own DDL has run.
 """
 
 from alembic import op
 
-revision = "0015_index_charging_sessions_connector"
+revision = "0015_charging_sessions_conn_ix"
 down_revision = "0014_dataset_tables"
 branch_labels = None
 depends_on = None
