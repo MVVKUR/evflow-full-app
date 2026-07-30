@@ -51,6 +51,33 @@ export type StationListApiResponse = {
   items: StationApiItem[];
 };
 
+export type StationStatusApiResponse = {
+  station_id: string;
+  station_status: number;
+  available: string;
+  total: string;
+  waiting_time: number;
+  connectors: Array<{
+    type: string;
+    speed_tier: string | null;
+    available: string;
+    total: string;
+    waiting_time: string;
+  }>;
+};
+
+export type StationOccupancyApiResponse = {
+  station_id: string;
+  days: Array<{
+    day_of_week: number;
+    day_name: string;
+    hours: Array<{
+      hour_of_day: number;
+      avg_occupancy: number;
+    }>;
+  }>;
+};
+
 export type StationListParams = {
   province?: string;
   city?: string;
@@ -189,4 +216,26 @@ export async function fetchStation(id: string, fetcher: typeof fetch = fetch) {
   }
 
   return response.json() as Promise<StationApiItem>;
+}
+
+export async function fetchStationStatus(stationId: string, fetcher: typeof fetch = fetch) {
+  const encodedStationId = encodeURIComponent(stationId);
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/stations/${encodedStationId}/status`);
+
+  if (!response.ok) {
+    throw new Error(`Unable to load live station status. Request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<StationStatusApiResponse>;
+}
+
+export async function fetchStationOccupancy(stationId: string, fetcher: typeof fetch = fetch) {
+  const encodedStationId = encodeURIComponent(stationId);
+  const response = await fetcher(`${EVFLOW_API_BASE_URL}/api/v1/stations/${encodedStationId}/occupancy`);
+
+  if (!response.ok) {
+    throw new Error(`Unable to load station occupancy history. Request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<StationOccupancyApiResponse>;
 }
