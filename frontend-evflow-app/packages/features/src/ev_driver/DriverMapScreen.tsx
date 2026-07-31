@@ -13,8 +13,8 @@ import { PeakHoursChart } from './components/PeakHoursChart';
 import { StationAvailabilitySummary } from './components/StationAvailabilitySummary';
 import { StationDetailActions } from './components/StationDetailActions';
 import { aggregateConnectorStatuses } from './station-status/aggregateConnectorStatuses';
-import { getMockStationLiveStatus as defaultStationStatusLoader } from './station-status/mockStationStatus';
-import { getDrawerAwareMapCenter, getDrawerModeAfterClosingStationDetail, isCurrentStationStatusRequest, loadValidStationStatus, shouldRenderSearchBar } from './station-status/stationDetailState';
+import { getApiStationLiveStatus as defaultStationStatusLoader } from './station-status/apiStationStatus';
+import { getDrawerAwareMapCenter, getDrawerModeAfterClosingStationDetail, getFreshCachedStationStatus, invalidateCachedStationStatus, isCurrentStationStatusRequest, loadValidStationStatus, shouldRenderSearchBar, type CachedStationStatus } from './station-status/stationDetailState';
 import { type StationLiveStatus, type StationStatusLoader } from './station-status/types';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -111,7 +111,7 @@ export function DriverMapScreen({
   const expandedRef = useRef(expanded);
   const searchQueryRef = useRef(searchQuery);
   const searchRestoreStateRef = useRef<{ drawerMode: DrawerMode; expanded: boolean; selectedStation: Station | null } | null>(null);
-  const stationStatusCacheRef = useRef(new Map<string, StationLiveStatus>());
+  const stationStatusCacheRef = useRef(new Map<string, CachedStationStatus>());
   const stationStatusRequestRef = useRef(0);
   const searchActive = drawerMode !== 'detail' && (searchFocused || searchQuery.trim().length > 0);
   useEffect(() => {
@@ -131,7 +131,7 @@ export function DriverMapScreen({
     }
 
     const stationId = selectedStation.id;
-    const cachedStatus = stationStatusCacheRef.current.get(stationId);
+    const cachedStatus = getFreshCachedStationStatus(stationStatusCacheRef.current, stationId);
     if (cachedStatus) {
       setStationLiveStatus(cachedStatus);
       setStationStatusError(null);
@@ -150,7 +150,7 @@ export function DriverMapScreen({
         if (!active || !isCurrentStationStatusRequest(request, stationStatusRequestRef.current, selectedStationRef.current?.id ?? null)) {
           return;
         }
-        stationStatusCacheRef.current.set(stationId, status);
+        stationStatusCacheRef.current.set(stationId, { data: status, fetchedAt: Date.now() });
         setStationLiveStatus(status);
         setStationStatusError(null);
       })
@@ -618,7 +618,10 @@ export function DriverMapScreen({
               station={selectedStation}
               onClose={closeStationDetail}
               onChargeHere={onChargeHere ? () => onChargeHere(selectedStation.id) : undefined}
-              onRetry={() => setStationStatusRetry((current) => current + 1)}
+              onRetry={() => {
+                invalidateCachedStationStatus(stationStatusCacheRef.current, selectedStation.id);
+                setStationStatusRetry((current) => current + 1);
+              }}
               statusError={stationStatusError}
               statusLoading={stationStatusLoading}
             />

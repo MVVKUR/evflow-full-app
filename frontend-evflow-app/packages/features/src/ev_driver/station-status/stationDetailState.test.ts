@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { availableStationStatusFixture } from './mockStationStatus';
-import { getDrawerAwareMapCenter, getDrawerModeAfterClosingStationDetail, isCurrentStationStatusRequest, loadValidStationStatus, shouldRenderSearchBar } from './stationDetailState';
+import { getDrawerAwareMapCenter, getDrawerModeAfterClosingStationDetail, getFreshCachedStationStatus, invalidateCachedStationStatus, isCurrentStationStatusRequest, loadValidStationStatus, shouldRenderSearchBar, stationStatusCacheTtlMs, type CachedStationStatus } from './stationDetailState';
 import type { StationStatusLoader } from './types';
 
 describe('station detail state', () => {
@@ -29,6 +29,28 @@ describe('station detail state', () => {
   it('ignores a stale loader response after the selected station changes', () => {
     expect(isCurrentStationStatusRequest({ requestId: 1, stationId: 'station-a' }, 2, 'station-b')).toBe(false);
     expect(isCurrentStationStatusRequest({ requestId: 2, stationId: 'station-b' }, 2, 'station-b')).toBe(true);
+  });
+
+  it('uses cached live status only within the TTL', () => {
+    const fetchedAt = 1_000;
+    const cache = new Map<string, CachedStationStatus>([
+      ['station-a', { data: { ...availableStationStatusFixture, stationId: 'station-a' }, fetchedAt }]
+    ]);
+
+    expect(getFreshCachedStationStatus(cache, 'station-a', fetchedAt + stationStatusCacheTtlMs - 1))
+      .toMatchObject({ stationId: 'station-a' });
+    expect(getFreshCachedStationStatus(cache, 'station-a', fetchedAt + stationStatusCacheTtlMs)).toBeNull();
+  });
+
+  it('invalidates the selected station cache for retry', () => {
+    const cache = new Map<string, CachedStationStatus>([
+      ['station-a', { data: { ...availableStationStatusFixture, stationId: 'station-a' }, fetchedAt: 1_000 }],
+      ['station-b', { data: { ...availableStationStatusFixture, stationId: 'station-b' }, fetchedAt: 1_000 }]
+    ]);
+
+    invalidateCachedStationStatus(cache, 'station-a');
+    expect(cache.has('station-a')).toBe(false);
+    expect(cache.has('station-b')).toBe(true);
   });
 
   it('centers a selected marker in the visible map above the drawer', () => {

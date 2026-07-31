@@ -1,6 +1,22 @@
 import { isValidStationLiveStatus, type StationLiveStatus, type StationStatusLoader } from './types';
 
 export type StationStatusRequest = { requestId: number; stationId: string };
+export type CachedStationStatus = { data: StationLiveStatus; fetchedAt: number };
+
+export const stationStatusCacheTtlMs = 30_000;
+
+export function getFreshCachedStationStatus(
+  cache: Map<string, CachedStationStatus>,
+  stationId: string,
+  now = Date.now()
+) {
+  const cached = cache.get(stationId);
+  return cached && now - cached.fetchedAt < stationStatusCacheTtlMs ? cached.data : null;
+}
+
+export function invalidateCachedStationStatus(cache: Map<string, CachedStationStatus>, stationId: string) {
+  cache.delete(stationId);
+}
 
 export function isCurrentStationStatusRequest(
   request: StationStatusRequest,
