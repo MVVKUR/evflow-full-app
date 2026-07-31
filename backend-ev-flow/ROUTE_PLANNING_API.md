@@ -19,6 +19,8 @@ explains the parts that are easy to get wrong.
 8. [Destination search](#8-destination-search)
 9. [The service area](#9-the-service-area)
 10. [Things that will bite you](#10-things-that-will-bite-you)
+11. [GET /api/v1/stations/{id}/status](#11-get-apiv1stationsidstatus)
+12. [GET /api/v1/stations/{id}/occupancy](#12-get-apiv1stationsidoccupancy)
 
 ---
 
@@ -367,17 +369,146 @@ flag tells you the difference so the UI can say the route is approximate.
 input. Showing one general error for every validation failure wastes the field
 information the API sends.
 
+**Do not render a null `waiting_time` as "~0 mins".** On
+`/stations/{id}/status`, null means nobody knows and `0` means a plug is free
+right now. They are opposite answers, and printing the first as the second
+promises the driver a bay that may be hours away. Section 11.
+
+**Do not index occupancy days with `Date.getDay()`.** `day_of_week` is ISO, so
+`1` is Monday and `7` is Sunday, while `getDay()` is `0` for Sunday. Used as an
+array index it shifts every bar by a day. Section 12.
+
 ---
 
-## Not built yet
+## 11. GET /api/v1/stations/{id}/status
 
-These belong to Epic 3 and have no backend today. Do not design against them:
+Live counts and the wait estimate for one station. This is US 3.2, and this file
+used to say it did not exist. It does.
+
+No token, like the other `/stations` endpoints. An unknown id gives `404`.
+
+Unlike the rest of this file, the body below is illustrative rather than
+captured: the shape is settled and shipping, and the numbers are picked to show
+every case at once.
+
+```json
+{
+  "station_id": "pln_spklu-6",
+  "station_status": 1,
+  "available": 3,
+  "total": 8,
+  "in_use": 4,
+  "out_of_service": 1,
+  "waiting_time": 0,
+  "connectors": [
+    { "type": "CCS2", "speed_tier": "fast", "power_kw": 50.0,
+      "available": 0, "total": 3, "in_use": 3, "out_of_service": 0, "waiting_time": 12.4 },
+    { "type": "CCS2", "speed_tier": "fast", "power_kw": 25.0,
+      "available": 0, "total": 2, "in_use": 1, "out_of_service": 1, "waiting_time": null },
+    { "type": "AC Type 2", "speed_tier": "medium", "power_kw": 22.0,
+      "available": 3, "total": 3, "in_use": 0, "out_of_service": 0, "waiting_time": 0 }
+  ]
+}
+```
+
+The station block and each `connectors` entry carry the same six fields with the
+same meanings. The entries are one per `(type, speed_tier, power_kw)` group, and
+the station block is their sum.
+
+Worth knowing:
+
+- **Every count is an integer.** `available`, `total`, `in_use` and
+  `out_of_service` are numbers at both levels, never quoted strings. Sorting and
+  arithmetic work without parsing.
+- **`total` is `available + in_use + out_of_service`.** Do not compute occupancy
+  as `total - available`. That folds the broken plugs into the busy ones, and a
+  charger that is never going to free up gets shown to the driver as in use with
+  a short wait. `out_of_service` is sent so you can say "out of service" instead.
+- **`waiting_time` is minutes, and null is a value.** `0` means at least one plug
+  in this group, or anywhere at the station, is free right now. A positive number
+  means none is free and this is when the session finishing soonest ends. `null`
+  means none is free *and* no estimate exists: no active session on record, no
+  power to divide by. The second CCS2 group above is that case. Say the wait is
+  unknown; do not print it as zero and do not fill it in with an average.
+- **The type is the same at both levels.** A float or null in `connectors`, a
+  float or null on the station. The station value is the soonest wait across the
+  groups, so it is `0` whenever `available > 0`.
+- **`power_kw` is part of a group's identity.** The two CCS2 fast rows above are
+  not duplicates: they are 50 kW plugs and 25 kW plugs, and that is the field
+  telling them apart. Show it. It is null only when the source data never
+  reported a power.
+- **`station_status`** is `1` when at least one plug at the station is free and
+  `0` when none is, which is exactly `available > 0`. It is the map pin colour,
+  nothing more.
+- A station with no connectors on record answers `200` with zeroes, `connectors`
+  empty, `station_status` `0` and `waiting_time` null, by the same rule as above.
+
+`GET /api/v1/stations/{id}/availability` still returns the same four counts
+without the wait estimate or the per-group breakdown. Nothing about it changed,
+so keep calling it where that is all you need.
+
+---
+
+## 12. GET /api/v1/stations/{id}/occupancy
+
+Historical hourly occupancy for one station, which is the peak-hours chart in
+US 3.3. Also live, also previously described here as having neither an endpoint
+nor any data. It has both.
+
+No token. An unknown id gives `404`.
+
+Illustrative again, and trimmed to three hours of one day:
+
+```json
+{
+  "station_id": "pln_spklu-6",
+  "days": [
+    {
+      "day_of_week": 1,
+      "day_name": "Monday",
+      "hours": [
+        { "hour_of_day": 0,  "avg_occupancy": 4.2,  "occupancy_level": "LOW" },
+        { "hour_of_day": 8,  "avg_occupancy": 46.0, "occupancy_level": "MODERATE" },
+        { "hour_of_day": 18, "avg_occupancy": 87.5, "occupancy_level": "PEAK" }
+      ]
+    }
+  ]
+}
+```
+
+Worth knowing:
+
+- **`day_of_week` is ISO: 1 is Monday, 7 is Sunday.** JavaScript's
+  `Date.getDay()` is 0 for Sunday through 6 for Saturday, so the two do not line
+  up anywhere. `days[today.getDay()]` is wrong for every day of the week. Match
+  on the `day_of_week` value, or use `day_name`, which the server sends so you do
+  not have to keep a label array in sync.
+- **`avg_occupancy` is a percentage, 0 to 100.** It is the average share of the
+  station's connectors busy in that hour, not a plug count and not a 0-to-1
+  fraction.
+- **`occupancy_level` is classified server-side** at 20, 50 and 80 percent into
+  `LOW`, `MODERATE`, `BUSY`, `PEAK`. Render it rather than re-deriving the
+  buckets, otherwise the thresholds live in two places and drift apart.
+- **You get the hours that are on record, not a full grid.** Days and hours are
+  both sparse. Key off `day_of_week` and `hour_of_day` instead of array position,
+  or an absent 3am shifts the whole evening.
+- Rows arrive sorted by day then hour, so plotting in order needs no sort.
+- A station with no history returns `days: []`. Render that as "not enough data
+  yet". A chart flat at zero reads as "always empty", which is a different claim.
+
+This is aggregated history and says nothing about right now. "How busy is it at
+6pm on a Friday" is this endpoint; "can I plug in when I arrive" is section 11.
+
+---
+
+## Epic 3 backend status
+
+One gap left, not three. If you planned around an earlier version of this file
+that said none of this existed, this is the part to re-read.
 
 | User story | State |
 |------------|-------|
-| US 3.2 Estimated wait time | No endpoint |
-| US 3.3 Peak hours chart | No endpoint and no data. Occupancy history is not recorded |
-| US 3.4 Alternative station suggestion | Alternatives exist inside a route plan, but there is no standalone endpoint |
-
-US 3.1 is live: `GET /api/v1/stations/{id}/availability` and
-`GET /api/v1/stations/{id}/connectors`.
+| US 3.1 Real-time availability | Live: `GET /api/v1/stations/{id}/availability` and `GET /api/v1/stations/{id}/connectors` |
+| US 3.2 Estimated wait time | Live: `GET /api/v1/stations/{id}/status`, section 11 |
+| US 3.3 Peak hours chart | Live: `GET /api/v1/stations/{id}/occupancy`, section 12 |
+| US 3.4 Alternative station suggestion | Not built. Alternatives exist inside a route plan, but there is still no standalone endpoint |
