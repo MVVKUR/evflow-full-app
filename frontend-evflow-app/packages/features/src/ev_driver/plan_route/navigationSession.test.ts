@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRouteSessionCleaner, NavigationWatcherSession } from './navigationSession';
+import { createRouteSessionCleaner, NavigationWatcherSession, shouldDeleteReplacedPlanningSession } from './navigationSession';
 
 describe('navigation session lifecycle', () => {
   it('keeps one watcher across multiple fixes and removes it once', async () => {
@@ -30,5 +30,14 @@ describe('navigation session lifecycle', () => {
     const cleanup = createRouteSessionCleaner(remove);
     await cleanup('plan-1'); await cleanup('plan-1'); await cleanup('plan-2');
     expect(remove.mock.calls).toEqual([['plan-1'], ['plan-2']]);
+  });
+
+  it('keeps the prior planning session when recalculating with a charging waypoint', () => {
+    expect(shouldDeleteReplacedPlanningSession('initial-route', 'route-with-stop', 'station-1')).toBe(false);
+  });
+
+  it('cleans up a replaced session only for a non-waypoint route replacement', () => {
+    expect(shouldDeleteReplacedPlanningSession('initial-route', 'replacement-route')).toBe(true);
+    expect(shouldDeleteReplacedPlanningSession('same-route', 'same-route')).toBe(false);
   });
 });

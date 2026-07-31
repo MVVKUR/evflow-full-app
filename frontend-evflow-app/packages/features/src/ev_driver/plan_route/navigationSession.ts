@@ -39,3 +39,11 @@ export function createRouteSessionCleaner(deleteSession: (id: string) => Promise
     await deleteSession(id);
   };
 }
+
+export function shouldDeleteReplacedPlanningSession(
+  previousRoutePlanId: string | undefined,
+  nextRoutePlanId: string,
+  waypointStationId?: string,
+): boolean {
+  return Boolean(previousRoutePlanId && previousRoutePlanId !== nextRoutePlanId && !waypointStationId);
+}

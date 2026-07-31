@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRouteRequest, formatRouteEta, hasUsableVehicle, noStationActions, nonIncreasingDrivingSoc, suitableActiveStops } from './routePlanningLogic';
+import { buildRouteRequest, canStartNavigation, choiceForPreferences, clearFieldError, formatRouteEta, hasUsableVehicle, locationEntryDecision, noStationActions, noSuitableStationReasons, nonIncreasingDrivingSoc, preferencesForChoice, routePresentation, suitableActiveStops, validateRouteInput } from './routePlanningLogic';
 
 describe('route request inputs', () => {
   it('allows a positive manual range without an EV profile', () => {
@@ -19,6 +19,12 @@ describe('route request inputs', () => {
     expect(request.vehicle?.usable_range_km).toBe(350);
     expect(request.preferences).toEqual({ route_type: 'shortest', maximum_detour_km: 9, prefer_fast_charging: false });
     expect(request.minimum_arrival_soc_pct).toBe(20);
+  });
+
+  it('submits the selected vehicle profile id without duplicating its battery model', () => {
+    const request = buildRouteRequest({ origin: { latitude: -6.2, longitude: 106.8 }, destination: { latitude: -6.5, longitude: 107 }, currentSocPct: 72, minimumArrivalSocPct: 20, preferences: { route_type: 'fastest', maximum_detour_km: 15, prefer_fast_charging: true }, evModelId: 'vehicle-model-7' });
+    expect(request.ev_model_id).toBe('vehicle-model-7');
+    expect(request.vehicle).toBeUndefined();
   });
 
   it('uses estimated current SoC for rerouting, never projected arrival SoC', () => {
@@ -46,5 +52,59 @@ describe('route request inputs', () => {
   it('accepts decreasing backend current SoC and rejects increases while driving', () => {
     expect(nonIncreasingDrivingSoc(72, 68)).toBe(68);
     expect(nonIncreasingDrivingSoc(68, 70)).toBe(68);
+  });
+
+  it('validates every local route field and keeps valid user input intact', () => {
+    const same = { latitude: -6.2, longitude: 106.8 };
+    expect(validateRouteInput({ origin: same, destination: same, currentSocPct: 120, minimumArrivalSocPct: 55, hasVehicle: false })).toEqual({
+      current_soc_pct: 'Enter a battery level from 0% to 100%.',
+      minimum_arrival_soc_pct: 'Reserve must be from 0% to 50%.',
+      vehicle: 'Select a vehicle profile or enter a usable range above zero.',
+      destination: 'Destination must be different from the origin.',
+    });
+    expect(clearFieldError({ destination: 'bad', vehicle: 'missing' }, 'destination')).toEqual({ vehicle: 'missing' });
+  });
+
+  it('maps all three preference controls into the existing backend contract', () => {
+    const current = { route_type: 'fastest', maximum_detour_km: 15, prefer_fast_charging: true };
+    expect(preferencesForChoice('fastest', current)).toMatchObject({ route_type: 'fastest', prefer_fast_charging: true });
+    expect(preferencesForChoice('least_detour', current)).toMatchObject({ route_type: 'shortest', prefer_fast_charging: false });
+    expect(preferencesForChoice('available_now', current)).toMatchObject({ route_type: 'fastest', prefer_fast_charging: false });
+    expect(choiceForPreferences(preferencesForChoice('available_now', current))).toBe('available_now');
+  });
+
+  it('preserves backend station ordering and only filters explicit active-stop safety failures', () => {
+    const station = { id: 'a', connector_types: [], connectors: [], sources: [] } as any;
+    const stop = (id: string) => ({ station: { ...station, id }, connector_compatible: true, available_connector_count: 1 } as any);
+    expect(suitableActiveStops([stop('rank-1'), stop('rank-2'), stop('rank-3')]).map((value) => value.station.id)).toEqual(['rank-1', 'rank-2', 'rank-3']);
+  });
+
+  it('derives safe no-station explanations only from backend candidate evidence', () => {
+    expect(noSuitableStationReasons([{ detour_within_budget: false, connector_compatible: false, available_connector_count: 0 } as any])).toEqual([
+      'Some stations exceed the reachable detour corridor.',
+      'Some stations lack a compatible connector.',
+    ]);
+  });
+
+  it('derives direct, recommended, added, and no-station UI from backend response state', () => {
+    const base = { route_status: 'charging_required', directly_reachable: false, user_requested_stop: null, warning: null } as any;
+    expect(routePresentation({ ...base, route_status: 'direct_route_available', directly_reachable: true })).toBe('direct');
+    expect(routePresentation(base)).toBe('charging_recommended');
+    expect(routePresentation({ ...base, user_requested_stop: { station: { id: 's' } } })).toBe('charging_added');
+    expect(routePresentation({ ...base, warning: { code: 'no_suitable_station' } })).toBe('no_suitable_station');
+    expect(canStartNavigation(base)).toBe(false);
+    expect(canStartNavigation({ ...base, user_requested_stop: { station: { id: 's' } } })).toBe(true);
+  });
+
+  it('submits a selected alternative as waypoint_station_id', () => {
+    const request = buildRouteRequest({ origin: { latitude: -6.2, longitude: 106.8 }, destination: { latitude: -6.6, longitude: 107.2 }, currentSocPct: 40, minimumArrivalSocPct: 20, preferences: { route_type: 'fastest', maximum_detour_km: 15, prefer_fast_charging: true }, waypointStationId: 'server-ranked-alternative-2' });
+    expect(request.waypoint_station_id).toBe('server-ranked-alternative-2');
+  });
+
+  it('offers manual origin after permission denial or GPS failure', () => {
+    expect(locationEntryDecision('granted', true)).toBe('use_location');
+    expect(locationEntryDecision('undetermined', false)).toBe('request_permission');
+    expect(locationEntryDecision('denied', false)).toBe('manual_or_retry');
+    expect(locationEntryDecision('gps_error', false)).toBe('manual_or_retry');
   });
 });

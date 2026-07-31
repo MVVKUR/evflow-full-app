@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-import { DEFAULT_EVFLOW_API_BASE_URL, normalizeApiBaseUrl, logDevApiBaseUrl } from './baseUrl.shared';
+import { assertSecureProductionApiBaseUrl, DEFAULT_EVFLOW_API_BASE_URL, normalizeApiBaseUrl, logDevApiBaseUrl } from './baseUrl.shared';
 
 describe('normalizeApiBaseUrl', () => {
   it('falls back to the default when the value is undefined or empty', () => {
@@ -21,6 +21,14 @@ describe('normalizeApiBaseUrl', () => {
 
   it('passes a well-formed base URL through unchanged', () => {
     expect(normalizeApiBaseUrl('https://api.example.com')).toBe('https://api.example.com');
+  });
+});
+
+describe('production API security', () => {
+  it('rejects a plain HTTP production API while allowing development and same-origin', () => {
+    expect(() => assertSecureProductionApiBaseUrl('http://api.example.com', false)).toThrow(/HTTPS/);
+    expect(assertSecureProductionApiBaseUrl('http://localhost:8000', true)).toBe('http://localhost:8000');
+    expect(assertSecureProductionApiBaseUrl('', false)).toBe('');
   });
 });
 

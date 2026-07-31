@@ -1,4 +1,4 @@
-import { LOCAL_BACKEND_PORT, logDevApiBaseUrl, normalizeApiBaseUrl } from './baseUrl.shared';
+import { assertSecureProductionApiBaseUrl, LOCAL_BACKEND_PORT, logDevApiBaseUrl, normalizeApiBaseUrl } from './baseUrl.shared';
 
 type ViteImportMeta = ImportMeta & {
   env?: Record<string, string | boolean | undefined>;
@@ -24,7 +24,7 @@ export function getEvflowApiBaseUrl() {
   if (env?.DEV) {
     logDevApiBaseUrl(baseUrl, 'VITE_EVFLOW_API_BASE_URL');
   }
-  return baseUrl;
+  return assertSecureProductionApiBaseUrl(baseUrl, Boolean(env?.DEV));
 }
 
 export const getApiBaseUrl = getEvflowApiBaseUrl;

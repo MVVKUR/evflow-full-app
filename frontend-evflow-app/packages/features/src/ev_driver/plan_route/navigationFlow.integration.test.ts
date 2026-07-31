@@ -54,6 +54,7 @@ describe('mocked active-navigation movement flow', () => {
     mode = transitionRouteView(mode, 'overview');
     expect(isImmersiveRouteView(mode)).toBe(false);
     expect(remove).toHaveBeenCalledTimes(1);
+    expect(deleteRequest).not.toHaveBeenCalled();
 
     mode = transitionRouteView(mode, 'start_navigation');
     const resumed = new NavigationWatcherSession<Fix>(watch);

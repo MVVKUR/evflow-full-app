@@ -1,4 +1,4 @@
-export const DEFAULT_EVFLOW_API_BASE_URL = 'https://ev-flow-api.opensoft.id';
+export const DEFAULT_EVFLOW_API_BASE_URL = 'https://ev-flow.opensoft.id';
 
 export const LOCAL_BACKEND_PORT = 8000;
 
@@ -18,6 +18,13 @@ export function normalizeApiBaseUrl(baseUrl: string | undefined) {
     end -= 1;
   }
   return trimmed.slice(0, end);
+}
+
+export function assertSecureProductionApiBaseUrl(baseUrl: string, isDev: boolean): string {
+  if (!isDev && baseUrl.startsWith('http://')) {
+    throw new Error('EV-FLOW production API must use HTTPS or a same-origin proxy');
+  }
+  return baseUrl;
 }
 
 let lastLoggedBaseUrl: string | null = null;

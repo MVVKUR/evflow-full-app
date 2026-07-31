@@ -1,178 +1,26 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { RecommendedStop } from '@evflow/shared';
+import { formatDistance, formatEnergy, formatSoc } from './planRouteUtils';
+import { routeColors, routeRadius, routeSpacing } from './routeTheme';
 
-type ChargingStopCardProps = {
-  stop: RecommendedStop;
-  onAddStop: () => void;
-  isAdded?: boolean;
-};
-
-export function ChargingStopCard({ stop, onAddStop, isAdded = false }: ChargingStopCardProps) {
-  const station = stop.station;
-  const rawConnector = station.connector_types?.[0];
-  const connectorType = typeof rawConnector === 'string' ? rawConnector : rawConnector?.type || 'CCS2';
-  const speedTier = station.speed_tier === 'ultra_fast' ? 'Ultra-Fast' : 'Fast';
-
-  return (
-    <View style={styles.card}>
-      <Text style={styles.sectionHeader}>SUGGESTED CHARGING STOP</Text>
-
-      <View style={styles.headerRow}>
-        <Text style={styles.stationName} numberOfLines={1}>
-          {station.name || 'SPKLU Rest Area KM72'}
-        </Text>
-        <View style={styles.distPill}>
-          <Text style={styles.distPillText}>{Math.round(stop.distance_from_origin_km)} km in</Text>
-        </View>
-      </View>
-
-      <Text style={styles.addressText} numberOfLines={1}>
-        {station.address || station.city || 'Rest Area Tol Cipularang'}
-      </Text>
-
-      <View style={styles.specsRow}>
-        <Text style={styles.specsText}>
-          {connectorType} · {speedTier}
-        </Text>
-        <Text style={styles.dotSeparator}>·</Text>
-        <Text style={styles.statusText}>
-          {stop.availability === 'available_now' ? 'Available now' : 'Known status'}
-        </Text>
-      </View>
-
-      <View style={styles.recChargeBox}>
-        <Text style={styles.recLabel}>Recommended charge</Text>
-        <Text style={styles.recVal}>
-          To {stop.recommended_target_soc_pct}% (~{Math.round(stop.estimated_charging_minutes)} min)
-        </Text>
-      </View>
-
-      {!isAdded ? (
-        <Pressable style={styles.addButton} onPress={onAddStop}>
-          <Text style={styles.addButtonText}>+ Add Stop to Route</Text>
-        </Pressable>
-      ) : (
-        <View style={styles.addedBadge}>
-          <Text style={styles.addedBadgeText}>✓ Stop Added to Route</Text>
-        </View>
-      )}
-    </View>
-  );
+export function ChargingStopCard({ stop, onAddStop, added = false, busy = false, actionLabel = 'Add stop to route' }: { stop: RecommendedStop; onAddStop?: () => void; added?: boolean; busy?: boolean; actionLabel?: string }) {
+  const rawConnector = stop.matched_connector_type ?? stop.station.connector_types?.[0];
+  const connector = typeof rawConnector === 'string' ? rawConnector : rawConnector?.type;
+  const power = stop.best_available_power_kw ?? stop.effective_charging_power_kw ?? stop.station.power_kw;
+  return <View style={styles.card}>
+    <View style={styles.header}><View style={styles.copy}><Text style={styles.name} numberOfLines={2}>{stop.station.name || 'Charging station'}</Text><Text style={styles.address} numberOfLines={2}>{stop.station.address || stop.station.city || 'Address unavailable'}</Text></View><View style={styles.distancePill}><Text style={styles.distanceText}>{formatDistance(stop.distance_from_origin_km)} in</Text></View></View>
+    <View style={styles.pills}>{connector ? <InfoPill text={connector} /> : null}{power != null ? <InfoPill text={`${Math.round(power)} kW`} /> : null}<InfoPill success text={stop.available_connector_count != null ? `${stop.available_connector_count} available` : stop.availability.split('_').join(' ')} /></View>
+    <View style={styles.evidence}><Evidence label="Detour" value={formatDistance(stop.detour_km)} /><Evidence label="Arrival at station" value={formatSoc(stop.arrival_soc_pct)} /><Evidence label="Charge target" value={formatSoc(stop.recommended_target_soc_pct)} /><Evidence label="Charging time" value={`${Math.round(stop.estimated_charging_minutes)} min`} /><Evidence label="Energy added" value={formatEnergy(stop.energy_to_add_kwh)} /></View>
+    <Text style={styles.rank}>Server-ranked compatibility · {stop.data_confidence || 'available data'} confidence</Text>
+    {added ? <View accessibilityRole="text" accessibilityLabel="Stop added to route" style={styles.added}><Text style={styles.addedText}>✓ Stop Added to Route</Text></View> : onAddStop ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy }} disabled={busy} style={[styles.action, busy && styles.disabled]} onPress={onAddStop}>{busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionText}>{actionLabel}</Text>}</Pressable> : null}
+  </View>;
 }
+function InfoPill({ text, success = false }: { text: string; success?: boolean }) { return <View style={[styles.infoPill, success && styles.successPill]}><Text style={[styles.infoText, success && styles.successText]}>{text}</Text></View>; }
+function Evidence({ label, value }: { label: string; value: string }) { return <View style={styles.evidenceItem}><Text style={styles.evidenceLabel}>{label}</Text><Text style={styles.evidenceValue}>{value}</Text></View>; }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748B',
-    letterSpacing: 0.8,
-    marginBottom: 12,
-    textTransform: 'uppercase',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  stationName: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginRight: 8,
-  },
-  distPill: {
-    backgroundColor: '#E0F2FE',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  distPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#0369A1',
-  },
-  addressText: {
-    fontSize: 13,
-    color: '#64748B',
-    marginBottom: 10,
-  },
-  specsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  specsText: {
-    fontSize: 13,
-    color: '#475569',
-    fontWeight: '600',
-  },
-  dotSeparator: {
-    fontSize: 13,
-    color: '#CBD5E1',
-    marginHorizontal: 6,
-  },
-  statusText: {
-    fontSize: 13,
-    color: '#10B981',
-    fontWeight: '600',
-  },
-  recChargeBox: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 14,
-  },
-  recLabel: {
-    fontSize: 13,
-    color: '#64748B',
-  },
-  recVal: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#00696F',
-  },
-  addButton: {
-    borderWidth: 1.5,
-    borderColor: '#00696F',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#00696F',
-  },
-  addedBadge: {
-    backgroundColor: '#ECFDF5',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addedBadgeText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#047857',
-  },
+  card: { borderWidth: 1, borderColor: routeColors.border, borderRadius: routeRadius.md, padding: routeSpacing.md, marginTop: routeSpacing.md }, header: { flexDirection: 'row', gap: routeSpacing.sm }, copy: { flex: 1 }, name: { color: routeColors.textPrimary, fontWeight: '800', fontSize: 14 }, address: { color: routeColors.textSecondary, fontSize: 10, marginTop: 4 }, distancePill: { backgroundColor: routeColors.brandSoft, borderRadius: routeRadius.pill, paddingHorizontal: 10, height: 28, justifyContent: 'center' }, distanceText: { color: routeColors.brand, fontWeight: '800', fontSize: 10 },
+  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: routeSpacing.sm }, infoPill: { borderWidth: 1, borderColor: routeColors.border, borderRadius: routeRadius.pill, paddingHorizontal: 9, paddingVertical: 5 }, infoText: { color: routeColors.textPrimary, fontWeight: '700', fontSize: 9 }, successPill: { backgroundColor: routeColors.successSoft, borderColor: routeColors.successSoft }, successText: { color: routeColors.success },
+  evidence: { flexDirection: 'row', flexWrap: 'wrap', gap: routeSpacing.sm, marginTop: routeSpacing.md }, evidenceItem: { width: '31%' }, evidenceLabel: { color: routeColors.textSecondary, fontSize: 8, textTransform: 'uppercase' }, evidenceValue: { color: routeColors.textPrimary, fontSize: 11, fontWeight: '800', marginTop: 2 }, rank: { color: routeColors.brand, fontSize: 9, marginTop: routeSpacing.sm },
+  action: { minHeight: 46, borderRadius: routeRadius.md, backgroundColor: routeColors.brand, alignItems: 'center', justifyContent: 'center', marginTop: routeSpacing.md }, disabled: { opacity: 0.55 }, actionText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 }, added: { minHeight: 44, borderRadius: routeRadius.md, backgroundColor: routeColors.successSoft, alignItems: 'center', justifyContent: 'center', marginTop: routeSpacing.md }, addedText: { color: routeColors.success, fontWeight: '800' },
 });

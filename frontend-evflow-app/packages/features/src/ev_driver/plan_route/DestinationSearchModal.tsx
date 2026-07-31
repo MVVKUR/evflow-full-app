@@ -1,297 +1,109 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { searchGeocoding, type GeocodingItem } from '@evflow/shared';
+import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { RouteApiError, searchGeocoding, type GeocodingItem } from '@evflow/shared';
 import { formatDistance } from './planRouteUtils';
+import { routeColors, routeRadius, routeSpacing } from './routeTheme';
+import { LatestRequestGate } from './requestLifecycle';
 
-type DestinationSearchModalProps = {
+export type LocationSearchMode = 'destination' | 'origin';
+export const supportedSuggestionTerms = ['Jakarta', 'Bogor', 'Bandung'];
+
+type Props = {
   visible: boolean;
+  mode?: LocationSearchMode;
   onClose: () => void;
   onSelect: (item: GeocodingItem) => void;
+  onNetworkError?: () => void;
+  onConnectionRestored?: () => void;
   originLat?: number;
   originLon?: number;
 };
 
-export function DestinationSearchModal({
-  visible,
-  onClose,
-  onSelect,
-  originLat,
-  originLon,
-}: DestinationSearchModalProps) {
+export function DestinationSearchModal({ visible, mode = 'destination', onClose, onSelect, onNetworkError, onConnectionRestored, originLat, originLon }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GeocodingItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const timerRef = useRef<any>(null);
-  const abortCtrlRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gateRef = useRef(new LatestRequestGate());
 
   useEffect(() => {
     if (!visible) {
-      setQuery('');
-      setResults([]);
-      setError(null);
-      setLoading(false);
+      timerRef.current && clearTimeout(timerRef.current);
+      gateRef.current.cancel();
+      setQuery(''); setResults([]); setError(null); setLoading(false);
       return;
     }
-
-    // Load initial default suggestions (e.g. Bandung, Bogor, Airport)
-    handleSearch('');
+    void runSearch('');
+    return () => { timerRef.current && clearTimeout(timerRef.current); gateRef.current.cancel(); };
   }, [visible]);
 
-  function handleQueryChange(text: string) {
+  function changeQuery(text: string) {
     setQuery(text);
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
-    timerRef.current = setTimeout(() => {
-      handleSearch(text);
-    }, 300);
-  }
-
-  async function handleSearch(q: string) {
-    if (abortCtrlRef.current) {
-      abortCtrlRef.current.abort();
-    }
-    abortCtrlRef.current = new AbortController();
-
-    const searchTerm = q.trim() || 'Bandung';
-    setLoading(true);
     setError(null);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => void runSearch(text), 350);
+  }
 
+  async function runSearch(raw: string) {
+    const request = gateRef.current.begin();
+    const sequence = request.sequence;
+    setLoading(true); setError(null);
     try {
-      const res = await searchGeocoding(
-        searchTerm,
-        originLat,
-        originLon,
-        5,
-        abortCtrlRef.current.signal
-      );
-      setResults(res.items);
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setError(err.message || 'Failed to search places');
-      }
+      const term = raw.trim();
+      const responses = term.length >= 2
+        ? [await searchGeocoding(term, originLat, originLon, 8, request.signal)]
+        : await Promise.all(supportedSuggestionTerms.map((suggestion) => searchGeocoding(suggestion, originLat, originLon, 2, request.signal)));
+      if (!gateRef.current.isCurrent(sequence)) return;
+      const seen = new Set<string>();
+      setResults(responses.flatMap((response) => response.items).filter((item) => !seen.has(item.id) && Boolean(seen.add(item.id))));
+      onConnectionRestored?.();
+    } catch (cause) {
+      if ((cause as { name?: string })?.name === 'AbortError' || !gateRef.current.isCurrent(sequence)) return;
+      const apiError = cause as RouteApiError;
+      setError(apiError.message || 'Unable to search locations.');
+      if (apiError.isNetworkError) onNetworkError?.();
     } finally {
-      setLoading(false);
+      if (gateRef.current.isCurrent(sequence)) setLoading(false);
     }
   }
 
-  return (
-    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={onClose}>
-            <Text style={styles.backText}>✕</Text>
-          </Pressable>
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Where are you going?"
-              placeholderTextColor="#94A3B8"
-              value={query}
-              onChangeText={handleQueryChange}
-              autoFocus
-            />
-            {query.length > 0 ? (
-              <Pressable onPress={() => handleQueryChange('')}>
-                <Text style={styles.clearText}>✕</Text>
-              </Pressable>
-            ) : null}
-          </View>
+  return <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <View style={styles.backdrop}>
+      <View style={styles.panel} accessibilityViewIsModal>
+        <View style={styles.searchRow}>
+          <Pressable accessibilityLabel="Close location search" accessibilityRole="button" style={styles.iconButton} onPress={onClose}><Text style={styles.back}>←</Text></Pressable>
+          <TextInput accessibilityLabel={mode === 'origin' ? 'Search origin' : 'Search destination'} autoFocus value={query} onChangeText={changeQuery} placeholder={mode === 'origin' ? 'Search starting location' : 'Where are you going?'} placeholderTextColor={routeColors.textSecondary} style={styles.input} returnKeyType="search" onSubmitEditing={() => void runSearch(query)} />
+          <Pressable accessibilityLabel="Clear search" accessibilityRole="button" style={styles.iconButton} onPress={() => changeQuery('')}><Text style={styles.close}>×</Text></Pressable>
         </View>
-
-        {loading ? (
-          <View style={styles.centerContainer}>
-            <ActivityIndicator size="large" color="#00696F" />
-            <Text style={styles.loadingText}>Searching locations & stations...</Text>
-          </View>
-        ) : error ? (
-          <View style={styles.centerContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={results}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => (
-              <Pressable style={styles.itemRow} onPress={() => onSelect(item)}>
-                <View style={styles.itemIconCol}>
-                  <View
-                    style={[
-                      styles.iconCircle,
-                      item.type === 'station' ? styles.stationIconBg : styles.placeIconBg,
-                    ]}
-                  >
-                    <Text style={styles.iconSymbol}>
-                      {item.type === 'station' ? '⚡' : '📍'}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.itemTextCol}>
-                  <View style={styles.titleRow}>
-                    <Text style={styles.itemTitle} numberOfLines={1}>
-                      {item.label}
-                    </Text>
-                  </View>
-                  <Text style={styles.itemSubtitle} numberOfLines={1}>
-                    {item.subtitle}
-                  </Text>
-                </View>
-
-                {item.distance_km != null ? (
-                  <View style={styles.itemDistCol}>
-                    <Text style={styles.distText}>{formatDistance(item.distance_km)}</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No locations or stations found</Text>
-              </View>
-            }
-          />
-        )}
+        {!query.trim() ? <><View style={styles.current}><View style={styles.dot} /><Text style={styles.currentText}>{mode === 'origin' ? 'Choose a manual starting point' : 'From current location'}</Text></View><Text style={styles.sectionLabel}>Suggested destinations</Text></> : null}
+        {loading ? <View style={styles.center}><ActivityIndicator color={routeColors.brand} /><Text style={styles.helper}>Searching locations and charging stations…</Text></View>
+          : error ? <View style={styles.center}><Text style={styles.error}>{error}</Text><Pressable accessibilityRole="button" style={styles.retry} onPress={() => void runSearch(query)}><Text style={styles.retryText}>Retry search</Text></Pressable></View>
+          : <FlatList keyboardShouldPersistTaps="handled" data={results} keyExtractor={(item) => item.id} contentContainerStyle={styles.list} ListEmptyComponent={<View style={styles.center}><Text style={styles.helper}>No supported locations found.</Text></View>} renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={`${item.label}, ${item.subtitle}`} style={styles.item} onPress={() => onSelect(item)}>
+              <View style={[styles.itemDot, item.type === 'station' && styles.stationDot]} />
+              <View style={styles.itemCopy}><Text style={styles.itemTitle} numberOfLines={1}>{item.label}</Text><Text style={styles.itemSubtitle} numberOfLines={1}>{item.subtitle}</Text></View>
+              {item.distance_km != null ? <Text style={styles.distance}>{formatDistance(item.distance_km)}</Text> : null}
+            </Pressable>} />}
+        <Text style={styles.footnote}>Only destinations inside the configured route service area can be simulated.</Text>
       </View>
-    </Modal>
-  );
+    </View>
+  </Modal>;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 56,
-    paddingBottom: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  backText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  inputContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 44,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: '#0F172A',
-    fontWeight: '500',
-  },
-  clearText: {
-    fontSize: 14,
-    color: '#94A3B8',
-    padding: 4,
-  },
-  listContent: {
-    paddingVertical: 8,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  itemIconCol: {
-    marginRight: 14,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  placeIconBg: {
-    backgroundColor: '#E0F2FE',
-  },
-  stationIconBg: {
-    backgroundColor: '#CCFBF1',
-  },
-  iconSymbol: {
-    fontSize: 16,
-  },
-  itemTextCol: {
-    flex: 1,
-    marginRight: 8,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  itemTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  itemSubtitle: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  itemDistCol: {
-    alignItems: 'flex-end',
-  },
-  distText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#00696F',
-  },
-  centerContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#64748B',
-  },
-  errorText: {
-    fontSize: 14,
-    color: '#EF4444',
-    textAlign: 'center',
-  },
-  emptyContainer: {
-    padding: 32,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#94A3B8',
-  },
+  backdrop: { flex: 1, backgroundColor: 'rgba(19,37,39,0.25)', paddingTop: 32, paddingHorizontal: 12 },
+  panel: { flex: 1, backgroundColor: routeColors.surface, borderTopLeftRadius: routeRadius.lg, borderTopRightRadius: routeRadius.lg, padding: routeSpacing.lg },
+  searchRow: { minHeight: 56, borderRadius: routeRadius.md, backgroundColor: routeColors.surfaceSecondary, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6 },
+  iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }, back: { fontSize: 24, color: routeColors.textPrimary }, close: { fontSize: 22, color: routeColors.textSecondary },
+  input: { flex: 1, minHeight: 48, color: routeColors.textPrimary, fontSize: 15 },
+  current: { minHeight: 44, marginTop: routeSpacing.md, paddingHorizontal: routeSpacing.md, borderRadius: routeRadius.sm, backgroundColor: routeColors.brandSoft, flexDirection: 'row', alignItems: 'center', gap: routeSpacing.sm },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: routeColors.brand }, currentText: { color: routeColors.brandDark, fontWeight: '700', fontSize: 12 },
+  sectionLabel: { marginTop: routeSpacing.md, color: routeColors.textSecondary, fontWeight: '700', textTransform: 'uppercase', fontSize: 10 },
+  list: { gap: routeSpacing.md, paddingTop: routeSpacing.sm, paddingBottom: routeSpacing.lg },
+  item: { minHeight: 66, borderWidth: 1, borderColor: routeColors.border, borderRadius: routeRadius.md, padding: routeSpacing.md, flexDirection: 'row', alignItems: 'center', gap: routeSpacing.md },
+  itemDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#8BC6CA' }, stationDot: { backgroundColor: routeColors.brand }, itemCopy: { flex: 1 },
+  itemTitle: { color: routeColors.textPrimary, fontWeight: '700', fontSize: 13 }, itemSubtitle: { color: routeColors.textSecondary, fontSize: 10, marginTop: 2 }, distance: { color: routeColors.brand, fontWeight: '800', fontSize: 12 },
+  center: { minHeight: 180, alignItems: 'center', justifyContent: 'center', padding: routeSpacing.xl, gap: routeSpacing.md }, helper: { color: routeColors.textSecondary, textAlign: 'center' }, error: { color: routeColors.error, textAlign: 'center' },
+  retry: { minHeight: 44, paddingHorizontal: routeSpacing.lg, borderRadius: routeRadius.md, borderWidth: 1, borderColor: routeColors.brand, justifyContent: 'center' }, retryText: { color: routeColors.brand, fontWeight: '800' },
+  footnote: { color: routeColors.textSecondary, fontSize: 10, paddingBottom: routeSpacing.sm },
 });

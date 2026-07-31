@@ -1,5 +1,14 @@
 import type { RouteViewMode } from './planRouteTypes';
 
+export type PlannerSheetMode = 'peek' | 'expanded';
+export type PlannerSheetAction = 'open' | 'close' | 'invalid' | 'reset';
+
+export function transitionPlannerSheet(current: PlannerSheetMode, action: PlannerSheetAction): PlannerSheetMode {
+  if (action === 'open' || action === 'invalid') return 'expanded';
+  if (action === 'close' || action === 'reset') return 'peek';
+  return current;
+}
+
 export type RouteViewAction =
   | 'simulate'
   | 'start_navigation'

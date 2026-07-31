@@ -1,5 +1,5 @@
 import { NativeModules } from 'react-native';
-import { LOCAL_BACKEND_PORT, logDevApiBaseUrl, normalizeApiBaseUrl } from './baseUrl.shared';
+import { assertSecureProductionApiBaseUrl, LOCAL_BACKEND_PORT, logDevApiBaseUrl, normalizeApiBaseUrl } from './baseUrl.shared';
 
 declare const __DEV__: boolean | undefined;
 
@@ -70,7 +70,7 @@ export function getEvflowApiBaseUrl() {
   if (isDev) {
     logDevApiBaseUrl(baseUrl, 'EXPO_PUBLIC_EVFLOW_API_BASE_URL');
   }
-  return baseUrl;
+  return assertSecureProductionApiBaseUrl(baseUrl, isDev);
 }
 
 export const getApiBaseUrl = getEvflowApiBaseUrl;

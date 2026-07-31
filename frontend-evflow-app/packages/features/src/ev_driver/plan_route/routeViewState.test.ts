@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isImmersiveRouteView, showDesktopNavigation, showMobileNavigation, transitionRouteView } from './routeViewState';
+import { isImmersiveRouteView, showDesktopNavigation, showMobileNavigation, transitionPlannerSheet, transitionRouteView } from './routeViewState';
 
 describe('route view state', () => {
   it.each([
@@ -23,5 +23,10 @@ describe('route view state', () => {
     expect(showDesktopNavigation(true, true)).toBe(false);
     expect(showMobileNavigation(false, false, false)).toBe(true);
     expect(showMobileNavigation(false, true, false)).toBe(false);
+  });
+  it('stores sheet expansion separately from the business route state', () => {
+    expect(transitionPlannerSheet('peek', 'open')).toBe('expanded');
+    expect(transitionPlannerSheet('peek', 'invalid')).toBe('expanded');
+    expect(transitionPlannerSheet('expanded', 'close')).toBe('peek');
   });
 });

@@ -4,6 +4,7 @@ import { LeafletMap } from '@evflow/ui';
 import {
   createRoutePlan,
   evaluateActiveRoute,
+  RouteApiError,
   type ActiveRouteEvaluationResponse,
   type ManualVehicleInput,
   type RecommendedStop,
@@ -25,6 +26,8 @@ import {
 } from './navigationProgress';
 import { formatDistance, formatDuration, formatSoc } from './planRouteUtils';
 import type { LocationState } from './planRouteTypes';
+import { RouteDialog } from './components/RouteDialog';
+import { routeColors } from './routeTheme';
 
 export type NavigationSnapshot = {
   result: RoutePlanResponse;
@@ -41,6 +44,7 @@ type Props = {
   initialRouteBaseDistanceKm?: number;
   initialEstimatedCurrentSocPct?: number;
   manualVehicle?: ManualVehicleInput;
+  evModelId?: string;
   preferences: Required<RoutePreferencesInput>;
   minimumArrivalSocPct: number;
   onOverview: (snapshot: NavigationSnapshot) => void;
@@ -49,6 +53,8 @@ type Props = {
   onCompleted: () => void | Promise<void>;
   onRouteReplaced: (result: RoutePlanResponse) => void;
   onRouteSessionReplaced: (oldRoutePlanId: string) => void | Promise<void>;
+  onConnectionError?: () => void;
+  onConnectionRestored?: () => void;
   bottomOffset?: number;
   destinationName?: string;
   topInset?: number;
@@ -78,6 +84,7 @@ export function ActiveNavigationScreen({
   initialRouteBaseDistanceKm = 0,
   initialEstimatedCurrentSocPct,
   manualVehicle,
+  evModelId,
   preferences,
   minimumArrivalSocPct,
   onOverview,
@@ -89,6 +96,8 @@ export function ActiveNavigationScreen({
   bottomOffset = 0,
   destinationName = 'Destination',
   topInset = 0,
+  onConnectionError,
+  onConnectionRestored,
 }: Props) {
   const [routeResult, setRouteResult] = useState(result);
   const [fix, setFix] = useState<NavigationFix | null>(null);
@@ -99,6 +108,7 @@ export function ActiveNavigationScreen({
   const [gpsUnavailable, setGpsUnavailable] = useState(false);
   const [ending, setEnding] = useState(false);
   const [addingStopId, setAddingStopId] = useState<string | null>(null);
+  const [confirmEnd, setConfirmEnd] = useState(false);
 
   const routeRef = useRef(routeResult);
   const lineRef = useRef(routeResult.route.geometry.coordinates || []);
@@ -159,20 +169,25 @@ export function ActiveNavigationScreen({
         minimumArrivalSocPct,
         preferences,
         manualVehicle,
+        evModelId,
         waypointStationId: stationId || routeRef.current.user_requested_stop?.station.id || undefined,
       }));
       if (!stoppedRef.current) {
         updateRoute(replacement);
         invalidFixesRef.current = 0;
         setStatus('navigating');
+        onConnectionRestored?.();
         void onRouteSessionReplaced(oldRouteId);
       }
-    } catch {
-      if (!stoppedRef.current) setStatus('routing_unavailable');
+    } catch (cause) {
+      if (!stoppedRef.current) {
+        setStatus('routing_unavailable');
+        if ((cause as RouteApiError).isNetworkError) onConnectionError?.();
+      }
     } finally {
       reroutingRef.current = false;
     }
-  }, [destination, manualVehicle, minimumArrivalSocPct, onRouteSessionReplaced, preferences, updateRoute]);
+  }, [destination, evModelId, manualVehicle, minimumArrivalSocPct, onConnectionError, onConnectionRestored, onRouteSessionReplaced, preferences, updateRoute]);
 
   const requestEvaluation = useCallback(async (position: NavigationFix, force = false) => {
     if (stoppedRef.current) return;
@@ -195,6 +210,7 @@ export function ActiveNavigationScreen({
         maximum_detour_km: preferences.maximum_detour_km,
         active_waypoint_station_id: routeRef.current.user_requested_stop?.station.id,
         vehicle: manualVehicle,
+        ev_model_id: evModelId,
       }, controller.signal);
       if (!stoppedRef.current && sequence === requestSequenceRef.current) {
         estimatedCurrentSocRef.current = nonIncreasingDrivingSoc(
@@ -205,11 +221,15 @@ export function ActiveNavigationScreen({
         setEvaluation(evaluationRef.current);
         latestEvaluationAtRef.current = Date.now();
         latestEvaluationLocationRef.current = position;
+        onConnectionRestored?.();
       }
     } catch (cause: any) {
-      if (cause?.name !== 'AbortError' && !stoppedRef.current) setStatus('routing_unavailable');
+      if (cause?.name !== 'AbortError' && !stoppedRef.current) {
+        setStatus('routing_unavailable');
+        if ((cause as RouteApiError).isNetworkError) onConnectionError?.();
+      }
     }
-  }, [destination, manualVehicle, minimumArrivalSocPct, navigationStartSocPct, preferences.maximum_detour_km]);
+  }, [destination, evModelId, manualVehicle, minimumArrivalSocPct, navigationStartSocPct, onConnectionError, onConnectionRestored, preferences.maximum_detour_km]);
 
   const processFixRef = useRef<(position: NavigationFix) => void>(() => undefined);
   processFixRef.current = (position) => {
@@ -323,15 +343,16 @@ export function ActiveNavigationScreen({
     </View>
 
     {gpsUnavailable ? <View style={[styles.notice, { top: topInset + 104 }]}><Text style={styles.noticeTitle}>GPS unavailable</Text><Text>Enable precise location and move where the device has a clear signal.</Text></View> : null}
-    {status === 'routing_unavailable' ? <View style={[styles.notice, { top: topInset + 104 }]}><Text style={styles.noticeTitle}>Road routing unavailable</Text><Text>Navigation will not use a straight-line substitute.</Text><View style={styles.noticeActions}><Pressable style={styles.secondaryAction} onPress={() => latestFixRef.current && replaceRoadRoute(latestFixRef.current)}><Text>Retry</Text></Pressable><Pressable style={styles.dangerAction} onPress={() => finish('end')}><Text style={styles.dangerText}>End Navigation</Text></Pressable></View></View> : null}
+    {status === 'routing_unavailable' ? <View style={[styles.notice, { top: topInset + 104 }]}><Text style={styles.noticeTitle}>Road routing unavailable</Text><Text>Navigation will not use a straight-line substitute.</Text><View style={styles.noticeActions}><Pressable style={styles.secondaryAction} onPress={() => latestFixRef.current && replaceRoadRoute(latestFixRef.current)}><Text>Retry</Text></Pressable><Pressable style={styles.dangerAction} onPress={() => setConfirmEnd(true)}><Text style={styles.dangerText}>End navigation</Text></Pressable></View></View> : null}
 
-    {evaluation?.warning ? <View style={[styles.warningPanel, { top: topInset + 104 }]}><Text style={styles.noticeTitle}>{evaluation.warning.code === 'no_suitable_station' ? 'No suitable charging station' : 'Battery reserve warning'}</Text><Text>{evaluation.warning.message}</Text>{candidates.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stopList}>{candidates.map((stop) => <View style={styles.stopCard} key={stop.station.id}><Text style={styles.stopName}>{stop.station.name || 'Charging station'}</Text><Text>{formatDistance(stop.distance_from_origin_km)} away · {formatDistance(stop.detour_km)} detour</Text><Text>{connectorLabel(stop)} · {stop.best_available_power_kw ?? stop.station.power_kw ?? '—'} kW</Text><Text>{stop.available_connector_count} free · {Math.round(stop.estimated_charging_minutes)} min charge</Text><Pressable disabled={Boolean(addingStopId)} style={styles.addStop} onPress={() => void addStop(stop)}>{addingStopId === stop.station.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.addStopText}>Add Stop to Route</Text>}</Pressable></View>)}</ScrollView> : null}</View> : null}
+    {evaluation?.warning ? <View style={[styles.warningPanel, { top: topInset + 104 }]}><View style={styles.warningHeading}><Text style={styles.noticeTitle}>{evaluation.warning.code === 'no_suitable_station' ? 'No suitable charging station' : 'Arrival battery recalculated'}</Text><Text style={styles.warningSoc}>{formatSoc(projectedSoc)}</Text></View><Text>{evaluation.warning.message}</Text>{evaluation.warning.code !== 'no_suitable_station' ? <Text style={styles.reserveCopy}>Projected arrival is below your {minimumArrivalSocPct}% reserve.</Text> : null}{candidates.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stopList}>{candidates.map((stop) => <View style={styles.stopCard} key={stop.station.id}><Text style={styles.stopName}>{stop.station.name || 'Charging station'}</Text><Text>{formatDistance(stop.distance_from_origin_km)} away · {formatDistance(stop.detour_km)} detour</Text><Text>{connectorLabel(stop)} · {stop.best_available_power_kw ?? stop.station.power_kw ?? '—'} kW</Text><Text>{stop.available_connector_count} free · {Math.round(stop.estimated_charging_minutes)} min charge</Text><Pressable disabled={Boolean(addingStopId)} style={styles.addStop} onPress={() => void addStop(stop)}>{addingStopId === stop.station.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.addStopText}>Add SPKLU stop</Text>}</Pressable></View>)}</ScrollView> : <View style={styles.warningActions}><Pressable style={styles.secondaryAction} onPress={showOverview}><Text>Route overview</Text></Pressable><Pressable style={styles.dangerAction} onPress={() => setConfirmEnd(true)}><Text style={styles.dangerText}>End navigation</Text></Pressable></View>}</View> : null}
 
     <View style={[styles.sheet, { bottom: bottomOffset }]}>
       <View style={styles.stats}><Text style={styles.duration}>{formatDuration(remainingMinutes)}</Text><Text>{formatDistance(remainingKm)} left</Text><Text style={styles.soc}>{formatSoc(projectedSoc)} at arrival</Text></View>
-      <Text style={styles.currentBattery}>Current battery {formatSoc(currentSoc)} · {formatRouteEta(eta)}</Text>
-      <View style={styles.actions}><Pressable accessibilityLabel="Show route overview" style={styles.secondaryAction} onPress={showOverview}><Text>Overview</Text></Pressable><Pressable accessibilityLabel="Cancel navigation" style={styles.secondaryAction} onPress={() => void finish('cancel')}><Text>Cancel</Text></Pressable><Pressable accessibilityLabel="End navigation" disabled={ending} style={styles.endAction} onPress={() => void finish('end')}><Text style={styles.endText}>{ending ? 'Ending…' : 'End'}</Text></Pressable></View>
+      <Text style={styles.currentBattery}>Current battery {formatSoc(currentSoc)} · {formatRouteEta(eta)}</Text><Text style={styles.destination}>Destination · {destinationName}</Text>
+      <View style={styles.actions}><Pressable accessibilityLabel="Show route overview" style={styles.secondaryAction} onPress={showOverview}><Text>Route overview</Text></Pressable><Pressable accessibilityLabel="End navigation" disabled={ending} style={styles.endAction} onPress={() => setConfirmEnd(true)}><Text style={styles.endText}>{ending ? 'Ending…' : 'End navigation'}</Text></Pressable></View>
     </View>
+    <RouteDialog visible={confirmEnd} title="End navigation?" danger primaryLabel={ending ? 'Deleting session…' : 'End and delete session'} onPrimary={() => { setConfirmEnd(false); void finish('end'); }} secondaryLabel="Keep navigating" onSecondary={() => setConfirmEnd(false)}><Text>Route guidance stops immediately. Temporary route and battery data deletion starts now.</Text><View style={styles.privacyBox}><Text style={styles.privacyTitle}>Privacy process</Text><Text>1. Close route session</Text><Text>2. Mask coordinates in server logs</Text><Text>3. Delete temporary route data within 30 seconds</Text></View></RouteDialog>
   </View>;
 }
 
@@ -341,9 +362,11 @@ const styles = StyleSheet.create({
   banner: { position: 'absolute', left: 12, right: 12, minHeight: 80, backgroundColor: '#00565F', borderRadius: 8, padding: 14, flexDirection: 'row', gap: 12, alignItems: 'center', zIndex: 20 },
   bannerCopy: { flex: 1 }, icon: { fontSize: 30, color: '#FFFFFF' }, distance: { color: '#CFFAFE', fontWeight: '700' }, instruction: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' }, road: { color: '#E2E8F0' },
   notice: { position: 'absolute', left: 12, right: 12, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, padding: 14, zIndex: 22, gap: 6 },
-  warningPanel: { position: 'absolute', left: 12, right: 12, maxHeight: 280, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 8, padding: 12, zIndex: 21, gap: 5 },
+  warningPanel: { position: 'absolute', left: 12, right: 12, maxHeight: 300, backgroundColor: '#FFF5EC', borderWidth: 1, borderColor: '#F2A261', borderRadius: 14, padding: 12, zIndex: 21, gap: 5 },
+  warningHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, warningSoc: { color: '#ED7100', fontWeight: '800' }, reserveCopy: { color: '#66747B', fontSize: 12 }, warningActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
   noticeTitle: { color: '#0F172A', fontWeight: '800', fontSize: 16 }, noticeActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
   stopList: { gap: 8, paddingTop: 8 }, stopCard: { width: 245, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 8, padding: 10, gap: 3 }, stopName: { fontWeight: '800', color: '#0F172A' }, addStop: { minHeight: 44, marginTop: 6, borderRadius: 6, backgroundColor: '#00696F', alignItems: 'center', justifyContent: 'center' }, addStopText: { color: '#FFFFFF', fontWeight: '800' },
-  sheet: { position: 'absolute', left: 0, right: 0, backgroundColor: '#FFFFFF', padding: 18, borderTopLeftRadius: 20, borderTopRightRadius: 20, zIndex: 20 },
-  stats: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, duration: { fontSize: 24, fontWeight: '800' }, soc: { color: '#166534', fontWeight: '700' }, currentBattery: { color: '#475569', marginVertical: 10 }, actions: { flexDirection: 'row', gap: 8 }, secondaryAction: { minHeight: 48, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8 }, dangerAction: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 14, backgroundColor: '#B91C1C', borderRadius: 8 }, dangerText: { color: '#FFFFFF', fontWeight: '800' }, endAction: { minHeight: 48, flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#00696F', borderRadius: 8 }, endText: { color: '#FFFFFF', fontWeight: '800' },
+  sheet: { position: 'absolute', left: 0, right: 0, backgroundColor: '#FFFFFF', padding: 18, borderTopLeftRadius: 24, borderTopRightRadius: 24, zIndex: 20 },
+  stats: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, duration: { fontSize: 20, fontWeight: '800' }, soc: { color: '#166534', fontWeight: '700' }, currentBattery: { color: '#475569', marginTop: 8 }, destination: { color: '#66747B', fontSize: 12, marginVertical: 8 }, actions: { flexDirection: 'row', gap: 8 }, secondaryAction: { minHeight: 48, flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, borderWidth: 1, borderColor: '#008A91', borderRadius: 12 }, dangerAction: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 14, backgroundColor: '#B91C1C', borderRadius: 8 }, dangerText: { color: '#FFFFFF', fontWeight: '800' }, endAction: { minHeight: 48, flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#D5252A', borderRadius: 12 }, endText: { color: '#FFFFFF', fontWeight: '800' },
+  privacyBox: { backgroundColor: routeColors.brandSoft, borderRadius: 12, padding: 12, gap: 5 }, privacyTitle: { color: routeColors.brandDark, fontWeight: '800', fontSize: 11, textTransform: 'uppercase' },
 });

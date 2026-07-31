@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 
-export type LocationPermissionStatus = 'granted' | 'denied' | 'undetermined' | 'unavailable';
+export type LocationPermissionStatus = 'granted' | 'denied' | 'undetermined' | 'unavailable' | 'gps_error';
 
 export type UserLocationResult = {
   coordinates: { latitude: number; longitude: number } | null;
@@ -12,7 +12,7 @@ export type NavigationFix = { latitude: number; longitude: number; heading?: num
 export async function watchNavigationLocation(onFix: (fix: NavigationFix) => void, onError?: () => void): Promise<Location.LocationSubscription | null> {
   try {
     const permission = await Location.requestForegroundPermissionsAsync();
-    if (permission.status !== Location.PermissionStatus.GRANTED) return null;
+    if (permission.status !== Location.PermissionStatus.GRANTED) { onError?.(); return null; }
     return await Location.watchPositionAsync({
       accuracy: Location.Accuracy.Highest,
       distanceInterval: 10,
@@ -46,13 +46,10 @@ export async function getUserLocation(options: { requestPermission?: boolean } =
       },
       status: 'granted'
     };
-  } catch (error) {
+  } catch {
     return {
-      coordinates: {
-        latitude: -6.1754,
-        longitude: 106.8272
-      },
-      status: 'granted'
+      coordinates: null,
+      status: 'gps_error'
     };
   }
 }
