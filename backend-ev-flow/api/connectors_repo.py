@@ -115,94 +115,106 @@ def release(c, connector_id: str) -> None:
 
 
 # <Aidil> 2026-07-29
+_COUNT_KEYS = ("available", "total", "in_use", "out_of_service")
+
+# One row per (type, speed_tier, power_kw) group of interchangeable connectors.
+# power_kw is SELECTed, not just grouped by: without it two groups differing only
+# in power come back as indistinguishable duplicates the client cannot label.
+#
+# The active session is reached through a LATERAL aggregate instead of a plain
+# LEFT JOIN because a join multiplies the connector row once per matching session,
+# which inflates the status counts whenever a connector carries more than one
+# 'active' session row. The subquery always yields exactly one row per connector.
+_REALTIME_STATUS_SQL = text("""
+    SELECT c.type,
+           c.speed_tier,
+           c.power_kw,
+           count(*)                                            AS total,
+           count(*) FILTER (WHERE c.status = 'available')       AS available,
+           count(*) FILTER (WHERE c.status = 'in_use')          AS in_use,
+           count(*) FILTER (WHERE c.status = 'out_of_service')  AS out_of_service,
+           CASE
+               WHEN count(*) FILTER (WHERE c.status = 'available') > 0 THEN 0
+               -- No session on record (or one with no usable power) means the wait is
+               -- UNKNOWN, which is not the same answer as "no wait". It has to stay NULL
+               -- all the way to the client. GREATEST() cannot carry it: it ignores NULL
+               -- arguments, so GREATEST(0, NULL) is 0 -- hence the explicit branch.
+               WHEN min(s.frees_up_at) IS NULL THEN NULL
+               -- Clamp an overdue session to 0 rather than reporting a negative wait.
+               ELSE round(GREATEST(
+                        EXTRACT(EPOCH FROM (min(s.frees_up_at) - now())) / 60.0, 0)::numeric, 2)
+           END                                                 AS waiting_time
+    FROM connectors c
+    LEFT JOIN LATERAL (
+        SELECT min(cs.created_at + make_interval(
+                   secs => (cs.energy_kwh / NULLIF(cs.power_kw, 0)) * 3600.0)) AS frees_up_at
+        FROM charging_sessions cs
+        WHERE cs.connector_id = c.id AND cs.status = 'active'
+    ) s ON true
+    WHERE c.station_id = :sid
+    GROUP BY c.type, c.speed_tier, c.power_kw
+    ORDER BY c.type, c.speed_tier, c.power_kw
+""")
+
+
+def _status_group(r) -> dict:
+    """One (type, speed_tier, power_kw) group of connectors, shaped for the API."""
+    wait = r["waiting_time"]
+    power_kw = r["power_kw"]
+    return {
+        "type": r["type"],
+        "speed_tier": r["speed_tier"],
+        "power_kw": None if power_kw is None else float(power_kw),
+        # Real ints, not str(): the client compares and sums these, and "17" > "9"
+        # is false in JavaScript while "17" + 1 is "171".
+        "available": int(r["available"]),
+        "total": int(r["total"]),
+        "in_use": int(r["in_use"]),
+        "out_of_service": int(r["out_of_service"]),
+        "waiting_time": None if wait is None else float(wait),
+    }
+
+
 def get_station_realtime_status(station_id: str) -> dict:
-    """Retrieve full status summary for a station including connector status."""
-    connectors_sql = """
-        SELECT 
-            c.type,
-            c.speed_tier,
-            COUNT(CASE WHEN c.status = 'available' THEN 1 END) AS available,
-            COUNT(c.id) AS total,
-            CASE 
-                -- If all connectors in this group are in use, calculate remaining waiting time in minutes
-                WHEN COUNT(CASE WHEN c.status = 'available' THEN 1 END) = 0 THEN
-                    ROUND(
-                        GREATEST(
-                            0,
-                            EXTRACT(
-                                EPOCH FROM (
-                                    MIN(
-                                        cs.created_at + (((cs.energy_kwh / NULLIF(cs.power_kw, 0)) * 60.0) || ' minutes')::INTERVAL
-                                    ) - NOW()
-                                )
-                            ) / 60.0
-                        )::NUMERIC,
-                        2
-                    )
-                ELSE 0.00 -- Available connectors have 0 waiting time
-            END AS waiting_time
-        FROM connectors c
-        LEFT JOIN charging_sessions cs 
-            ON c.id = cs.connector_id 
-        AND cs.status = 'active'
-        WHERE c.station_id = :sid
-        GROUP BY 
-            c.station_id,
-            c.type,
-            c.speed_tier,
-            c.power_kw
-        ORDER BY c.type, c.speed_tier;
+    """Live per-status counts for a station, plus the same breakdown per connector group.
+
+    waiting_time (both levels) is three-state: 0 = a plug is free right now,
+    a positive number = minutes until the soonest active session finishes,
+    None = unknown, no estimate can be computed.
     """
-    
     with engine.connect() as c:
-        connector_rows = c.execute(text(connectors_sql), {"sid": station_id}).mappings().all()
-        
-    if not connector_rows:
+        rows = c.execute(_REALTIME_STATUS_SQL, {"sid": station_id}).mappings().all()
+
+    if not rows:  # station has no connectors on record: nothing free, nothing to estimate from
         return {
             "station_id": station_id,
             "station_status": 0,
-            "available": "0",
-            "total": "0",
-            "waiting_time": 0.0,
-            "connectors": []
+            "available": 0,
+            "total": 0,
+            "in_use": 0,
+            "out_of_service": 0,
+            "waiting_time": None,
+            "connectors": [],
         }
-        
-    connectors = []
-    total_available = 0
-    total_total = 0
-    waiting_times = []
-    
-    for r in connector_rows:
-        available_val = int(r["available"])
-        total_val = int(r["total"])
-        total_available += available_val
-        total_total += total_val
-        
-        # Format waiting_time as string for connectors (e.g. "0" if zero, otherwise decimal string)
-        wt = r["waiting_time"]
-        if wt is None or float(wt) == 0:
-            wt_str = "0"
-        else:
-            wt_float = float(wt)
-            wt_str = str(int(wt_float)) if wt_float.is_integer() else str(wt)
-        
-        waiting_times.append(float(wt) if wt is not None else 0.0)
-        
-        connectors.append({
-            "type": r["type"],
-            "speed_tier": r["speed_tier"],
-            "available": str(available_val),
-            "total": str(total_val),
-            "waiting_time": wt_str
-        })
-        
-    summary = {
+
+    connectors = [_status_group(r) for r in rows]
+    totals = {k: sum(g[k] for g in connectors) for k in _COUNT_KEYS}
+    known_waits = [g["waiting_time"] for g in connectors if g["waiting_time"] is not None]
+    if totals["available"] > 0:
+        waiting_time = 0.0
+    else:
+        # min() over an empty sequence raises, and every group being unknown is the
+        # normal state of a full station nobody has an active session at.
+        waiting_time = min(known_waits) if known_waits else None
+
+    return {
         "station_id": station_id,
-        "station_status": 1 if total_available > 0 else 0,
-        "available": str(total_available),
-        "total": str(total_total),
-        "waiting_time": 0.0 if total_available > 0 else min(waiting_times),
-        "connectors": connectors
+        "station_status": 1 if totals["available"] > 0 else 0,
+        "available": totals["available"],
+        "total": totals["total"],
+        "in_use": totals["in_use"],
+        "out_of_service": totals["out_of_service"],
+        "waiting_time": waiting_time,
+        "connectors": connectors,
     }
-    return summary
 # </Aidil> 2026-07-29

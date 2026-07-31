@@ -217,10 +217,17 @@ def routing_coords(source: Optional[str] = None) -> list[dict]:
 
 # <Aidil> 2026-07-29
 def get_hourly_occupancy(station_id: str) -> dict:
-    """Retrieve hourly occupancy data for a station structured by day and hour."""
+    """Hourly occupancy history for a station, structured by day and hour.
+
+    COVERAGE IS SPARSE, and absence is the ONLY signal for "not measured":
+    an hour with no measurement is left out of its day's `hours`, a day with no
+    measurements at all is left out of `days`, and a station with no history at
+    all comes back as `days: []`. Nothing is ever padded with a zero, because a
+    zero here means "measured, nobody was charging" and a client cannot tell a
+    fabricated one from a real one.
+    """
     sql = """
-        SELECT 
-            station_id,
+        SELECT
             day_of_week,
             CASE day_of_week
                 WHEN 1 THEN 'Monday'
@@ -232,18 +239,35 @@ def get_hourly_occupancy(station_id: str) -> dict:
                 WHEN 7 THEN 'Sunday'
             END AS day_name,
             hour_of_day,
-            avg_occupancy
+            avg_occupancy,
+            -- The stored classification wins, so client labels can never drift from the
+            -- backend's. The CASE only covers rows written before the column existed:
+            -- occupancy_level is NOT NULL in the response model, so a NULL here would
+            -- fail response validation and 500 the whole week.
+            COALESCE(
+                occupancy_level,
+                CASE
+                    WHEN avg_occupancy >= 80 THEN 'PEAK'
+                    WHEN avg_occupancy >= 50 THEN 'BUSY'
+                    WHEN avg_occupancy >= 20 THEN 'MODERATE'
+                    ELSE 'LOW'
+                END
+            ) AS occupancy_level
         FROM station_hourly_occupancy
         WHERE station_id = :sid
-        ORDER BY 
-            day_of_week ASC, 
+          -- A row that exists but never got a measurement used to be emitted as 0.0,
+          -- i.e. as a quiet hour. Drop it instead: it is data we do not have, and the
+          -- caller already reads a missing hour that way.
+          AND avg_occupancy IS NOT NULL
+        ORDER BY
+            day_of_week ASC,
             hour_of_day ASC;
     """
     with engine.connect() as c:
         rows = c.execute(text(sql), {"sid": station_id}).mappings().all()
 
     # Structure the flat rows into days -> hours
-    days_map = {}
+    days_map: dict[int, dict] = {}
     for r in rows:
         dow = int(r["day_of_week"])
         if dow not in days_map:
@@ -254,9 +278,10 @@ def get_hourly_occupancy(station_id: str) -> dict:
             }
         days_map[dow]["hours"].append({
             "hour_of_day": int(r["hour_of_day"]),
-            "avg_occupancy": float(r["avg_occupancy"]) if r["avg_occupancy"] is not None else 0.0
+            "avg_occupancy": float(r["avg_occupancy"]),
+            "occupancy_level": r["occupancy_level"]
         })
-        
+
     return {
         "station_id": station_id,
         "days": list(days_map.values())

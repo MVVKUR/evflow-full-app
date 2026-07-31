@@ -912,23 +912,89 @@ class GeocodingSearchResponse(BaseModel):
 
 # <Aidil> 2026-07-29
 class StationConnectorStatus(BaseModel):
+    """Live counts for one group of interchangeable connectors at a station.
+
+    A group is one (type, speed_tier, power_kw) combination, so power_kw is part of the
+    group's identity: two groups can share type and speed_tier and differ only in power.
+    """
     type: str = Field(..., description="Connector standard/type.", examples=["CCS2"])
-    speed_tier: Optional[str] = Field(None, description="Connector speed tier.", examples=["fast"])
-    available: str = Field(..., description="Number of available connectors in this group.", examples=["3"])
-    total: str = Field(..., description="Total number of connectors in this group.", examples=["5"])
-    waiting_time: str = Field(..., description="Waiting Time (minutes) status message.", examples=["0", "12.4"])
+    speed_tier: Optional[str] = Field(
+        None, description="Connector speed tier: slow / medium / fast / ultra_fast.", examples=["fast"])
+    power_kw: Optional[float] = Field(
+        None,
+        description="Rated power (kW) every connector in this group delivers. Two groups with the same "
+                    "type and speed_tier are told apart by this value, so show it. Null when the source "
+                    "data never reported a power for these connectors.",
+        examples=[50.0])
+    available: int = Field(
+        ..., description="Connectors in this group free to plug into right now.", examples=[2])
+    total: int = Field(
+        ...,
+        description="Connectors in this group, every status included. "
+                    "Always equals available + in_use + out_of_service.",
+        examples=[5])
+    in_use: int = Field(
+        ..., description="Connectors in this group busy with an active charging session.", examples=[2])
+    out_of_service: int = Field(
+        ...,
+        description="Connectors in this group that are broken or offline. Present them as unusable, never "
+                    "as busy: they are not going to free up, so do not fold them into an occupied count "
+                    "derived from total - available.",
+        examples=[1])
+    waiting_time: Optional[float] = Field(
+        ...,
+        description="Minutes until a connector in this group is expected to free up. 0 = at least one is "
+                    "free right now. A positive number = none free, and this is the estimate from the "
+                    "active session finishing soonest. Null = UNKNOWN: none free and no estimate can be "
+                    "computed (no active session on record, missing power, ...). Null must never be "
+                    "rendered as '~0 minutes' -- say the wait is unknown.",
+        examples=[0, 12.4, None])
 
 class StationStatusResponse(BaseModel):
     station_id: str = Field(..., description="ID of the station.", examples=["pln_spklu-1"])
-    station_status: int = Field(..., description="Station status (1 if available, 0 if in use).", examples=[1])
-    available: str = Field(..., description="Total number of available connectors at the station.", examples=["3"])
-    total: str = Field(..., description="Total number of connectors at the station.", examples=["8"])
-    waiting_time: float = Field(..., description="Waiting time details if busy.", examples=[0.0, 5.0])
-    connectors: list[StationConnectorStatus]
+    station_status: int = Field(
+        ...,
+        description="Whole-station availability flag: 1 = at least one connector is free to plug into "
+                    "right now, 0 = none is (all connectors in use or out of service, or the station has "
+                    "no connectors on record).",
+        examples=[1])
+    available: int = Field(
+        ..., description="Connectors free to plug into right now across the whole station.", examples=[3])
+    total: int = Field(
+        ...,
+        description="Connectors at the station, every status included. "
+                    "Always equals available + in_use + out_of_service.",
+        examples=[8])
+    in_use: int = Field(
+        ..., description="Connectors at the station busy with an active charging session.", examples=[4])
+    out_of_service: int = Field(
+        ...,
+        description="Connectors at the station that are broken or offline. Exposed so the client stops "
+                    "inferring occupancy as total - available, which reported a broken charger as busy.",
+        examples=[1])
+    waiting_time: Optional[float] = Field(
+        ...,
+        description="Minutes until any connector at the station is expected to free up. 0 = at least one "
+                    "is free right now. A positive number = none free, and this is the soonest estimate "
+                    "across the station. Null = UNKNOWN: none free and no estimate can be computed. Null "
+                    "must never be rendered as '~0 minutes' -- say the wait is unknown.",
+        examples=[0, 12.4, None])
+    connectors: list[StationConnectorStatus] = Field(
+        ...,
+        description="Per-group breakdown of the same counts, one entry per "
+                    "(type, speed_tier, power_kw) combination.")
 
 class StationOccupancyHour(BaseModel):
     hour_of_day: int = Field(..., description="Hour of day (0 to 23).", examples=[14])
-    avg_occupancy: float = Field(..., description="Average occupancy percentage.", examples=[45.5])
+    avg_occupancy: float = Field(
+        ..., description="Average share of the station's connectors busy in this hour, percent (0-100).",
+        examples=[45.5])
+    occupancy_level: str = Field(
+        ...,
+        description="How busy this hour is, classified server-side from avg_occupancy at the 20 / 50 / 80 "
+                    "percent thresholds: 'LOW', 'MODERATE', 'BUSY', 'PEAK'. Display this rather than "
+                    "re-deriving the buckets, so client labels cannot drift from the backend's.",
+        examples=["MODERATE"])
 
 class StationOccupancyDay(BaseModel):
     day_of_week: int = Field(..., description="Day of week (1=Monday, ..., 7=Sunday).", examples=[1])
