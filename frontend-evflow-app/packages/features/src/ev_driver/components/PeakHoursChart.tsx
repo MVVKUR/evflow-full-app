@@ -19,6 +19,22 @@ export function PeakHoursChart({ availabilityState, peakHours }: PeakHoursChartP
   const comparisonHour = jakartaNow.hour;
   const currentAccent = availabilityState === 'occupied' ? '#E87500' : '#10A957';
 
+  // Without history every bar would be a placeholder zero. Drawing that chart
+  // would read as "this station is always empty", which is a claim we cannot
+  // make -- so say there is nothing to show yet instead.
+  if (!peakHours.hasHistory) {
+    return (
+      <View style={chartStyles.section}>
+        <Text style={chartStyles.title}>Peak Hours</Text>
+        <View style={chartStyles.card}>
+          <Text style={chartStyles.empty}>
+            Not enough visits recorded here yet. Typical busy hours will appear once this station has a few weeks of history.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={chartStyles.section}>
       <Text style={chartStyles.title}>Peak Hours</Text>
@@ -121,5 +137,6 @@ const chartStyles = StyleSheet.create({
   liveDot: { borderRadius: 4, height: 7, marginTop: 4, width: 7 },
   live: { color: '#263438', flex: 1, fontSize: 10, lineHeight: 15 },
   recommendation: { color: '#465257', fontSize: 10, lineHeight: 15 },
-  note: { color: '#839095', fontSize: 9, lineHeight: 14 }
+  note: { color: '#839095', fontSize: 9, lineHeight: 14 },
+  empty: { color: '#465257', fontSize: 11, lineHeight: 17 }
 });

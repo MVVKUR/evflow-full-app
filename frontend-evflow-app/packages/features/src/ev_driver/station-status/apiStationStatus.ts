@@ -2,14 +2,26 @@ import {
   fetchStationOccupancy,
   fetchStationStatus,
   type StationOccupancyApiResponse,
+  type StationOccupancyLevel,
   type StationStatusApiResponse
 } from '@evflow/shared';
 import { isValidStationLiveStatus, type DailyPeakHours, type LiveConnectorStatus, type StationLiveStatus } from './types';
 
 const backendDaysMondayThroughSunday = [1, 2, 3, 4, 5, 6, 7] as const;
 
+const occupancyLevels = new Set<StationOccupancyLevel>(['LOW', 'MODERATE', 'BUSY', 'PEAK']);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object';
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+/** Minutes, or null when the backend has no estimate. Never a string. */
+function isWaitingTime(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isFinite(value) && value >= 0);
 }
 
 function isStationStatusResponse(value: unknown): value is StationStatusApiResponse {
@@ -19,16 +31,21 @@ function isStationStatusResponse(value: unknown): value is StationStatusApiRespo
 
   return typeof value.station_id === 'string' &&
     typeof value.station_status === 'number' &&
-    typeof value.available === 'string' &&
-    typeof value.total === 'string' &&
-    typeof value.waiting_time === 'number' &&
+    isCount(value.available) &&
+    isCount(value.total) &&
+    isCount(value.in_use) &&
+    isCount(value.out_of_service) &&
+    isWaitingTime(value.waiting_time) &&
     value.connectors.every((connector) =>
       isRecord(connector) &&
       typeof connector.type === 'string' &&
       (connector.speed_tier === null || typeof connector.speed_tier === 'string') &&
-      typeof connector.available === 'string' &&
-      typeof connector.total === 'string' &&
-      typeof connector.waiting_time === 'string'
+      (connector.power_kw === null || (typeof connector.power_kw === 'number' && Number.isFinite(connector.power_kw) && connector.power_kw >= 0)) &&
+      isCount(connector.available) &&
+      isCount(connector.total) &&
+      isCount(connector.in_use) &&
+      isCount(connector.out_of_service) &&
+      isWaitingTime(connector.waiting_time)
     );
 }
 
@@ -45,22 +62,11 @@ function isStationOccupancyResponse(value: unknown): value is StationOccupancyAp
     day.hours.every((hour) =>
       isRecord(hour) &&
       typeof hour.hour_of_day === 'number' &&
-      typeof hour.avg_occupancy === 'number'
+      typeof hour.avg_occupancy === 'number' &&
+      Number.isFinite(hour.avg_occupancy) &&
+      occupancyLevels.has(hour.occupancy_level as StationOccupancyLevel)
     )
   );
-}
-
-function parseNonNegativeNumber(value: unknown) {
-  const parsed = typeof value === 'number'
-    ? value
-    : typeof value === 'string' && value.trim().length > 0
-      ? Number(value)
-      : Number.NaN;
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-}
-
-function parseCount(value: unknown) {
-  return Math.floor(parseNonNegativeNumber(value));
 }
 
 function clamp(value: number, minimum: number, maximum: number) {
@@ -68,22 +74,19 @@ function clamp(value: number, minimum: number, maximum: number) {
 }
 
 function expandConnectors(stationId: string, response: StationStatusApiResponse): LiveConnectorStatus[] {
-  const stationWaitingTime = parseNonNegativeNumber(response.waiting_time);
   let connectorIndex = 0;
 
   return response.connectors.flatMap((connector) => {
-    const totalCount = parseCount(connector.total);
-    const availableCount = Math.min(parseCount(connector.available), totalCount);
-    const occupiedCount = Math.max(totalCount - availableCount, 0);
     const connectorType = connector.type || 'Unknown connector';
-    const groupWaitingTime = parseNonNegativeNumber(connector.waiting_time);
-    const occupiedWaitingTime = groupWaitingTime > 0 ? groupWaitingTime : stationWaitingTime;
+    // The wait applies only to plugs that will actually free up. Falling back to
+    // the station-wide figure would attach one group's estimate to another's.
+    const occupiedWaitMinutes = connector.waiting_time ?? response.waiting_time;
     const createConnector = (status: LiveConnectorStatus['status'], estimatedWaitMinutes: number | null) => {
       const result: LiveConnectorStatus = {
         connectorId: `${stationId}:${connectorType}:${connector.speed_tier ?? 'unknown'}:${connectorIndex}`,
         connectorType,
         speedTier: connector.speed_tier,
-        powerKw: null,
+        powerKw: connector.power_kw,
         status,
         estimatedWaitMinutes,
         estimatedAvailableAt: null
@@ -92,9 +95,12 @@ function expandConnectors(stationId: string, response: StationStatusApiResponse)
       return result;
     };
 
+    // out_of_service is kept apart from in_use on purpose: a broken plug is not
+    // going to free up, so it must never carry a wait estimate.
     return [
-      ...Array.from({ length: availableCount }, () => createConnector('available', null)),
-      ...Array.from({ length: occupiedCount }, () => createConnector('occupied', occupiedWaitingTime))
+      ...Array.from({ length: connector.available }, () => createConnector('available', null)),
+      ...Array.from({ length: connector.in_use }, () => createConnector('occupied', occupiedWaitMinutes)),
+      ...Array.from({ length: connector.out_of_service }, () => createConnector('out_of_service', null))
     ];
   });
 }
@@ -118,7 +124,7 @@ function buildPeakHourDays(response: StationOccupancyApiResponse): DailyPeakHour
     const day = days.get(apiDay.day_of_week % 7);
     apiDay.hours.forEach((hour) => {
       if (day && Number.isInteger(hour.hour_of_day) && hour.hour_of_day >= 0 && hour.hour_of_day <= 23) {
-        day.hourlyOccupancyPercent[hour.hour_of_day] = clamp(parseNonNegativeNumber(hour.avg_occupancy), 0, 100);
+        day.hourlyOccupancyPercent[hour.hour_of_day] = clamp(hour.avg_occupancy, 0, 100);
       }
     });
   });
@@ -145,10 +151,11 @@ export async function getApiStationLiveStatus(
     throw new Error('The station returned an invalid live status response.');
   }
 
-  const total = parseCount(statusResponse.total);
-  const available = Math.min(parseCount(statusResponse.available), total);
-  const currentOccupancyPercent = total > 0
-    ? clamp(Math.round(((total - available) / total) * 100), 0, 100)
+  // Counted over every connector, matching the denominator the backend uses for
+  // the historical avg_occupancy this gets compared against. Broken plugs are
+  // excluded from the numerator: unusable is not the same as busy.
+  const currentOccupancyPercent = statusResponse.total > 0
+    ? clamp(Math.round((statusResponse.in_use / statusResponse.total) * 100), 0, 100)
     : null;
   const liveStatus: StationLiveStatus = {
     stationId,
@@ -157,7 +164,11 @@ export async function getApiStationLiveStatus(
     peakHours: {
       timezone: 'Asia/Jakarta',
       days: buildPeakHourDays(occupancyResponse),
-      currentOccupancyPercent
+      currentOccupancyPercent,
+      // An empty days array means the backend has no history for this station.
+      // The zero-filled week below is scaffolding for the chart's layout, not
+      // measurements, and must not be presented as such.
+      hasHistory: occupancyResponse.days.length > 0
     }
   };
 

@@ -25,7 +25,7 @@ export const availableStationStatusFixture: StationLiveStatus = {
     { connectorId: 'a-type2-1', connectorType: 'Type 2', speedTier: 'slow', powerKw: 22, status: 'occupied', estimatedWaitMinutes: 15, estimatedAvailableAt: '2026-07-28T14:35:00+07:00' },
     { connectorId: 'a-chademo-1', connectorType: 'CHAdeMO', speedTier: 'fast', powerKw: 60, status: 'available', estimatedWaitMinutes: null, estimatedAvailableAt: null }
   ],
-  peakHours: { timezone: 'Asia/Jakarta', days: peakDays, currentOccupancyPercent: 46 }
+  peakHours: { timezone: 'Asia/Jakarta', days: peakDays, currentOccupancyPercent: 46, hasHistory: true }
 };
 
 export const occupiedStationStatusFixture: StationLiveStatus = {
@@ -39,10 +39,10 @@ export const occupiedStationStatusFixture: StationLiveStatus = {
     { connectorId: 'o-type2-2', connectorType: 'Type 2', speedTier: 'slow', powerKw: 22, status: 'occupied', estimatedWaitMinutes: 31, estimatedAvailableAt: '2026-07-28T14:51:00+07:00' },
     { connectorId: 'o-chademo-1', connectorType: 'CHAdeMO', speedTier: 'fast', powerKw: 60, status: 'occupied', estimatedWaitMinutes: 12, estimatedAvailableAt: '2026-07-28T14:32:00+07:00' }
   ],
-  peakHours: { timezone: 'Asia/Jakarta', days: peakDays, currentOccupancyPercent: 100 }
+  peakHours: { timezone: 'Asia/Jakarta', days: peakDays, currentOccupancyPercent: 100, hasHistory: true }
 };
 
-/** Temporary integration boundary. Replace this import at DriverMapScreen when the shared API loader lands. */
+/** Test fixture only. DriverMapScreen reads the real API through getApiStationLiveStatus; nothing in the app imports this. */
 export const getMockStationLiveStatus: StationStatusLoader = async (stationId) => {
   const checksum = Array.from(stationId).reduce((total, character) => total + character.charCodeAt(0), 0);
   const fixture = checksum % 2 === 0 ? availableStationStatusFixture : occupiedStationStatusFixture;

@@ -51,21 +51,51 @@ export type StationListApiResponse = {
   items: StationApiItem[];
 };
 
+/**
+ * Live connector counts for one station.
+ *
+ * `total` is always `available + in_use + out_of_service`. Do not derive
+ * occupancy as `total - available`: that folds broken connectors into the
+ * occupied count and tells the driver to wait for a plug that will never free
+ * up. Use `in_use` and `out_of_service` directly.
+ *
+ * `waiting_time` is minutes and has three states: `0` when a connector is free
+ * right now, a positive number when none is free but an active session gives an
+ * estimate, and `null` when none is free and no estimate can be computed. Null
+ * must never be rendered as "~0 minutes".
+ */
 export type StationStatusApiResponse = {
   station_id: string;
   station_status: number;
-  available: string;
-  total: string;
-  waiting_time: number;
+  available: number;
+  total: number;
+  in_use: number;
+  out_of_service: number;
+  waiting_time: number | null;
   connectors: Array<{
     type: string;
     speed_tier: string | null;
-    available: string;
-    total: string;
-    waiting_time: string;
+    /** Rated power shared by the group. Two groups with the same type and speed tier are told apart by this. */
+    power_kw: number | null;
+    available: number;
+    total: number;
+    in_use: number;
+    out_of_service: number;
+    waiting_time: number | null;
   }>;
 };
 
+export type StationOccupancyLevel = 'LOW' | 'MODERATE' | 'BUSY' | 'PEAK';
+
+/**
+ * Historical occupancy, one entry per weekday-hour the backend has data for.
+ *
+ * `day_of_week` is ISO: 1 is Monday, 7 is Sunday. It does NOT line up with
+ * `Date.prototype.getDay()`, where 0 is Sunday.
+ *
+ * `days` and `hours` may be sparse, and an empty `days` array means there is
+ * not enough history yet — which is not the same as a week of zero occupancy.
+ */
 export type StationOccupancyApiResponse = {
   station_id: string;
   days: Array<{
@@ -74,6 +104,8 @@ export type StationOccupancyApiResponse = {
     hours: Array<{
       hour_of_day: number;
       avg_occupancy: number;
+      /** Classified server-side at 20/50/80 percent. Display this rather than re-deriving the buckets. */
+      occupancy_level: StationOccupancyLevel;
     }>;
   }>;
 };

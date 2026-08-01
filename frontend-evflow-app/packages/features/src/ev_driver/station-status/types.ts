@@ -27,6 +27,13 @@ export type StationLiveStatus = {
     timezone: 'Asia/Jakarta';
     days: DailyPeakHours[];
     currentOccupancyPercent: number | null;
+    /**
+     * False when the backend has no occupancy history for this station yet.
+     * `days` still carries a full week so the chart can lay out, but every hour
+     * is a placeholder zero -- presenting those as measured history would be
+     * inventing data. Callers must show an empty state instead of the chart.
+     */
+    hasHistory: boolean;
   };
 };
 
@@ -55,7 +62,8 @@ export function isValidStationLiveStatus(value: unknown, requestedStationId?: st
     !status.peakHours ||
     status.peakHours.timezone !== 'Asia/Jakarta' ||
     !Array.isArray(status.peakHours.days) ||
-    status.peakHours.days.length !== 7
+    status.peakHours.days.length !== 7 ||
+    typeof status.peakHours.hasHistory !== 'boolean'
   ) {
     return false;
   }
