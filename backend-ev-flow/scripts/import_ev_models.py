@@ -24,7 +24,6 @@ import io
 import json
 import os
 import re
-import sys
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple

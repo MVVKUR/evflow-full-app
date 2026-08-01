@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import csv
 import io
-import os
 import re
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional
+from typing import Any, List, NamedTuple, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 ZIP_PATH = ROOT / "ev_dataset.zip"

@@ -1,4 +1,4 @@
-import type { GeocodingItem, RecommendedStop, RoutePlanResponse } from '@evflow/shared';
+import type { GeocodingItem, RoutePlanResponse } from '@evflow/shared';
 
 export type RouteViewMode = 'input' | 'simulation' | 'active_navigation' | 'completed';
 export type PlanRouteViewMode = RouteViewMode;

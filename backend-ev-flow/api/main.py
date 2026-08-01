@@ -45,8 +45,7 @@ from .models import (
     ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, ProfileUpdate, RegisterRequest,
     ResetPasswordRequest, ResetPasswordResponse, TokenResponse, UserPublic,
     RoutePlanRequest, RoutePlanResponse, GeocodingSearchResponse, VehicleSummary,
-    TripSummary, RoutePlanGeometryAndSteps, RecommendedStop, RoutePlanAssumptions, GeocodingItem,
-    RouteWarning, ActiveRouteEvaluationRequest, ActiveRouteEvaluationResponse,
+    TripSummary, RoutePlanGeometryAndSteps, RecommendedStop, RoutePlanAssumptions, RouteWarning, ActiveRouteEvaluationRequest, ActiveRouteEvaluationResponse,
     ManualVehicleInput, RoutePreferencesInput, ServiceAreaSummary,
     StationStatusResponse, StationOccupancyResponse,
 )

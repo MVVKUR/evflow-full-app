@@ -12,7 +12,7 @@ import math
 import os
 import shutil
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 

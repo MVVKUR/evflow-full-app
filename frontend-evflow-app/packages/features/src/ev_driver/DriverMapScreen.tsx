@@ -1107,26 +1107,6 @@ function formatKw(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function toBoundingBox(center: Coordinates, radiusKm: number) {
-  const latDelta = radiusKm / 111;
-  const lonDelta = radiusKm / (111 * Math.cos((center.latitude * Math.PI) / 180));
-
-  return [
-    center.longitude - lonDelta,
-    center.latitude - latDelta,
-    center.longitude + lonDelta,
-    center.latitude + latDelta
-  ].join(',');
-}
-
-function getDistancePercent(distanceKm: number) {
-  const index = distanceOptions.findIndex((option) => option === distanceKm);
-  const fallbackIndex = distanceOptions.findIndex((option) => option === defaultDistanceKm);
-  const safeIndex = index >= 0 ? index : fallbackIndex;
-
-  return (safeIndex / (distanceOptions.length - 1)) * 100;
-}
-
 function getMobileFilterSheetHeight(screenHeight: number, topInset: number, bottomOffset: number) {
   const searchBarBottom = topInset + 24 + 66 + 12;
   const availableMapHeight = screenHeight - bottomOffset;

@@ -5,7 +5,6 @@ Revises: 0010_add_brand_and_ev_models
 Create Date: 2026-07-22
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = "0011_enrich_ev_models"
 down_revision = "0010_add_brand_and_ev_models"

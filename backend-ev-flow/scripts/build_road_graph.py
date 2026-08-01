@@ -12,7 +12,6 @@ the ``ROAD_GRAPH_PATH`` env var (default ``data/processed/jakarta_drive.graphml`
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 

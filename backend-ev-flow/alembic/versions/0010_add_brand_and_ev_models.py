@@ -5,11 +5,9 @@ Revises: 0009_connectors_table
 Create Date: 2026-07-22
 """
 import csv
-import io
 from pathlib import Path
 
 from alembic import op
-import sqlalchemy as sa
 from sqlalchemy.sql import text
 
 revision = "0010_add_brand_and_ev_models"

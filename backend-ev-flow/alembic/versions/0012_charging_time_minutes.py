@@ -5,7 +5,6 @@ Revises: 0011_enrich_ev_models
 Create Date: 2026-07-25
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = "0012_charging_time_minutes"
 down_revision = "0011_enrich_ev_models"

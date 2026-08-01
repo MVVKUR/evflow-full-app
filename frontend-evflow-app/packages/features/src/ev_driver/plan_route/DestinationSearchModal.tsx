@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { RouteApiError, searchGeocoding, type GeocodingItem } from '@evflow/shared';
 import { formatDistance } from './planRouteUtils';

@@ -178,7 +178,7 @@ export function TopUpSuccessScreen({ bottomOffset = 0, topInset = 0 }: TopUpWall
             timer = setTimeout(poll, 3000);
           }
         })
-        .catch((err) => {
+        .catch(() => {
           if (mounted) {
             timer = setTimeout(poll, 5000);
           }

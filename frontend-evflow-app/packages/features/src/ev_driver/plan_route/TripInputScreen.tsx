@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { fetchEvModels, getMe, type EVModelApiItem, type ManualVehicleInput, type RoutePreferencesInput, type UserPublic } from '@evflow/shared';
 import { PlatformSlider } from '../../shared/PlatformSlider';
