@@ -46,7 +46,8 @@ services:
     network_mode: host
     environment:
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
-      CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-*}"
+      # See the note in the root compose.yaml: never default this to "*".
+      CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-}"
       DATABASE_URL: "postgresql+psycopg://evflow:evflow@localhost:5432/evflow"
       XENDIT_SECRET_KEY: "${XENDIT_SECRET_KEY:-}"
       XENDIT_BASE_URL: "${XENDIT_BASE_URL:-https://api.xendit.co}"

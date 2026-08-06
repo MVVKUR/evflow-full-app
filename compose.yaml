@@ -54,7 +54,10 @@ services:
       - ./backend-ev-flow/.env
     environment:
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
-      CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-*}"
+      # No "*" default: unset falls through to cors_policy.DEFAULT_ALLOWED_ORIGINS,
+      # which is an explicit list. A wildcard here silently disabled the write-origin
+      # guard in every deployment, which is how the guard shipped as a no-op.
+      CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-}"
       DATABASE_URL: "postgresql+psycopg://evflow:evflow@db:5432/evflow"
     volumes:
       # Station data (+ optional routing graph) mounted read-only from the host.

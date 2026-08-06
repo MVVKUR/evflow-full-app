@@ -35,6 +35,7 @@ from . import mailer
 from . import password_reset_repo
 from . import log_privacy
 from . import rate_limit
+from . import cors_policy
 from .models import (
     EVModel, EVModelList, GeoJSONFeatureCollection, Health, NameCount,
     NearestStationRoute, Route, SourceCount, SpeedTier, Station,
@@ -48,6 +49,7 @@ from .models import (
     TripSummary, RoutePlanGeometryAndSteps, RecommendedStop, RoutePlanAssumptions, RouteWarning, ActiveRouteEvaluationRequest, ActiveRouteEvaluationResponse,
     ManualVehicleInput, RoutePreferencesInput, ServiceAreaSummary,
     StationStatusResponse, StationOccupancyResponse,
+    SupportTicketRequest, SupportTicketResponse,
 )
 from .services import service_area
 
@@ -78,6 +80,10 @@ TAGS = [
     {"name": "wallet", "description": "Wallet balance + Xendit top-up (payment)."},
     {"name": "charging", "description": "Charging sessions: real wallet deposit debit + settlement refund."},
     {"name": "auth", "description": "Accounts + authentication (username/password + Google)."},
+    {"name": "support", "description":
+        "Help Desk. `POST /support/tickets` emails the support inbox. Open to signed-out "
+        "users, so it is rate limited and requires SMTP to be configured on the "
+        "deployment (503 when it is not)."},
     {"name": "system", "description": "Health/diagnostics."},
 ]
 
@@ -172,7 +178,12 @@ app = FastAPI(
 # default validation handler echoes the offending input in detail[].input, which for
 # a rejected password means the plaintext lands in the response body, and from there
 # in browser consoles, proxy logs and error-tracking tools.
-_REDACTED_INPUT_FIELDS = frozenset({"password", "new_password", "current_password", "token"})
+# "message" is not a secret; it is the help-desk ticket body. It is user-authored
+# prose of up to 5000 characters that we must never reflect (a 422 on an over-long
+# ticket would otherwise mail the whole thing back through the response body and
+# into every log between here and the browser).
+_REDACTED_INPUT_FIELDS = frozenset({"password", "new_password", "current_password", "token",
+                                    "message"})
 
 
 @app.exception_handler(RequestValidationError)
@@ -205,15 +216,35 @@ async def _ev_catalogue_unavailable(request: Request, exc: evmodels.CatalogueUna
     logging.error("ev model catalogue unavailable: %s", exc)
     return JSONResponse(status_code=503, content={"detail": str(exc)})
 
-# Frontend calls this from a browser, so allow CORS. Auth/write endpoints are now live, so set
-# CORS_ALLOW_ORIGINS (comma-separated) to the frontend origin(s) in production; it defaults to "*"
-# (open) only for local/dev convenience.
-_origins_env = os.getenv("CORS_ALLOW_ORIGINS", "*").strip()
-_allow_origins = ["*"] if _origins_env in ("", "*") else [o.strip() for o in _origins_env.split(",") if o.strip()]
+# Browser access policy. The allow-list, the credentials rule and the write guard
+# all live in api/cors_policy.py, which also documents what each one is and is not
+# worth -- in short: auth is Bearer-token-only with no cookies, so this is not CSRF
+# protection, it is a second lock against stolen tokens and unvetted origins.
+#
+# The default is an explicit list, never "*". Deployments add hostnames through
+# CORS_ALLOW_ORIGINS (comma-separated), which replaces the default entirely.
+_allow_origins = cors_policy.allowed_origins()
+# Raises CorsMisconfigured at import (i.e. at container start, in the deploy log)
+# rather than shipping a combination browsers refuse. See allow_credentials().
+_allow_credentials = cors_policy.allow_credentials(_allow_origins)
+if cors_policy.WILDCARD in _allow_origins:
+    logging.warning(
+        "CORS_ALLOW_ORIGINS is '*': any browser origin may read this API and drive "
+        "writes. Set it to the deployment's real frontend origin(s).")
+
+# Registration order matters and is the reverse of execution order: Starlette runs
+# the LAST-added middleware outermost. CORSMiddleware is added last so it wraps the
+# guard and can still answer preflight (OPTIONS never reaches the guard anyway).
+#
+# CORSMiddleware keeps the snapshot taken here; the guard re-reads the env per
+# request. They agree in every real deployment, where the environment is fixed at
+# container start, and the difference exists so a test can vary the policy.
+app.add_middleware(cors_policy.WriteOriginGuard)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allow_origins,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_credentials=_allow_credentials,
+    allow_methods=list(cors_policy.ALLOWED_METHODS),
     allow_headers=["*"],
 )
 
@@ -722,6 +753,121 @@ def patch_me(body: ProfileUpdate, user: dict = Depends(security.current_user)) -
                      and merged.get("location_consent"))
     updated = users_repo.update_profile(user["id"], fields, completed)
     return UserPublic(**updated)
+
+
+# ----------------------------------------------------------------------------- help desk
+def _support_destination() -> Optional[str]:
+    """The support inbox address, or None when the deployment has not named one.
+
+    SUPPORT_EMAIL is the setting; SMTP_FROM is the fallback, because a deployment
+    that has configured outbound mail at all already has an address it owns, and
+    delivering to it beats refusing the ticket. SMTP_USER is the last resort for
+    the common provider setup where the login IS the address.
+    """
+    for name in ("SUPPORT_EMAIL", "SMTP_FROM", "SMTP_USER"):
+        value = (os.getenv(name) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _enforce_support_ticket_rate_limit(request: Request) -> None:
+    """Budget the help desk, per caller AND overall.
+
+    This endpoint is open to signed-out users on purpose -- someone who cannot log
+    in is precisely who needs to reach support -- which also makes it an open mail
+    relay if nothing bounds it. Two budgets for the same reason the geocoding pair
+    has two: per-IP stops one client looping, global caps what the deployment can
+    emit no matter how many clients there are.
+
+    Caveat, same as geocoding's: behind nginx `request.client.host` is nginx, so
+    in production every browser shares one per-IP bucket and the global budget is
+    the one doing the work. X-Forwarded-For is not used because it is caller-
+    supplied and would hand an abuser an unlimited supply of buckets. Per-client
+    accounting belongs at the edge, which can see the real address.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    checks = (
+        (f"support:ip:{client_ip}", rate_limit.SUPPORT_TICKET_RATE_LIMIT_REQUESTS),
+        ("support:global", rate_limit.SUPPORT_TICKET_GLOBAL_RATE_LIMIT_REQUESTS),
+    )
+    for key, limit in checks:
+        if not rate_limit.allow(key, limit, rate_limit.SUPPORT_TICKET_RATE_LIMIT_WINDOW_SECONDS):
+            # No address, no subject, no body: this line goes to the access log.
+            logging.warning("support ticket rate limit hit (%s)", key.rsplit(":", 1)[0])
+            raise HTTPException(
+                429,
+                "too many support requests; please try again later or email us directly")
+
+
+def _support_ticket_email(ticket_id: str, body: SupportTicketRequest,
+                          user: Optional[dict]) -> str:
+    """The plain-text email support receives. Identity first, then the raw message."""
+    if user:
+        who = f"{user.get('username') or user.get('email') or 'account'} (user id {user['id']})"
+    else:
+        who = "anonymous (not signed in)"
+    return (
+        f"Ticket: {ticket_id}\n"
+        f"From:   {who}\n"
+        f"Reply-to: {body.reply_to or 'not supplied'}\n"
+        f"{'-' * 60}\n"
+        f"{body.message}\n"
+    )
+
+
+@app.post("/api/v1/support/tickets", response_model=SupportTicketResponse, status_code=202,
+          tags=["support"], summary="Send a message to the EVFlow help desk",
+          responses={429: {"description": "Too many support requests from this caller"},
+                     502: {"description": "The mail server refused or was unreachable"},
+                     503: {"description": "Support email is not configured on this deployment"}})
+def create_support_ticket(
+    request: Request,
+    body: SupportTicketRequest,
+    user: Optional[dict] = Depends(security.optional_current_user),
+) -> SupportTicketResponse:
+    """Email one Help Desk ticket to support.
+
+    Open to signed-out users: someone locked out of their account is exactly who
+    needs this. When the caller IS signed in the username and user id ride along
+    in the email, so support can find the account without asking.
+
+    202, not 201: nothing is stored here. What we can honestly report is that the
+    mail server accepted the message.
+    """
+    _enforce_support_ticket_rate_limit(request)
+
+    destination = _support_destination()
+    if not mailer.is_configured() or not destination:
+        # Say so plainly instead of returning 202 over a message that went
+        # nowhere. A user who believes support has their ticket and hears nothing
+        # back is worse off than one told to use another channel.
+        raise HTTPException(503, "the help desk is not available on this deployment; "
+                                 "please contact EVFlow support directly")
+
+    ticket_id = uuid.uuid4().hex[:16]
+    try:
+        mailer.send_email(
+            to=destination,
+            subject=f"[EVFlow help desk] {body.subject}",
+            text_body=_support_ticket_email(ticket_id, body, user),
+            reply_to=body.reply_to,
+        )
+    except Exception:
+        # Deliberately caught broadly and deliberately not re-described. An SMTP
+        # failure carries the relay hostname, the authenticated mailbox, and
+        # often the rejected message itself; smtplib's exceptions put all of it
+        # in str(). logging.exception keeps the whole thing server-side, where
+        # the ticket id ties it back to the request. The caller gets none of it,
+        # and never gets their own message back.
+        logging.exception("support ticket delivery failed (ticket %s)", ticket_id)
+        raise HTTPException(502, "we could not send your message right now; "
+                                 "please try again in a few minutes")
+
+    logging.info("support ticket %s accepted (authenticated=%s)", ticket_id, bool(user))
+    return SupportTicketResponse(
+        ticket_id=ticket_id,
+        message="Your message has been sent to the EVFlow help desk.")
 
 
 @app.get("/api/v1/stats", response_model=Stats, tags=["meta"], summary="Aggregate statistics")
