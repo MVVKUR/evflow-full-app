@@ -83,8 +83,13 @@ jobs:
         # the money-path modules. Migrate then seed before pytest:
         #   1. `alembic upgrade head` (from backend-ev-flow; env.py reads
         #      DATABASE_URL) builds the schema.
-        #   2. `python -m scripts.seed_db` loads the 2931 committed stations
-        #      (data/raw is in the repo) so stations tests have real rows.
+        #   2. `python -m scripts.ingest_raw` stages the committed dataset files
+        #      into raw_station_records. This step is NOT optional: since the
+        #      ingest refactor, api/sources.py reads that staging table and never
+        #      touches data/raw, so without it seed_db exits 1 with "no stations
+        #      built" -- which failed this whole job before the scanner ever ran.
+        #   3. `python -m scripts.seed_db` then builds the 2931 stations and
+        #      6733 connectors so the stations tests have real rows.
         # Then run pytest from the repo root with PYTHONPATH=backend-ev-flow so
         # coverage.py (relative_files=True in .coveragerc) emits repo-root-
         # relative filenames (backend-ev-flow/api/...) that Sonar can map and so
@@ -93,6 +98,7 @@ jobs:
           DATABASE_URL: postgresql+psycopg://evflow:evflow@localhost:5432/evflow
         run: |
           (cd backend-ev-flow && python -m alembic upgrade head)
+          (cd backend-ev-flow && PYTHONPATH=. python -m scripts.ingest_raw)
           (cd backend-ev-flow && PYTHONPATH=. python -m scripts.seed_db)
           PYTHONPATH=backend-ev-flow python -m pytest backend-ev-flow/tests \
             --cov=api \
