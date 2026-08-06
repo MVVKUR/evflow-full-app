@@ -654,36 +654,61 @@ def test_ev_model_paging_bounds_are_enforced(client, params):
 
 
 # --------------------------------------------------------------------- CORS
-def _cors_is_open() -> bool:
+# These three used to be skipped unless CORS_ALLOW_ORIGINS was unset, because the
+# API defaulted to "*" and they asserted that wildcard verbatim. The default is
+# now an explicit allow-list (api/cors_policy.py), so that guard would have
+# skipped them permanently and quietly dropped preflight from the suite. They are
+# rewritten against whatever origin the running configuration actually allows,
+# which keeps them meaningful in every deployment -- wildcard included.
+def _cors_probe_origin() -> str:
+    """An origin this deployment allows, so a preflight can be exercised at all."""
     from api import main
-    return main._allow_origins == ["*"]
+    origins = main._allow_origins
+    return "https://app.example" if origins == ["*"] else origins[0]
 
 
-@pytest.mark.skipif(not _cors_is_open(), reason="CORS_ALLOW_ORIGINS is set in this environment")
+def _expected_allow_origin(origin: str) -> str:
+    """What CORSMiddleware echoes back: the wildcard, or the caller's own origin."""
+    from api import main
+    return "*" if main._allow_origins == ["*"] else origin
+
+
 def test_cors_allows_the_browser_verbs_the_frontend_uses(client):
+    origin = _cors_probe_origin()
     r = client.options("/api/v1/stations",
-                       headers={"Origin": "https://app.example",
+                       headers={"Origin": origin,
                                 "Access-Control-Request-Method": "PATCH"})
     assert r.status_code == 200
-    assert r.headers["access-control-allow-origin"] == "*"
+    assert r.headers["access-control-allow-origin"] == _expected_allow_origin(origin)
     allowed = {m.strip() for m in r.headers["access-control-allow-methods"].split(",")}
     assert allowed == {"GET", "POST", "PATCH", "DELETE"}
 
 
-@pytest.mark.skipif(not _cors_is_open(), reason="CORS_ALLOW_ORIGINS is set in this environment")
 def test_cors_rejects_a_verb_the_api_does_not_expose(client):
     r = client.options("/api/v1/stations",
-                       headers={"Origin": "https://app.example",
+                       headers={"Origin": _cors_probe_origin(),
                                 "Access-Control-Request-Method": "PUT"})
     assert r.status_code == 400
     assert "Disallowed CORS method" in r.text
 
 
-@pytest.mark.skipif(not _cors_is_open(), reason="CORS_ALLOW_ORIGINS is set in this environment")
+def test_cors_preflight_from_an_unvetted_origin_is_refused(client):
+    """Only meaningful once the default stopped being "*"."""
+    from api import main
+    if main._allow_origins == ["*"]:
+        pytest.skip("this deployment deliberately allows every origin")
+    r = client.options("/api/v1/stations",
+                       headers={"Origin": "https://evil.example",
+                                "Access-Control-Request-Method": "PATCH"})
+    assert r.status_code == 400
+    assert "access-control-allow-origin" not in r.headers
+
+
 def test_cors_header_is_present_on_a_plain_get(client):
-    r = client.get("/health", headers={"Origin": "https://app.example"})
+    origin = _cors_probe_origin()
+    r = client.get("/health", headers={"Origin": origin})
     assert r.status_code == 200
-    assert r.headers["access-control-allow-origin"] == "*"
+    assert r.headers["access-control-allow-origin"] == _expected_allow_origin(origin)
 
 
 # ------------------------------------------------------- geocoding failure mapping

@@ -211,3 +211,25 @@ def current_user(authorization: Optional[str] = Header(None)) -> dict:
     if changed is not None and issued is not None and issued < changed.timestamp():
         raise HTTPException(401, "session expired, please log in again")
     return user
+
+
+def optional_current_user(authorization: Optional[str] = Header(None)) -> Optional[dict]:
+    """`current_user`, but an unauthenticated caller gets None instead of a 401.
+
+    For endpoints open to everyone that still want to know who is speaking when
+    the caller happens to be signed in (the help desk: a ticket from a known
+    account is worth far more to support than an anonymous one).
+
+    A token that is present but bad -- expired, or minted before a password reset
+    -- also yields None rather than a 401. That is deliberate for this use: a user
+    whose session has just expired is exactly the user most likely to be writing
+    to support, and answering their bug report with "log in again" would be
+    absurd. Nothing here grants access; it only labels the request. Any endpoint
+    where the identity gates behaviour must keep using `current_user`.
+    """
+    if not authorization:
+        return None
+    try:
+        return current_user(authorization)
+    except HTTPException:
+        return None

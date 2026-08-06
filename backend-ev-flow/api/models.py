@@ -401,6 +401,79 @@ class TokenResponse(BaseModel):
     user: UserPublic
 
 
+# ---- help desk / support ----------------------------------------------------
+# Bounds are the point of these constants: this endpoint is reachable without a
+# token and every accepted request costs one outbound email. Big enough for a
+# real bug report with a pasted stack trace, small enough that nobody can push a
+# megabyte through our SMTP relay one POST at a time.
+SUPPORT_SUBJECT_MAX_CHARS = 200
+SUPPORT_MESSAGE_MAX_CHARS = 5000
+SUPPORT_REPLY_TO_MAX_CHARS = 254   # RFC 5321 cap on a forward-path address
+
+
+def _validated_email_header_value(value: Optional[str]) -> Optional[str]:
+    """Reject a value that would be smuggled into an email header.
+
+    `subject` and `reply_to` are written into MIME headers. A carriage return or
+    newline in either is the classic SMTP header-injection primitive: it ends the
+    header and starts one the caller chose (Bcc:, say). Rejecting at the boundary
+    is cheaper and clearer than sanitising downstream, and api/mailer.py refuses
+    the same thing again as a belt.
+    """
+    if value is None:
+        return None
+    if any(ch in value for ch in ("\r", "\n")):
+        raise ValueError("line breaks are not allowed here")
+    return value
+
+
+def _validated_reply_to(value: Optional[str]) -> Optional[str]:
+    """A usable reply address, or None. Deliberately not a full RFC 5322 parser.
+
+    The address is only ever handed back to a human in the support inbox, so the
+    check that matters is the header-injection one above; beyond that we only
+    insist it looks like an address at all, so an obvious typo is caught while
+    the request is still in front of the user.
+    """
+    value = _validated_email_header_value(value)
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    local, _, domain = trimmed.partition("@")
+    if not local or not domain or "." not in domain:
+        raise ValueError("enter a valid email address")
+    return trimmed
+
+
+class SupportTicketRequest(BaseModel):
+    """One Help Desk message, delivered to the support inbox by email."""
+    subject: str = Field(..., min_length=3, max_length=SUPPORT_SUBJECT_MAX_CHARS,
+                         description="What the ticket is about. Becomes the email subject line.",
+                         examples=["Charging session stuck at 'starting'"])
+    message: str = Field(..., min_length=10, max_length=SUPPORT_MESSAGE_MAX_CHARS,
+                         description="The problem in full: what you did, what happened, "
+                                     "and any station or session id involved.",
+                         examples=["I started a session at pln_spklu-1 twenty minutes ago and "
+                                   "the app still shows 'starting'. My wallet was debited."])
+    reply_to: Optional[str] = Field(None, max_length=SUPPORT_REPLY_TO_MAX_CHARS,
+                                    description="Where support should reply. Optional, but "
+                                                "without it an anonymous ticket cannot be "
+                                                "answered at all.",
+                                    examples=["budi@example.com"])
+
+    _check_subject = field_validator("subject")(_validated_email_header_value)
+    _check_reply_to = field_validator("reply_to")(_validated_reply_to)
+
+
+class SupportTicketResponse(BaseModel):
+    """Confirmation that the ticket was handed to the mail server."""
+    ticket_id: str = Field(..., description="Quote this when following up.",
+                           examples=["4f9c2b1e7a0d4c8e"])
+    message: str = Field(..., examples=["Your message has been sent to the EVFlow help desk."])
+
+
 # ---- Epic 2.0 Route Planning & Geocoding Schemas ----------------------------
 class RouteLocationInput(BaseModel):
     latitude: float = Field(..., ge=-90, le=90, examples=[-6.2088])

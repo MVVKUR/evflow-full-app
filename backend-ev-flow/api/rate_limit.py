@@ -26,6 +26,19 @@ GEOCODING_RATE_LIMIT_WINDOW_SECONDS = 60.0
 # response cache absorbs most repeats, so 60/minute leaves real headroom.
 GEOCODING_GLOBAL_RATE_LIMIT_REQUESTS = 60
 
+# The help desk turns one unauthenticated POST into one outbound email, which
+# makes it an open relay unless it is budgeted. A human with a real problem sends
+# one or two messages an hour; anything past a handful is either a stuck retry
+# loop in the client or someone using our SMTP reputation to send mail.
+SUPPORT_TICKET_RATE_LIMIT_WINDOW_SECONDS = 3600.0
+SUPPORT_TICKET_RATE_LIMIT_REQUESTS = 5
+
+# Ceiling for the whole deployment, same reasoning as the geocoding pair above:
+# the per-caller budget stops one client looping, this stops many clients (or one
+# client behind many addresses) adding up to a volume that gets the SMTP account
+# suspended for spam -- which would take the password-reset email down with it.
+SUPPORT_TICKET_GLOBAL_RATE_LIMIT_REQUESTS = 60
+
 # Cap on distinct keys tracked, so the limiter itself cannot be used to grow
 # the heap. Oldest-touched key is evicted first.
 MAX_TRACKED_KEYS = 4096

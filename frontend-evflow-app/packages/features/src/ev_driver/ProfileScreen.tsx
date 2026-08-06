@@ -12,6 +12,7 @@ import {
   type UserPublic
 } from '@evflow/shared';
 import { colors, fontSizes } from '@evflow/ui';
+import { HelpDeskScreen } from '../support/HelpDeskScreen';
 
 type ProfileScreenProps = {
   topInset?: number;
@@ -42,6 +43,7 @@ export function ProfileScreen({ topInset = 0, bottomOffset = 0 }: ProfileScreenP
   const [loading, setLoading] = useState(true);
   const [models, setModels] = useState<EVModelApiItem[]>([]);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [helpDeskOpen, setHelpDeskOpen] = useState(false);
 
   const [username, setUsername] = useState(sessionUser?.username ?? '');
   const [evModelId, setEvModelId] = useState<string | null>(sessionUser?.ev_model_id ?? null);
@@ -111,6 +113,12 @@ export function ProfileScreen({ topInset = 0, bottomOffset = 0 }: ProfileScreenP
     clearAuthSession();
     navigate('/');
   };
+
+  // Rendered in place rather than behind its own route: /ev-driver/:tab is
+  // matched in AppRoutes and EVDriverContainer, which this change does not own.
+  if (helpDeskOpen) {
+    return <HelpDeskScreen bottomOffset={bottomOffset} topInset={topInset} onBack={() => setHelpDeskOpen(false)} />;
+  }
 
   return (
     <ScrollView
@@ -236,6 +244,22 @@ export function ProfileScreen({ topInset = 0, bottomOffset = 0 }: ProfileScreenP
             value={locationConsent}
           />
         </View>
+      </View>
+
+      <Text style={styles.sectionLabel}>Support</Text>
+      <View style={styles.card}>
+        <Pressable
+          accessibilityHint="Opens the EV-FLOW help desk form"
+          accessibilityRole="button"
+          onPress={() => setHelpDeskOpen(true)}
+          style={styles.linkRow}
+        >
+          <View style={styles.linkTextWrap}>
+            <Text style={styles.linkTitle}>Help Desk</Text>
+            <Text style={styles.linkSub}>Report a problem and the support team will reply by email.</Text>
+          </View>
+          <Text style={styles.linkChevron}>›</Text>
+        </Pressable>
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -484,6 +508,30 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     fontSize: fontSizes.caption,
     marginTop: 2
+  },
+  linkRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between'
+  },
+  linkTextWrap: {
+    flex: 1,
+    paddingRight: 12
+  },
+  linkTitle: {
+    color: colors.text,
+    fontSize: fontSizes.body,
+    fontWeight: '600'
+  },
+  linkSub: {
+    color: colors.mutedText,
+    fontSize: fontSizes.caption,
+    marginTop: 2
+  },
+  linkChevron: {
+    color: colors.mutedText,
+    fontSize: fontSizes.icon,
+    fontWeight: '700'
   },
   error: {
     color: '#b3261e',

@@ -37,7 +37,22 @@ def is_configured() -> bool:
     return bool(os.getenv("SMTP_HOST"))
 
 
-def send_email(to: str, subject: str, text_body: str, html_body: Optional[str] = None) -> None:
+def _header_safe(name: str, value: str) -> str:
+    """Refuse a header value carrying a line break (SMTP header injection).
+
+    A CR or LF in `to`, `subject` or `reply_to` terminates that header and lets
+    the caller start one of their own -- a Bcc: to an address of their choosing,
+    for instance. Callers are expected to validate at their own boundary
+    (api/models.py does, for the help desk); this is the belt underneath, so no
+    future caller can reintroduce the hole by forgetting.
+    """
+    if "\r" in value or "\n" in value:
+        raise ValueError(f"{name} must not contain line breaks")
+    return value
+
+
+def send_email(to: str, subject: str, text_body: str, html_body: Optional[str] = None,
+               reply_to: Optional[str] = None) -> None:
     host = os.getenv("SMTP_HOST", "")
     if not host:
         raise MailerNotConfigured("SMTP_HOST is not set")
@@ -49,9 +64,13 @@ def send_email(to: str, subject: str, text_body: str, html_body: Optional[str] =
     starttls = _flag("SMTP_STARTTLS", not use_ssl)
 
     msg = EmailMessage()
-    msg["Subject"] = subject
+    msg["Subject"] = _header_safe("subject", subject)
     msg["From"] = from_addr
-    msg["To"] = to
+    msg["To"] = _header_safe("to", to)
+    if reply_to:
+        # Lets support hit Reply and reach the person who wrote in, without the
+        # From address ever claiming to be them (which would fail SPF/DKIM).
+        msg["Reply-To"] = _header_safe("reply_to", reply_to)
     msg.set_content(text_body)
     if html_body:
         msg.add_alternative(html_body, subtype="html")
