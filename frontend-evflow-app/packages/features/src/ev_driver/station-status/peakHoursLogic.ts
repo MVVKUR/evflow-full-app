@@ -12,6 +12,21 @@ export const peakDayLabels = [
 
 export type PeakHourBar = { hour: number; occupancyPercent: number };
 
+export type AvailabilityBand = 'green' | 'yellow' | 'red';
+
+// The product wrote its bands on AVAILABILITY (green 100-70, yellow 69-30,
+// red 29-0), so these are availability floors, not occupancy ceilings.
+const greenAvailabilityFloor = 70;
+const yellowAvailabilityFloor = 30;
+
+// Every band spelled out, so the chart can say what a colour means instead of
+// leaving colour as the only carrier of the meaning.
+export const availabilityBandLabels: Readonly<Record<AvailabilityBand, string>> = {
+  green: 'mostly available',
+  yellow: 'partly available',
+  red: 'rarely available'
+};
+
 export function getJakartaDayAndHour(now: Date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Jakarta',
@@ -30,6 +45,23 @@ export function createPeakHourBars(day: DailyPeakHours | undefined): PeakHourBar
     hour,
     occupancyPercent: clampPercent(day?.hourlyOccupancyPercent[hour] ?? 0)
   }));
+}
+
+/**
+ * The single place occupancy is turned into an availability band.
+ *
+ * Every other value in this module is OCCUPANCY, so the `100 -` inversion lives
+ * here and nowhere else: repeating it per call site is how the two ends of a
+ * band drift apart. The floors are compared with `>=` rather than by testing the
+ * integer ranges the product wrote down, because occupancy arrives from the API
+ * with two decimals -- an availability of 69.5 has to land in yellow instead of
+ * falling into a gap between the written "70" and "69".
+ */
+export function getAvailabilityBand(occupancyPercent: number): AvailabilityBand {
+  const availabilityPercent = 100 - clampPercent(occupancyPercent);
+  if (availabilityPercent >= greenAvailabilityFloor) return 'green';
+  if (availabilityPercent >= yellowAvailabilityFloor) return 'yellow';
+  return 'red';
 }
 
 export function selectPeakHoursDay(days: DailyPeakHours[], requestedDay: number) {
@@ -79,5 +111,10 @@ function formatHour(hour: number) {
 }
 
 function clampPercent(value: number) {
+  // A non-finite percent carries no measurement, and NaN would otherwise flow
+  // straight into a bar height and silently fail every band comparison (all
+  // comparisons with NaN are false, which would paint the bar red). Zero is
+  // already what `createPeakHourBars` substitutes for a missing hour.
+  if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, value));
 }
