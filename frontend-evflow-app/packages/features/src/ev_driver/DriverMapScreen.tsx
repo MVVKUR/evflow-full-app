@@ -3,6 +3,8 @@ import { ActivityIndicator, LayoutAnimation, PanResponder, Platform, Pressable, 
 import { driverMapStyles as styles, LeafletMap } from '@evflow/ui';
 import { fetchConnectorTypes, fetchNearbyStations, fetchSpeedTiers, fetchStations, type ConnectorTypeApiItem, type SpeedTierApiItem, type StationApiItem, type StationConnectorApiItem, type StationConnectorTypeApiItem } from '@evflow/shared';
 import { getUserLocation, type LocationPermissionStatus } from './utils/location';
+import { defaultDistanceKm, defaultStationAreaMode, distanceOptions, getAreaFilterLabels, getAreaResultsTitle, getEmptyResultsMessage, getStationQueryPlan, isStationAreaMode, resolveStationAreaMode, shouldRequestLocationForNearMe, shouldShowRadiusRing, stationAreaModeOptions, type DistanceOption, type ResolvedStationAreaMode, type StationAreaMode, type UserLocationSnapshot } from './station-area/areaFilterMode';
+import { readStationAreaSelection, saveStationAreaSelection } from './station-area/areaFilterSession';
 import { FilterCategory, type FilterOption } from './components/FilterCategory';
 import { selectedSpkluMarkerSvg, spkluMarkerSvg } from './components/spkluMarkerSvg';
 import { PlatformSlider } from '../shared/PlatformSlider';
@@ -59,12 +61,9 @@ type MapViewState = {
   zoom: number;
 };
 
-const defaultStationLimit = 1000;
-const defaultDistanceKm = 8;
 const collapsedSheetHeight = 104;
 const collapsedDetailSheetHeight = 204;
 const stationDetailZoom = 15;
-const distanceOptions = [3, 5, 8, 10] as const;
 const defaultMapView: MapViewState = {
   center: {
     latitude: -6.1754,
@@ -88,8 +87,11 @@ export function DriverMapScreen({
   const [chargingSpeeds, setChargingSpeeds] = useState<string[]>([]);
   const [appliedConnectorTypes, setAppliedConnectorTypes] = useState<ConnectorTypeApiItem[]>([]);
   const [appliedChargingSpeeds, setAppliedChargingSpeeds] = useState<SpeedTierApiItem[]>([]);
-  const [distanceKm, setDistanceKm] = useState(defaultDistanceKm);
-  const [appliedDistanceKm, setAppliedDistanceKm] = useState(defaultDistanceKm);
+  const [storedAreaSelection] = useState(readStationAreaSelection);
+  const [areaMode, setAreaMode] = useState<StationAreaMode>(storedAreaSelection.mode);
+  const [appliedAreaMode, setAppliedAreaMode] = useState<StationAreaMode>(storedAreaSelection.mode);
+  const [distanceKm, setDistanceKm] = useState<DistanceOption>(storedAreaSelection.distanceKm);
+  const [appliedDistanceKm, setAppliedDistanceKm] = useState<DistanceOption>(storedAreaSelection.distanceKm);
   const [connectorTypeOptions, setConnectorTypeOptions] = useState<ConnectorTypeApiItem[]>([]);
   const [speedTierOptions, setSpeedTierOptions] = useState<SpeedTierApiItem[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
@@ -114,9 +116,32 @@ export function DriverMapScreen({
   const stationStatusCacheRef = useRef(new Map<string, CachedStationStatus>());
   const stationStatusRequestRef = useRef(0);
   const searchActive = drawerMode !== 'detail' && (searchFocused || searchQuery.trim().length > 0);
+  const locationSnapshot = useMemo<UserLocationSnapshot>(
+    () => ({ coordinates: userLocation, status: locationPermissionStatus }),
+    [locationPermissionStatus, userLocation]
+  );
+  // Draft and applied are resolved separately: the filter drawer previews the
+  // mode being edited while the map and the results list still reflect the
+  // mode that was last applied.
+  const draftAreaResolution = useMemo(
+    () => resolveStationAreaMode(areaMode, locationSnapshot),
+    [areaMode, locationSnapshot]
+  );
+  const appliedAreaResolution = useMemo(
+    () => resolveStationAreaMode(appliedAreaMode, locationSnapshot),
+    [appliedAreaMode, locationSnapshot]
+  );
+
   useEffect(() => {
     selectedStationRef.current = selectedStation;
   }, [selectedStation]);
+
+  // EVDriverContainer swaps screens by conditional render, so this component
+  // unmounts on every tab change. The committed area choice is stored outside
+  // component state so returning to the map does not silently reset it.
+  useEffect(() => {
+    saveStationAreaSelection({ distanceKm: appliedDistanceKm, mode: appliedAreaMode });
+  }, [appliedAreaMode, appliedDistanceKm]);
 
   useEffect(() => {
     expandedRef.current = expanded;
@@ -239,6 +264,17 @@ export function DriverMapScreen({
     setLocationPermissionLoading(false);
   };
 
+  // Choosing "Near me" without a fix asks for one rather than failing quietly.
+  // If the driver refuses, resolveStationAreaMode downgrades the request to
+  // "All" and the drawer says why; no stand-in coordinates are invented.
+  const handleSelectAreaMode = (nextMode: StationAreaMode) => {
+    setAreaMode(nextMode);
+
+    if (nextMode === 'near' && shouldRequestLocationForNearMe(locationSnapshot)) {
+      void resolveUserLocation(true);
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -317,10 +353,11 @@ export function DriverMapScreen({
 
       try {
         const nextStations = await loadSpkluStations({
+          areaMode: appliedAreaMode,
           chargingSpeeds: appliedChargingSpeeds,
           connectorTypes: appliedConnectorTypes,
           distanceKm: appliedDistanceKm,
-          userLocation
+          location: locationSnapshot
         });
 
         if (mounted) {
@@ -342,7 +379,7 @@ export function DriverMapScreen({
     return () => {
       mounted = false;
     };
-  }, [appliedChargingSpeeds, appliedConnectorTypes, appliedDistanceKm, locationResolved, userLocation]);
+  }, [appliedAreaMode, appliedChargingSpeeds, appliedConnectorTypes, appliedDistanceKm, locationResolved, locationSnapshot]);
 
   const connectorFilterOptions = useMemo<FilterOption[]>(
     () =>
@@ -366,11 +403,11 @@ export function DriverMapScreen({
   const visibleStations = searchQuery.trim() ? filteredStations : stations;
   const activeFilterLabels = useMemo(
     () => [
+      ...getAreaFilterLabels(appliedAreaResolution, appliedDistanceKm),
       ...appliedConnectorTypes.map((connector) => connector.name),
-      ...appliedChargingSpeeds.map((speed) => speed.label),
-      appliedDistanceKm !== defaultDistanceKm ? `${appliedDistanceKm} km` : null
-    ].filter((label): label is string => Boolean(label)),
-    [appliedChargingSpeeds, appliedConnectorTypes, appliedDistanceKm]
+      ...appliedChargingSpeeds.map((speed) => speed.label)
+    ],
+    [appliedAreaResolution, appliedChargingSpeeds, appliedConnectorTypes, appliedDistanceKm]
   );
   const stationMarkers = useMemo(
     () =>
@@ -484,7 +521,11 @@ export function DriverMapScreen({
         currentLocation={userLocation}
         markerIconSvg={stationMarkerIcon}
         markers={stationMarkers}
-        radiusKm={userLocation ? (drawerMode === 'filter' ? distanceKm : appliedDistanceKm) : null}
+        radiusKm={getRadiusRingKm(
+          drawerMode === 'filter' ? areaMode : appliedAreaMode,
+          locationSnapshot,
+          drawerMode === 'filter' ? distanceKm : appliedDistanceKm
+        )}
         selectedMarkerIconSvg={selectedStationMarkerIcon}
         selectedMarkerId={selectedStation?.id ?? null}
         onMarkerPress={(stationId) => {
@@ -549,14 +590,17 @@ export function DriverMapScreen({
 
           {drawerMode === 'filter' ? (
             <FilterDrawer
+              areaResolution={draftAreaResolution}
               chargingSpeeds={chargingSpeeds}
               chargingSpeedOptions={speedFilterOptions}
               connectorTypes={connectorTypes}
               connectorTypeOptions={connectorFilterOptions}
               distanceKm={distanceKm}
               expanded={expanded}
+              locationPermissionLoading={locationPermissionLoading}
               onApply={() => {
                 animateNext();
+                setAppliedAreaMode(areaMode);
                 setAppliedChargingSpeeds(getSelectedSpeedTiers(chargingSpeeds, speedTierOptions));
                 setAppliedConnectorTypes(getSelectedConnectorTypes(connectorTypes, connectorTypeOptions));
                 setAppliedDistanceKm(distanceKm);
@@ -569,9 +613,11 @@ export function DriverMapScreen({
                 setDrawerMode('results');
                 setExpanded(false);
               }}
+              onRequestLocation={() => resolveUserLocation(true)}
               onReset={() => {
-                resetFilters(setConnectorTypes, setChargingSpeeds, setDistanceKm);
+                resetFilters(setConnectorTypes, setChargingSpeeds, setDistanceKm, setAreaMode);
                 animateNext();
+                setAppliedAreaMode(defaultStationAreaMode);
                 setAppliedChargingSpeeds([]);
                 setAppliedConnectorTypes([]);
                 setAppliedDistanceKm(defaultDistanceKm);
@@ -579,6 +625,7 @@ export function DriverMapScreen({
                 setSelectedStation(null);
                 setExpanded(true);
               }}
+              onSelectAreaMode={handleSelectAreaMode}
               onSelectDistance={setDistanceKm}
               onToggleChargingSpeed={(key) => toggleSelected(key, chargingSpeeds, setChargingSpeeds)}
               onToggleConnectorType={(key) => toggleSelected(key, connectorTypes, setConnectorTypes)}
@@ -589,6 +636,8 @@ export function DriverMapScreen({
           {drawerMode === 'results' ? (
             <ResultsDrawer
               activeFilterLabels={activeFilterLabels}
+              appliedDistanceKm={appliedDistanceKm}
+              areaResolution={appliedAreaResolution}
               expanded={expanded}
               filteredBySearch={searchQuery.trim().length > 0}
               loading={stationsLoading}
@@ -632,36 +681,49 @@ export function DriverMapScreen({
 }
 
 type FilterDrawerProps = {
+  areaResolution: ResolvedStationAreaMode;
   chargingSpeeds: string[];
   chargingSpeedOptions: FilterOption[];
   connectorTypes: string[];
   connectorTypeOptions: FilterOption[];
-  distanceKm: number;
+  distanceKm: DistanceOption;
   expanded: boolean;
+  locationPermissionLoading: boolean;
   onApply: () => void;
   onClose: () => void;
+  onRequestLocation: () => void;
   onReset: () => void;
-  onSelectDistance: (distanceKm: number) => void;
+  onSelectAreaMode: (mode: StationAreaMode) => void;
+  onSelectDistance: (distanceKm: DistanceOption) => void;
   onToggleChargingSpeed: (key: string) => void;
   onToggleConnectorType: (key: string) => void;
   onScroll?: (e: any) => void;
 };
 
 function FilterDrawer({
+  areaResolution,
   chargingSpeeds,
   chargingSpeedOptions,
   connectorTypes,
   connectorTypeOptions,
   distanceKm,
   expanded,
+  locationPermissionLoading,
   onApply,
   onClose,
+  onRequestLocation,
   onReset,
+  onSelectAreaMode,
   onSelectDistance,
   onToggleChargingSpeed,
   onToggleConnectorType,
   onScroll
 }: FilterDrawerProps) {
+  const areaOptions = useMemo<FilterOption[]>(
+    () => stationAreaModeOptions.map((option) => ({ key: option.key, label: option.label })),
+    []
+  );
+
   return (
     <View style={styles.drawerBody}>
       <View style={styles.sheetHeader}>
@@ -678,6 +740,43 @@ function FilterDrawer({
           onScroll={onScroll}
           scrollEventThrottle={16}
         >
+          <View style={{ gap: 10 }}>
+            <FilterCategory
+              title="Area"
+              options={areaOptions}
+              selectedKeys={[areaResolution.mode]}
+              onToggle={(key) => {
+                // Single choice, not a toggle: re-pressing the active option
+                // keeps it selected rather than leaving no area filter at all.
+                if (isStationAreaMode(key)) {
+                  onSelectAreaMode(key);
+                }
+              }}
+            />
+
+            {areaResolution.reason ? (
+              <View accessibilityLiveRegion="polite" style={styles.locationPermissionCard}>
+                <View style={styles.locationPermissionTextWrap}>
+                  <Text style={styles.locationPermissionTitle}>Near me needs your location</Text>
+                  <Text style={styles.locationPermissionBody}>{areaResolution.reason}</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={locationPermissionLoading}
+                  onPress={onRequestLocation}
+                  style={[
+                    styles.locationPermissionButton,
+                    locationPermissionLoading && styles.locationPermissionButtonDisabled
+                  ]}
+                >
+                  <Text style={styles.locationPermissionButtonText}>
+                    {locationPermissionLoading ? 'Checking...' : 'Try location again'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+
           <FilterCategory
             title="Connector Type"
             options={connectorTypeOptions}
@@ -698,13 +797,16 @@ function FilterDrawer({
               <Text style={styles.categoryTitle}>Distance</Text>
               <Text style={styles.distanceValue}>{distanceKm} km</Text>
             </View>
+            {areaResolution.mode === 'near' ? null : (
+              <Text style={styles.sliderLabel}>Applies to the Near me area.</Text>
+            )}
             <PlatformSlider
               style={{ width: '100%', height: 40, marginTop: 8 }}
               minimumValue={0}
               maximumValue={distanceOptions.length - 1}
               step={1}
-              value={distanceOptions.indexOf(distanceKm as any) >= 0 ? distanceOptions.indexOf(distanceKm as any) : 0}
-              onValueChange={(value) => onSelectDistance(distanceOptions[value])}
+              value={Math.max(0, distanceOptions.indexOf(distanceKm))}
+              onValueChange={(value) => onSelectDistance(distanceOptions[clampDistanceIndex(value)])}
               minimumTrackTintColor="#0bb2b2"
               maximumTrackTintColor="#dde5e8"
               thumbTintColor="#0bb2b2"
@@ -734,6 +836,8 @@ function FilterDrawer({
 
 type ResultsDrawerProps = {
   activeFilterLabels: string[];
+  appliedDistanceKm: DistanceOption;
+  areaResolution: ResolvedStationAreaMode;
   filteredBySearch: boolean;
   hasUserLocation: boolean;
   expanded: boolean;
@@ -750,6 +854,8 @@ type ResultsDrawerProps = {
 
 function ResultsDrawer({
   activeFilterLabels,
+  appliedDistanceKm,
+  areaResolution,
   expanded,
   filteredBySearch,
   hasUserLocation,
@@ -768,7 +874,7 @@ function ResultsDrawer({
   return (
     <View style={styles.drawerBody}>
       <View style={styles.resultsHeader}>
-        <Text style={styles.resultsTitle}>{filteredBySearch ? 'Search Results' : 'Nearby SPKLU Stations'} ({stations.length})</Text>
+        <Text style={styles.resultsTitle}>{filteredBySearch ? 'Search Results' : getAreaResultsTitle(areaResolution)} ({stations.length})</Text>
         <Pressable accessibilityRole="button" onPress={onFilter} style={styles.filterButton}>
           <SvgAssetIcon color="#4c5960" height={14} name="filter" svg={filterSettingIcon} width={14} />
           <Text style={styles.filterButtonText}>Filter</Text>
@@ -788,8 +894,12 @@ function ResultsDrawer({
         {shouldShowLocationPrompt ? (
           <View style={styles.locationPermissionCard}>
             <View style={styles.locationPermissionTextWrap}>
-              <Text style={styles.locationPermissionTitle}>Use your current location</Text>
-              <Text style={styles.locationPermissionBody}>{getLocationPermissionMessage(locationPermissionStatus)}</Text>
+              <Text style={styles.locationPermissionTitle}>
+                {areaResolution.reason ? 'Near me needs your location' : 'Use your current location'}
+              </Text>
+              <Text style={styles.locationPermissionBody}>
+                {areaResolution.reason ?? getLocationPermissionMessage(locationPermissionStatus)}
+              </Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -813,10 +923,12 @@ function ResultsDrawer({
           onScroll={onScroll}
           scrollEventThrottle={16}
         >
-          {loading ? <Text style={styles.stationAddress}>Loading nearby SPKLU stations...</Text> : null}
+          {loading ? <Text style={styles.stationAddress}>Loading SPKLU stations...</Text> : null}
           {!loading && stationsError ? <Text style={styles.stationAddress}>{stationsError}</Text> : null}
           {!loading && !stationsError && stations.length === 0 ? (
-            <Text style={styles.stationAddress}>{filteredBySearch ? 'No SPKLU stations match your search.' : 'No nearby SPKLU stations found.'}</Text>
+            <Text style={styles.stationAddress}>
+              {filteredBySearch ? 'No SPKLU stations match your search.' : getEmptyResultsMessage(areaResolution, appliedDistanceKm)}
+            </Text>
           ) : null}
           {!loading && !stationsError
             ? stations.map((station) => <StationCard key={station.id} station={station} onPress={() => onSelectStation(station)} />)
@@ -975,51 +1087,62 @@ function ConnectorRow({ connector }: ConnectorRowProps) {
 }
 
 type LoadSpkluStationsOptions = {
+  areaMode: StationAreaMode;
   chargingSpeeds?: SpeedTierApiItem[];
   connectorTypes?: ConnectorTypeApiItem[];
-  distanceKm?: number;
-  userLocation?: Coordinates | null;
+  distanceKm: number;
+  location: UserLocationSnapshot;
 };
 
+/**
+ * The endpoint is now chosen by the driver's explicit area mode instead of
+ * being inferred from whether any filter happened to be non-default. Connector
+ * and speed filters apply to both endpoints, so they no longer force a
+ * proximity query.
+ */
 async function loadSpkluStations({
+  areaMode,
   chargingSpeeds = [],
   connectorTypes = [],
   distanceKm,
-  userLocation
-}: LoadSpkluStationsOptions = {}) {
+  location
+}: LoadSpkluStationsOptions) {
   const connectorFilters = connectorTypes.filter((connector) => connector.name);
   const speedFilters = chargingSpeeds.filter((speedTier) => speedTier.id);
-  const isReset = connectorFilters.length === 0 && speedFilters.length === 0 && distanceKm === defaultDistanceKm;
+  const plan = getStationQueryPlan(areaMode, location, distanceKm);
 
-  if (isReset || !userLocation) {
+  if (plan.endpoint === 'list') {
     const response = await fetchStations({
       connectorType: connectorFilters,
-      limit: defaultStationLimit,
+      limit: plan.limit,
       speedTier: speedFilters
     });
-    const stationsById = new Map<string, Station>();
-    response.items.forEach((item) => {
-      const station = toStation(item);
-      stationsById.set(station.id, station);
-    });
-    return Array.from(stationsById.values());
+
+    return toUniqueStations(response.items);
   }
 
   const response = await fetchNearbyStations({
-    lat: userLocation.latitude,
-    lon: userLocation.longitude,
-    radius: distanceKm ?? defaultDistanceKm,
+    lat: plan.latitude,
+    lon: plan.longitude,
+    radius: plan.radiusKm,
     connectorType: connectorFilters,
     speedTier: speedFilters,
-    limit: 200
+    limit: plan.limit
   });
 
+  return toUniqueStations(response).sort((left, right) => (left.distanceKm ?? 0) - (right.distanceKm ?? 0));
+}
+
+/** The same station can arrive from several sources, so the id wins. */
+function toUniqueStations(items: StationApiItem[]): Station[] {
   const stationsById = new Map<string, Station>();
-  response.forEach((item) => {
+
+  items.forEach((item) => {
     const station = toStation(item);
     stationsById.set(station.id, station);
   });
-  return Array.from(stationsById.values()).sort((left, right) => (left.distanceKm ?? 0) - (right.distanceKm ?? 0));
+
+  return Array.from(stationsById.values());
 }
 
 function toStation(item: StationApiItem): Station {
@@ -1171,11 +1294,31 @@ function getSelectedSpeedTiers(selectedKeys: string[], options: SpeedTierApiItem
 function resetFilters(
   setConnectorTypes: (keys: string[]) => void,
   setChargingSpeeds: (keys: string[]) => void,
-  setDistanceKm: (distanceKm: number) => void
+  setDistanceKm: (distanceKm: DistanceOption) => void,
+  setAreaMode: (mode: StationAreaMode) => void
 ) {
   setConnectorTypes([]);
   setChargingSpeeds([]);
   setDistanceKm(defaultDistanceKm);
+  setAreaMode(defaultStationAreaMode);
+}
+
+/** Null hides the ring; a ring without a real fix would assert a place the driver is not. */
+function getRadiusRingKm(
+  mode: StationAreaMode,
+  location: UserLocationSnapshot,
+  distanceKm: DistanceOption
+): number | null {
+  return shouldShowRadiusRing(mode, location) ? distanceKm : null;
+}
+
+/** The slider reports a continuous value on web, so the index has to be snapped and bounded. */
+function clampDistanceIndex(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(distanceOptions.length - 1, Math.max(0, Math.round(value)));
 }
 
 function updateSheetSizeFromDelta(deltaY: number, setExpanded: React.Dispatch<React.SetStateAction<boolean>>) {
