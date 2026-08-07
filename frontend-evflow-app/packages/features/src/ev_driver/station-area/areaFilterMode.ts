@@ -22,10 +22,19 @@ export type UserLocationSnapshot = {
 };
 
 /**
- * 'all' matches what the screen did by default before this filter existed, and
- * unlike 'near' it is always satisfiable, so it is also the degraded fallback.
+ * What a session starts on. A driver opening the map wants the stations they
+ * can actually reach, so the screen asks for their own area first rather than
+ * every station in the country.
  */
-export const defaultStationAreaMode: StationAreaMode = 'all';
+export const defaultStationAreaMode: StationAreaMode = 'near';
+
+/**
+ * The mode that needs no coordinates, so it is what an unsatisfiable 'near'
+ * request degrades to. Deliberately separate from defaultStationAreaMode: now
+ * that the default is 'near', reusing it here would label a result built
+ * without a fix as a proximity result.
+ */
+export const fallbackStationAreaMode: StationAreaMode = 'all';
 
 /** The single distance scale for this screen: slider stops, chips and radius all read it. */
 export const distanceOptions = [3, 5, 8, 10] as const;
@@ -111,7 +120,7 @@ export function resolveStationAreaMode(
 
   return {
     degraded: true,
-    mode: defaultStationAreaMode,
+    mode: fallbackStationAreaMode,
     reason: getUnavailableNearMeReason(location.status),
     requestedMode
   };
@@ -130,7 +139,98 @@ function getUnavailableNearMeReason(status: LocationPermissionStatus): string {
     return 'Your location could not be read, so stations near you cannot be found. Showing all stations instead.';
   }
 
-  return 'Allow location access to see only stations near you. Showing all stations until then.';
+  // Deliberately does NOT promise a national list: while the permission answer
+  // is still pending nothing is fetched at all, so claiming "showing all
+  // stations until then" described a screen the driver was not looking at.
+  return 'Allow location access to see stations near you.';
+}
+
+/**
+ * True while a "near me" request has neither a fix nor an answer: the driver
+ * has not been asked yet, or has been asked and has not replied.
+ *
+ * Distinguished from the other coordinate-less cases on purpose. 'denied',
+ * 'unavailable' and 'gps_error' are answers — final ones — so the degrade to
+ * "all" is the result and should be shown at once. 'undetermined' is an open
+ * question, and treating it as a refusal is what makes the screen paint every
+ * station in the country for the moment before the driver replies.
+ */
+function isAwaitingLocationAnswer(requestedMode: StationAreaMode, location: UserLocationSnapshot): boolean {
+  if (requestedMode !== 'near' || hasUsableCoordinates(location)) {
+    return false;
+  }
+
+  return location.status === 'undetermined';
+}
+
+/** What the screen should do about location the moment it opens. */
+export type MountLocationDecision =
+  /** Ask now, unprompted by the driver. */
+  | 'request_permission'
+  /** The question is open, but this platform has to earn the prompt with a tap. */
+  | 'await_driver_action'
+  /** Nothing to ask: a fix is in hand, the answer is final, or none is needed. */
+  | 'skip';
+
+export type MountLocationContext = {
+  /**
+   * The mode the session opens on, restored from the last committed choice.
+   * A driver who deliberately picked "all" is not asked for a location they
+   * have said they do not need.
+   */
+  storedMode: StationAreaMode;
+  location: UserLocationSnapshot;
+  /**
+   * Whether an unsolicited prompt is affordable on this platform. A native OS
+   * dialog is modal, dismissible, and offered again next launch. A browser
+   * prompt is one shot per origin and a refusal sticks, so the web passes
+   * false and earns its prompt from an explicit tap instead of spending the
+   * only one it gets on first paint.
+   */
+  canPromptOnMount: boolean;
+  /** A prompt the driver already triggered is in flight; do not stack a second. */
+  alreadyRequested: boolean;
+};
+
+/**
+ * Whether opening the screen should request location by itself.
+ *
+ * A session starts on "near me", which cannot be answered without a fix, so
+ * something has to go and get one. Which of the three answers applies is a
+ * function of the persisted mode and the permission status alone, so it is
+ * decided here rather than as a condition buried in a mount effect.
+ */
+export function getMountLocationDecision({
+  alreadyRequested,
+  canPromptOnMount,
+  location,
+  storedMode
+}: MountLocationContext): MountLocationDecision {
+  if (!isAwaitingLocationAnswer(storedMode, location)) {
+    return 'skip';
+  }
+
+  if (alreadyRequested || !canPromptOnMount) {
+    return 'await_driver_action';
+  }
+
+  return 'request_permission';
+}
+
+/** Whether the stations request can run yet, or is still waiting on a human. */
+export type StationFetchDecision = 'fetch' | 'await_permission';
+
+/**
+ * Holds the stations request back while a "near me" permission question is
+ * still open. Fetching here would run the unbounded list query and paint every
+ * station in the country, only to replace them with a handful the instant the
+ * driver answers.
+ */
+export function getStationFetchDecision(
+  requestedMode: StationAreaMode,
+  location: UserLocationSnapshot
+): StationFetchDecision {
+  return isAwaitingLocationAnswer(requestedMode, location) ? 'await_permission' : 'fetch';
 }
 
 export type StationQueryPlan =
@@ -190,16 +290,67 @@ export function getAreaFilterLabels(resolved: ResolvedStationAreaMode, distanceK
   return ['Near me', `${toValidRadiusKm(distanceKm)} km`];
 }
 
-export function getAreaResultsTitle(resolved: ResolvedStationAreaMode): string {
-  return resolved.mode === 'near' ? 'Nearby SPKLU Stations' : 'All SPKLU Stations';
+/**
+ * Titles the results by the mode actually used, except while the near-me
+ * question is open: nothing has been fetched then, and heading an empty list
+ * "All SPKLU Stations" would report that the country has none.
+ */
+export function getAreaResultsTitle(
+  resolved: ResolvedStationAreaMode,
+  fetchDecision: StationFetchDecision
+): string {
+  if (fetchDecision === 'await_permission' || resolved.mode === 'near') {
+    return 'Nearby SPKLU Stations';
+  }
+
+  return 'All SPKLU Stations';
 }
 
-export function getEmptyResultsMessage(resolved: ResolvedStationAreaMode, distanceKm: number): string {
+export function getEmptyResultsMessage(
+  resolved: ResolvedStationAreaMode,
+  distanceKm: number,
+  fetchDecision: StationFetchDecision
+): string {
+  // Empty because nothing was asked for yet, not because nothing was found.
+  if (fetchDecision === 'await_permission') {
+    return 'Allow location access to see the stations around you, or switch to all stations.';
+  }
+
   if (resolved.mode === 'near') {
     return `No SPKLU stations within ${toValidRadiusKm(distanceKm)} km of you. Try a larger distance or switch to all stations.`;
   }
 
   return 'No SPKLU stations found.';
+}
+
+export type LocationPermissionPrompt = {
+  body: string;
+  buttonLabel: string;
+  title: string;
+};
+
+/**
+ * Copy for the card that asks for a location. It promises only what the app
+ * can deliver: there is no stand-in coordinate to fall back to, so the card
+ * offers a retry and an explanation, never a "default location".
+ */
+export function getLocationPermissionPrompt(
+  resolved: ResolvedStationAreaMode,
+  status: LocationPermissionStatus
+): LocationPermissionPrompt {
+  return {
+    body: resolved.reason ?? getUnavailableNearMeReason(status),
+    buttonLabel: getLocationPermissionButtonLabel(status),
+    title: resolved.degraded ? 'Near me needs your location' : 'Use your current location'
+  };
+}
+
+function getLocationPermissionButtonLabel(status: LocationPermissionStatus): string {
+  if (status === 'denied' || status === 'unavailable' || status === 'gps_error') {
+    return 'Try Again';
+  }
+
+  return 'Use Current Location';
 }
 
 /**

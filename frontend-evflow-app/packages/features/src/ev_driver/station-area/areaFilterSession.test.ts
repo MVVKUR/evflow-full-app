@@ -42,7 +42,7 @@ describe('station area selection session', () => {
     clearStationAreaSelection(createStorage());
   });
 
-  it('defaults to the always-satisfiable mode when nothing is stored', () => {
+  it('starts a fresh session on the default mode when nothing is stored', () => {
     expect(readStationAreaSelection(createStorage())).toEqual({
       distanceKm: defaultDistanceKm,
       mode: defaultStationAreaMode

@@ -3,7 +3,7 @@ import { ActivityIndicator, LayoutAnimation, PanResponder, Platform, Pressable, 
 import { driverMapStyles as styles, LeafletMap } from '@evflow/ui';
 import { fetchConnectorTypes, fetchNearbyStations, fetchSpeedTiers, fetchStations, type ConnectorTypeApiItem, type SpeedTierApiItem, type StationApiItem, type StationConnectorApiItem, type StationConnectorTypeApiItem } from '@evflow/shared';
 import { getUserLocation, type LocationPermissionStatus } from './utils/location';
-import { defaultDistanceKm, defaultStationAreaMode, distanceOptions, getAreaFilterLabels, getAreaResultsTitle, getEmptyResultsMessage, getStationQueryPlan, isStationAreaMode, resolveStationAreaMode, shouldRequestLocationForNearMe, shouldShowRadiusRing, stationAreaModeOptions, type DistanceOption, type ResolvedStationAreaMode, type StationAreaMode, type UserLocationSnapshot } from './station-area/areaFilterMode';
+import { defaultDistanceKm, defaultStationAreaMode, distanceOptions, getAreaFilterLabels, getAreaResultsTitle, getEmptyResultsMessage, getLocationPermissionPrompt, getMountLocationDecision, getStationFetchDecision, getStationQueryPlan, isStationAreaMode, resolveStationAreaMode, shouldRequestLocationForNearMe, shouldShowRadiusRing, stationAreaModeOptions, type DistanceOption, type ResolvedStationAreaMode, type StationAreaMode, type StationFetchDecision, type UserLocationSnapshot } from './station-area/areaFilterMode';
 import { readStationAreaSelection, saveStationAreaSelection } from './station-area/areaFilterSession';
 import { FilterCategory, type FilterOption } from './components/FilterCategory';
 import { selectedSpkluMarkerSvg, spkluMarkerSvg } from './components/spkluMarkerSvg';
@@ -129,6 +129,12 @@ export function DriverMapScreen({
   );
   const appliedAreaResolution = useMemo(
     () => resolveStationAreaMode(appliedAreaMode, locationSnapshot),
+    [appliedAreaMode, locationSnapshot]
+  );
+  // Whether the stations request can run yet. 'near' with an unanswered
+  // permission has no result to show and no query worth running.
+  const appliedFetchDecision = useMemo(
+    () => getStationFetchDecision(appliedAreaMode, locationSnapshot),
     [appliedAreaMode, locationSnapshot]
   );
 
@@ -297,23 +303,40 @@ export function DriverMapScreen({
         previousMapViewRef.current = userMapView;
       }
 
-      if (
-        Platform.OS !== 'web' &&
-        !locationResult.coordinates &&
-        locationResult.status === 'undetermined' &&
-        !requestedLocationPermissionRef.current
-      ) {
+      // A session starts on "near me", which cannot be answered without a fix,
+      // so opening the screen has to go and get one rather than degrade to the
+      // whole country. Whether that means prompting now or waiting for a tap
+      // is decided by getMountLocationDecision, not by this effect.
+      const mountDecision = getMountLocationDecision({
+        alreadyRequested: requestedLocationPermissionRef.current,
+        // Ask on every platform, browser included. Holding the prompt back on
+        // web left the driver on an EMPTY map captioned "Nearby SPKLU Stations
+        // (0)": the card explaining why lives in the results sheet, which mounts
+        // collapsed at opacity 0, so nothing on screen said what to do. An empty
+        // map with no explanation is a worse failure than the sticky-denial risk
+        // of asking, and a map app asking for location on open is expected.
+        // A refusal is not a dead end: it degrades to the national list with a
+        // visible reason, and re-resolves by itself if permission is granted later.
+        canPromptOnMount: true,
+        location: { coordinates: locationResult.coordinates, status: locationResult.status },
+        storedMode: storedAreaSelection.mode
+      });
+
+      if (mountDecision === 'request_permission') {
         await resolveUserLocation(true);
         return;
       }
 
+      // 'await_driver_action' still resolves: the fetch effect holds the
+      // stations request itself, so the screen settles into the permission
+      // card instead of an indefinite spinner.
       setLocationResolved(true);
     })();
 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [storedAreaSelection]);
 
   useEffect(() => {
     let mounted = true;
@@ -342,6 +365,16 @@ export function DriverMapScreen({
 
   useEffect(() => {
     if (!locationResolved) {
+      return;
+    }
+
+    // Nothing is loading here, so no spinner: the screen is waiting on the
+    // driver. Running the query anyway would paint every station in the
+    // country for the moment before they answer.
+    if (appliedFetchDecision === 'await_permission') {
+      setStations([]);
+      setStationsError(null);
+      setStationsLoading(false);
       return;
     }
 
@@ -379,7 +412,7 @@ export function DriverMapScreen({
     return () => {
       mounted = false;
     };
-  }, [appliedAreaMode, appliedChargingSpeeds, appliedConnectorTypes, appliedDistanceKm, locationResolved, locationSnapshot]);
+  }, [appliedAreaMode, appliedChargingSpeeds, appliedConnectorTypes, appliedDistanceKm, appliedFetchDecision, locationResolved, locationSnapshot]);
 
   const connectorFilterOptions = useMemo<FilterOption[]>(
     () =>
@@ -639,6 +672,7 @@ export function DriverMapScreen({
               appliedDistanceKm={appliedDistanceKm}
               areaResolution={appliedAreaResolution}
               expanded={expanded}
+              fetchDecision={appliedFetchDecision}
               filteredBySearch={searchQuery.trim().length > 0}
               loading={stationsLoading}
               onFilter={() => {
@@ -838,6 +872,7 @@ type ResultsDrawerProps = {
   activeFilterLabels: string[];
   appliedDistanceKm: DistanceOption;
   areaResolution: ResolvedStationAreaMode;
+  fetchDecision: StationFetchDecision;
   filteredBySearch: boolean;
   hasUserLocation: boolean;
   expanded: boolean;
@@ -857,6 +892,7 @@ function ResultsDrawer({
   appliedDistanceKm,
   areaResolution,
   expanded,
+  fetchDecision,
   filteredBySearch,
   hasUserLocation,
   loading,
@@ -869,12 +905,15 @@ function ResultsDrawer({
   stations,
   stationsError
 }: ResultsDrawerProps) {
-  const shouldShowLocationPrompt = !hasUserLocation;
+  // Only a driver who actually asked for "near me" is missing something; one
+  // who chose "all stations" is not nagged for a location they do not need.
+  const shouldShowLocationPrompt = !hasUserLocation && areaResolution.requestedMode === 'near';
+  const locationPrompt = getLocationPermissionPrompt(areaResolution, locationPermissionStatus);
 
   return (
     <View style={styles.drawerBody}>
       <View style={styles.resultsHeader}>
-        <Text style={styles.resultsTitle}>{filteredBySearch ? 'Search Results' : getAreaResultsTitle(areaResolution)} ({stations.length})</Text>
+        <Text style={styles.resultsTitle}>{filteredBySearch ? 'Search Results' : getAreaResultsTitle(areaResolution, fetchDecision)} ({stations.length})</Text>
         <Pressable accessibilityRole="button" onPress={onFilter} style={styles.filterButton}>
           <SvgAssetIcon color="#4c5960" height={14} name="filter" svg={filterSettingIcon} width={14} />
           <Text style={styles.filterButtonText}>Filter</Text>
@@ -894,12 +933,8 @@ function ResultsDrawer({
         {shouldShowLocationPrompt ? (
           <View style={styles.locationPermissionCard}>
             <View style={styles.locationPermissionTextWrap}>
-              <Text style={styles.locationPermissionTitle}>
-                {areaResolution.reason ? 'Near me needs your location' : 'Use your current location'}
-              </Text>
-              <Text style={styles.locationPermissionBody}>
-                {areaResolution.reason ?? getLocationPermissionMessage(locationPermissionStatus)}
-              </Text>
+              <Text style={styles.locationPermissionTitle}>{locationPrompt.title}</Text>
+              <Text style={styles.locationPermissionBody}>{locationPrompt.body}</Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -911,7 +946,7 @@ function ResultsDrawer({
               ]}
             >
               <Text style={styles.locationPermissionButtonText}>
-                {locationPermissionLoading ? 'Checking...' : getLocationPermissionButtonLabel(locationPermissionStatus)}
+                {locationPermissionLoading ? 'Checking...' : locationPrompt.buttonLabel}
               </Text>
             </Pressable>
           </View>
@@ -927,7 +962,7 @@ function ResultsDrawer({
           {!loading && stationsError ? <Text style={styles.stationAddress}>{stationsError}</Text> : null}
           {!loading && !stationsError && stations.length === 0 ? (
             <Text style={styles.stationAddress}>
-              {filteredBySearch ? 'No SPKLU stations match your search.' : getEmptyResultsMessage(areaResolution, appliedDistanceKm)}
+              {filteredBySearch ? 'No SPKLU stations match your search.' : getEmptyResultsMessage(areaResolution, appliedDistanceKm, fetchDecision)}
             </Text>
           ) : null}
           {!loading && !stationsError
@@ -937,30 +972,6 @@ function ResultsDrawer({
       </View>
     </View>
   );
-}
-
-function getLocationPermissionMessage(status: LocationPermissionStatus) {
-  if (status === 'denied') {
-    return 'Location permission is blocked. Click button below to retry or use default EV center coordinates in Jakarta.';
-  }
-
-  if (status === 'unavailable') {
-    return 'GPS is unavailable or requires HTTPS. Click button below to use default EV center coordinates in Jakarta.';
-  }
-
-  return 'Allow location access to reload nearby stations around your current position.';
-}
-
-function getLocationPermissionButtonLabel(status: LocationPermissionStatus) {
-  if (status === 'denied') {
-    return 'Retry / Use Default';
-  }
-
-  if (status === 'unavailable') {
-    return 'Use Default Location';
-  }
-
-  return 'Use Current Location';
 }
 
 type StationDetailDrawerProps = {
