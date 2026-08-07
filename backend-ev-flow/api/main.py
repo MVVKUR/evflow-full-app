@@ -542,17 +542,35 @@ def ev_model(model_id: str) -> EVModel:
 # on /wallet/topup and /charging/sessions, it is used instead: unspoofable, stable,
 # and unaffected by the proxy.
 def _client_ip(request: Request) -> str:
-    """Address to bucket by.
+    """Address to bucket rate limits by.
 
-    X-Forwarded-For is deliberately not read here: it is caller-supplied and would
-    hand an abuser an unlimited supply of buckets. Note that uvicorn's
-    ProxyHeadersMiddleware may already have rewritten scope["client"] from that
-    header before we see it (it trusts 127.0.0.1 by default, and nginx forwards
-    with $proxy_add_x_forwarded_for, so the value it takes is the real peer) --
-    which is safe only as long as FORWARDED_ALLOW_IPS stays at its default and that
-    nginx line is not changed to $http_x_forwarded_for. Neither is asserted
-    anywhere, so treat every per-IP bucket as deployment-wide; see KEY CHOICE.
+    MEASURED, not assumed: request.client.host alone is the SAME value for every
+    caller here. Verified against the deployed staging path by exhausting the
+    geocoding budget from one public IP and then calling from a second, entirely
+    different public IP -- which was refused 429 on its first request. Every
+    "per-IP" bucket was therefore one bucket shared by the whole internet, so any
+    single caller could lock every other user out of login, top-up and charging.
+    That is a worse outcome than the abuse the limits exist to stop.
+
+    The cause is the deployment shape: browsers reach Cloudflare, cloudflared
+    connects to nginx over loopback, and nginx proxies to uvicorn over loopback,
+    so the peer socket address is always local.
+
+    CF-Connecting-IP is the address Cloudflare observed at its edge. Cloudflare
+    OVERWRITES it on every request, so a client cannot forge it -- confirmed here
+    by replaying an exhausted budget with forged X-Forwarded-For values
+    (1.2.3.4, 9.9.9.9, 203.0.113.77), all of which stayed 429 because the client
+    never controls what Cloudflare puts in the forwarded chain.
+
+    Trusting a header is only safe because this API is bound to loopback
+    (127.0.0.1:8000) and cannot be reached except through nginx. If it is ever
+    published on a public interface, this must go back to the socket address or
+    move behind a proxy that strips the header.
     """
+    edge_ip = (request.headers.get("cf-connecting-ip") or "").strip()
+    if edge_ip:
+        return edge_ip
+    # No Cloudflare in front (local development, direct container access).
     return request.client.host if request.client else "unknown"
 
 

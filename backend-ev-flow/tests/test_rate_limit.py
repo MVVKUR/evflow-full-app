@@ -286,3 +286,36 @@ def test_the_per_process_caveat_is_written_down():
     doc = rate_limit.__doc__ or ""
     assert "WEB_CONCURRENCY" in doc
     assert "PER-PROCESS" in doc
+
+
+# --- which address a limit is bucketed by ------------------------------------
+#
+# This is the regression that matters most in this file. Before the fix,
+# _client_ip returned the socket peer, which behind Cloudflare -> cloudflared ->
+# nginx is always loopback. Every per-IP limit was therefore ONE bucket shared by
+# every user, and a single caller could lock everyone else out of login, top-up
+# and charging. Proven on the deployed staging host: budget exhausted from one
+# public IP, then refused 429 on the first request from a different public IP.
+
+def _request_with(headers: dict, peer: str = "127.0.0.1"):
+    from starlette.requests import Request
+    raw = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
+    return Request({"type": "http", "headers": raw, "client": (peer, 12345)})
+
+
+def test_two_callers_behind_the_same_proxy_get_different_buckets():
+    from api.main import _client_ip
+    a = _client_ip(_request_with({"CF-Connecting-IP": "203.0.113.10"}))
+    b = _client_ip(_request_with({"CF-Connecting-IP": "198.51.100.20"}))
+    assert a != b, "callers sharing a proxy must not share a rate-limit bucket"
+    assert (a, b) == ("203.0.113.10", "198.51.100.20")
+
+
+def test_socket_peer_is_used_when_there_is_no_edge_header():
+    from api.main import _client_ip
+    assert _client_ip(_request_with({}, peer="192.0.2.5")) == "192.0.2.5"
+
+
+def test_blank_edge_header_does_not_collapse_every_caller_into_one_bucket():
+    from api.main import _client_ip
+    assert _client_ip(_request_with({"CF-Connecting-IP": "   "}, peer="192.0.2.9")) == "192.0.2.9"
