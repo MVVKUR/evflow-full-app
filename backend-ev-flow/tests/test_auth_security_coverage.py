@@ -1411,24 +1411,35 @@ def test_register_returns_409_when_the_username_race_is_lost(monkeypatch):
 
 @requires_db
 @pytest.mark.integration
-@pytest.mark.xfail(reason="BUG: no rate limiting on /auth/login (rate_limit.allow is only "
-                          "wired to the geocoding endpoints), so passwords can be brute "
-                          "forced at full request rate.")
 def test_repeated_failed_logins_are_eventually_throttled(monkeypatch):
+    """The shipped budget is 60 failures per 5 minutes, per caller and overall.
+
+    The number is patched down rather than sent in full because every failed
+    login against an existing account costs a real bcrypt(cost 12) verify here --
+    60 of them is ~20 seconds of test time to prove something the budget-shaped
+    tests in tests/test_rate_limits_auth.py already prove at the constant's real
+    value. What this test adds is that it holds end to end, against the database.
+    """
+    from api import rate_limit
+    monkeypatch.setattr(rate_limit, "LOGIN_FAILURE_RATE_LIMIT_REQUESTS", 5)
     with _client(monkeypatch) as c:
         uname, _, _ = _register(c)
         codes = [c.post("/api/v1/auth/login",
                         json={"username": uname, "password": f"wrong{i:04d}"}).status_code
-                 for i in range(40)]
-        assert 429 in codes, "40 consecutive failed logins should trip a limiter"
+                 for i in range(8)]
+        assert codes[:5] == [401] * 5, "the budget must be spendable before it bites"
+        assert codes[5:] == [429] * 3
+        # A correct password is charged nothing, so the account is not locked out
+        # by its owner's own successful sign-ins -- but it IS shed while the
+        # failure budget is spent, which is the deliberate trade.
+        assert c.post("/api/v1/auth/login",
+                      json={"username": uname, "password": "s3cret123"}).status_code == 429
 
 
 @requires_db
 @pytest.mark.integration
-@pytest.mark.xfail(reason="BUG: no rate limiting on /auth/forgot-password, so the endpoint "
-                          "can be used to flood a third party's inbox (mail bombing) and to "
-                          "burn SMTP quota.")
 def test_repeated_forgot_password_requests_are_eventually_throttled(monkeypatch, captured_mail):
+    """Three reset mails per hour per address; the rest are shed."""
     with _client(monkeypatch) as c:
         uname = _uname()
         email = f"{uname}@example.test"

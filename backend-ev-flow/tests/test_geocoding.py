@@ -251,18 +251,18 @@ def test_cache_is_bounded():
 # --------------------------------------------------------------- rate limiter unit
 def test_rate_limiter_allows_up_to_limit_then_blocks():
     rate_limit.reset()
-    key = "unit-test-key"
-    assert all(rate_limit.allow(key, 3, 60.0) for _ in range(3))
-    assert rate_limit.allow(key, 3, 60.0) is False
-    assert rate_limit.allow("other-key", 3, 60.0) is True
+    ns = "unit-test"
+    assert all(rate_limit.allow(ns, "subject", 3, 60.0) for _ in range(3))
+    assert rate_limit.allow(ns, "subject", 3, 60.0) is False
+    assert rate_limit.allow(ns, "other-subject", 3, 60.0) is True
 
 
 def test_rate_limiter_window_expires():
     rate_limit.reset()
-    key = "unit-test-window"
-    assert rate_limit.allow(key, 1, 0.0) is True
+    ns = "unit-test-window"
+    assert rate_limit.allow(ns, "subject", 1, 0.0) is True
     # zero-length window: the previous hit is already outside it
-    assert rate_limit.allow(key, 1, 0.0) is True
+    assert rate_limit.allow(ns, "subject", 1, 0.0) is True
 
 
 # --------------------------------------------------------------- access-log masking

@@ -6,6 +6,7 @@ Spec: http://localhost:8000/openapi.json
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import os
@@ -506,10 +507,240 @@ def ev_model(model_id: str) -> EVModel:
     return EVModel(**m)
 
 
+# ------------------------------------------------- rate limits: auth + money paths
+# One helper per endpoint, each called as the FIRST statement of its handler, so a
+# shed request costs nothing: no database round trip and, above all, no bcrypt.
+# security.hash_password/verify_password run at cost 12 (~250-400 ms) on one of
+# the ~40 shared AnyIO threadpool threads every sync handler in this file competes
+# for, which is what makes /auth/login a CPU denial-of-service primitive before it
+# is a password-guessing one. Budgets and the reasoning behind each number live in
+# api/rate_limit.py; that module is also where the per-process caveat is written
+# down (every limit here multiplies by WEB_CONCURRENCY, which ships defaulted to 2).
+#
+# WHAT A 429 MAY SAY. On the three auth endpoints: one fixed string per endpoint,
+# identical whichever bucket tripped and identical whether or not the account
+# exists. Two oracles are being avoided. (1) A message that named the bucket would
+# tell an attacker which dimension to vary. (2) If failures were charged only for
+# accounts that exist, then "429 instead of 401/404" would itself answer "does this
+# account exist?" -- a cheaper enumeration oracle than the one being bounded. So
+# unknown usernames and unknown emails are charged exactly like known ones, and the
+# limit is enforced before the lookup that could tell them apart. Retry-After is
+# safe to send only because every bucket on a given endpoint shares one window; two
+# windows on one endpoint would put the answer in the header instead.
+#
+# On /wallet/topup and /charging/sessions the caller is authenticated and the limit
+# is on their own account, so naming the wait leaks nothing about anyone else.
+#
+# KEY CHOICE. Behind the Cloudflare tunnel and nginx (`proxy_pass
+# http://127.0.0.1:8000`) request.client.host is loopback for every human on earth,
+# so an IP bucket is in practice a second deployment-wide bucket, and the per-IP
+# numbers are therefore sized for the whole user base rather than for one person.
+# They are kept because they are the only caller signal these unauthenticated
+# endpoints have, and they start discriminating the day a trusted client address is
+# available (Cloudflare sets CF-Connecting-IP at its edge) -- not because they
+# discriminate today. Where a real caller identity already exists, the JWT subject
+# on /wallet/topup and /charging/sessions, it is used instead: unspoofable, stable,
+# and unaffected by the proxy.
+def _client_ip(request: Request) -> str:
+    """Address to bucket by.
+
+    X-Forwarded-For is deliberately not read here: it is caller-supplied and would
+    hand an abuser an unlimited supply of buckets. Note that uvicorn's
+    ProxyHeadersMiddleware may already have rewritten scope["client"] from that
+    header before we see it (it trusts 127.0.0.1 by default, and nginx forwards
+    with $proxy_add_x_forwarded_for, so the value it takes is the real peer) --
+    which is safe only as long as FORWARDED_ALLOW_IPS stays at its default and that
+    nginx line is not changed to $http_x_forwarded_for. Neither is asserted
+    anywhere, so treat every per-IP bucket as deployment-wide; see KEY CHOICE.
+    """
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limited(namespace: str, message: str, window_seconds: float) -> HTTPException:
+    """Build the 429, and log that it happened without logging who tripped it.
+
+    Only the namespace is logged: subjects are email hashes, addresses and user
+    ids, and this line lands in the access log (AC 2.3.2).
+    """
+    logging.warning("rate limit hit (%s)", namespace)
+    return HTTPException(429, message,
+                         headers={"Retry-After": str(int(window_seconds))})
+
+
+_LOGIN_RATE_LIMITED_MESSAGE = ("too many failed sign-in attempts from here; "
+                               "please wait a few minutes and try again")
+
+
+def _login_failure_buckets(request: Request) -> tuple[tuple[str, Optional[str], int], ...]:
+    return (
+        ("login:fail:ip", _client_ip(request),
+         rate_limit.LOGIN_FAILURE_RATE_LIMIT_REQUESTS),
+        ("login:fail:global", None,
+         rate_limit.LOGIN_FAILURE_GLOBAL_RATE_LIMIT_REQUESTS),
+    )
+
+
+def _enforce_login_rate_limit(request: Request) -> None:
+    """Refuse when the failed-sign-in budget is spent. Charges nothing itself.
+
+    A correct password must cost no budget at all, so this only reads; the buckets
+    are charged by _record_login_failure() and only on a 401. That is what lets the
+    limit be low enough to matter: legitimate sign-ins, however many, can never
+    trip it, and a mistyped password heals in one window.
+
+    NO PER-USERNAME BUCKET, DELIBERATELY. It is the obvious anti-brute-force key
+    and the wrong one here -- it converts the defence into a targeted takedown
+    weapon, where one wrong password per window from anywhere keeps a named victim
+    locked out indefinitely. The standard repair (key on the (address, username)
+    pair, so an attacker at one address cannot deny a victim at another) does not
+    work on this deployment: every caller shares one apparent address, so the pair
+    collapses back to the username and the weapon ships anyway. What is left still
+    catches the attack that matters -- credential stuffing is many usernames from
+    one source, which the global failure budget sees -- and caps targeted guessing
+    at 17,280 tries a day against an 8-character minimum. Revisit if and when a
+    trusted client address exists.
+    """
+    for namespace, subject, limit in _login_failure_buckets(request):
+        if rate_limit.exceeded(namespace, subject, limit,
+                               rate_limit.LOGIN_FAILURE_RATE_LIMIT_WINDOW_SECONDS):
+            raise _rate_limited(namespace, _LOGIN_RATE_LIMITED_MESSAGE,
+                                rate_limit.LOGIN_FAILURE_RATE_LIMIT_WINDOW_SECONDS)
+
+
+def _record_login_failure(request: Request) -> None:
+    """Charge one failed sign-in.
+
+    Called for EVERY 401, including the ones where the username does not exist. If
+    it were charged only for real accounts, the moment 429s started would itself be
+    a "this account exists" signal.
+    """
+    for namespace, subject, _ in _login_failure_buckets(request):
+        rate_limit.record(namespace, subject,
+                          rate_limit.LOGIN_FAILURE_RATE_LIMIT_WINDOW_SECONDS)
+
+
+def _enforce_register_rate_limit(request: Request) -> None:
+    """Budget account creation, per caller and overall.
+
+    Unlike login there is no caller identity yet, and a username-keyed bucket would
+    be worthless: the attacker picks a fresh username per request, so every request
+    would land in its own empty bucket. Address and global are what exist -- and
+    global is precisely the one that protects the smallint wallet id described in
+    rate_limit.REGISTER_RATE_LIMIT_REQUESTS.
+    """
+    checks = (
+        ("register:ip", _client_ip(request), rate_limit.REGISTER_RATE_LIMIT_REQUESTS),
+        ("register:global", None, rate_limit.REGISTER_GLOBAL_RATE_LIMIT_REQUESTS),
+    )
+    for namespace, subject, limit in checks:
+        if not rate_limit.allow(namespace, subject, limit,
+                                rate_limit.REGISTER_RATE_LIMIT_WINDOW_SECONDS):
+            raise _rate_limited(
+                namespace,
+                "too many sign-up attempts; please try again later",
+                rate_limit.REGISTER_RATE_LIMIT_WINDOW_SECONDS)
+
+
+def _forgot_password_subject(email: str) -> str:
+    """Bucket subject for an email address: a truncated SHA-256, never the address.
+
+    The raw address would otherwise sit in a process-global dict for an hour and be
+    one careless log line away from disclosure. 16 hex characters (64 bits) is far
+    past the collision headroom a table of a few thousand subjects needs.
+    """
+    return hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
+
+
+def _enforce_forgot_password_rate_limit(request: Request, email: str) -> None:
+    """Budget password-reset mail per target address, per caller, and overall.
+
+    MUST run before users_repo.get_by_email: charging only addresses that exist
+    would turn "429 rather than 404" into the account-enumeration answer, which is
+    a cheaper oracle than the one this endpoint already accepts.
+
+    WHY IT IS SAFE TO KEY ON THE ADDRESS THE ATTACKER NAMES, WHEN /auth/login MUST
+    NOT KEY ON THE USERNAME THEY NAME. The general rule -- never let an attacker
+    exhaust a bucket that belongs to their victim -- applies when doing so denies
+    the victim something they do not already have. Here it does not: reset links
+    live for PASSWORD_RESET_TTL_MINUTES (60 by default), so a victim whose hourly
+    budget has been spent already has a working link in their inbox for that same
+    hour. Burning it denies them a duplicate email, not the reset.
+
+    It is also the only bucket on this endpoint that discriminates between callers
+    today, because it comes from the request body and so survives the reverse proxy
+    that flattens every address to loopback.
+    """
+    checks = (
+        ("forgot:email", _forgot_password_subject(email),
+         rate_limit.FORGOT_PASSWORD_EMAIL_RATE_LIMIT_REQUESTS),
+        ("forgot:ip", _client_ip(request),
+         rate_limit.FORGOT_PASSWORD_IP_RATE_LIMIT_REQUESTS),
+        ("forgot:global", None, rate_limit.FORGOT_PASSWORD_GLOBAL_RATE_LIMIT_REQUESTS),
+    )
+    for namespace, subject, limit in checks:
+        if not rate_limit.allow(namespace, subject, limit,
+                                rate_limit.FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SECONDS):
+            # Same wording as the 200 body's neighbourhood: says nothing about
+            # whether the address is registered, or which of the three tripped.
+            raise _rate_limited(
+                namespace,
+                "too many password reset requests; please check your inbox "
+                "(including spam) and try again later",
+                rate_limit.FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SECONDS)
+
+
+def _enforce_wallet_topup_rate_limit(user_id: str) -> None:
+    """Budget invoice creation per account and overall.
+
+    Keyed on the authenticated user, not the address: this endpoint has a real
+    caller identity, which is unspoofable and unaffected by the proxy. Specific
+    wording is fine in the 429 because the limit is on the caller's own account.
+    """
+    checks = (
+        ("topup:user", user_id, rate_limit.WALLET_TOPUP_RATE_LIMIT_REQUESTS),
+        ("topup:global", None, rate_limit.WALLET_TOPUP_GLOBAL_RATE_LIMIT_REQUESTS),
+    )
+    for namespace, subject, limit in checks:
+        if not rate_limit.allow(namespace, subject, limit,
+                                rate_limit.WALLET_TOPUP_RATE_LIMIT_WINDOW_SECONDS):
+            # Wording derived from the constant, so the two cannot drift apart.
+            raise _rate_limited(
+                namespace,
+                "too many top-ups started; finish or abandon the one in progress and "
+                "try again in about "
+                f"{int(rate_limit.WALLET_TOPUP_RATE_LIMIT_WINDOW_SECONDS // 60)} minutes",
+                rate_limit.WALLET_TOPUP_RATE_LIMIT_WINDOW_SECONDS)
+
+
+def _enforce_charging_session_rate_limit(user_id: str) -> None:
+    """Budget session starts per account and overall.
+
+    Keyed on the authenticated user, same reasoning as top-up. NOT keyed per
+    station: that would let one caller deny a physical connector to everyone else,
+    and it would buy nothing, because connectors_repo.occupy already returns None
+    when nothing is free -- inventory bounds real occupancy on its own. What needs
+    bounding is the rate of state churn, which the per-user bucket does.
+    """
+    checks = (
+        ("sessions:user", user_id, rate_limit.CHARGING_SESSION_RATE_LIMIT_REQUESTS),
+        ("sessions:global", None, rate_limit.CHARGING_SESSION_GLOBAL_RATE_LIMIT_REQUESTS),
+    )
+    for namespace, subject, limit in checks:
+        if not rate_limit.allow(namespace, subject, limit,
+                                rate_limit.CHARGING_SESSION_RATE_LIMIT_WINDOW_SECONDS):
+            raise _rate_limited(
+                namespace,
+                "too many charging sessions started; please try again in about "
+                f"{int(rate_limit.CHARGING_SESSION_RATE_LIMIT_WINDOW_SECONDS // 60)} minutes",
+                rate_limit.CHARGING_SESSION_RATE_LIMIT_WINDOW_SECONDS)
+
+
 @app.post("/api/v1/wallet/topup", response_model=TopupCreated, tags=["wallet"],
           summary="Create a Xendit invoice to top up the wallet",
-          responses={502: {"description": "Payment provider error"}})
+          responses={429: {"description": "Too many top-ups started"},
+                     502: {"description": "Payment provider error"}})
 def wallet_topup(body: TopupRequest, user: dict = Depends(security.current_user)) -> TopupCreated:
+    _enforce_wallet_topup_rate_limit(user["id"])
     external_id = f"topup-{uuid.uuid4()}"
     topup_id = str(uuid.uuid4())
     # After paying (or cancelling) on the Xendit page the browser is sent back to the app.
@@ -561,6 +792,45 @@ def wallet_balance(user: dict = Depends(security.current_user)) -> WalletBalance
           responses={401: {"description": "Invalid callback token"},
                      503: {"description": "Webhook not configured"}})
 def xendit_webhook(payload: dict, x_callback_token: Optional[str] = Header(None)):
+    # DELIBERATELY NOT RATE LIMITED. Do not "fix" this by adding a limiter.
+    #
+    # Every other POST in this file is budgeted; this one is left open on purpose,
+    # because here a limiter would be the vulnerability rather than the defence.
+    #
+    # WHAT A LIMIT WOULD PREVENT: almost nothing. An unauthenticated flood is
+    # rejected below by compare_digest, on a path that touches no database, runs no
+    # bcrypt and makes no outbound call. The only genuine pre-auth cost is FastAPI
+    # deserialising `payload: dict` before this function is entered, which is a
+    # body-size problem with a body-size fix (client_max_body_size in nginx), not a
+    # request-count one. An attacker who actually holds the callback token can
+    # credit wallets outright, and the answer to that is rotating
+    # XENDIT_CALLBACK_TOKEN, not slowing them down. Replayed deliveries are already
+    # harmless: wallet.mark_paid_and_credit guards on `status = 'pending'`, so it is
+    # idempotent.
+    #
+    # WHAT A LIMIT WOULD COST: real money, belonging to real users. Xendit's per-IP
+    # address is meaningless to us (its egress, seen through the tunnel as one
+    # address), so any bucket here is effectively global -- shared between an
+    # attacker's flood and Xendit's genuine deliveries. Today that flood costs 401s
+    # and harms nobody; with a global bucket the same flood exhausts it and the next
+    # real callback gets a 429. Xendit retries a bounded number of times and then
+    # gives up, and a dropped callback is only recovered if the user happens to
+    # return to the polling screen (wallet_topup_status re-queries while pending) --
+    # which never happens at all when FRONTEND_URL is unset, because then
+    # success_redirect_url is None and nobody is sent back. There is no background
+    # reconciliation job. So the limiter would hand an attacker a way to turn a
+    # harmless flood into a customer who paid and was never credited, and it would
+    # fail hardest right after a Xendit outage, when queued callbacks arrive in a
+    # burst carrying exactly the backlog of real payments.
+    #
+    # IF THIS EVER HAS TO CHANGE, the only safe shape is a counter charged solely to
+    # requests that have ALREADY failed compare_digest, keyed globally, recorded
+    # after the 401 is decided -- a genuine delivery carries a valid token and so can
+    # never be throttled. It is not shipped because the 401 path costs nothing to
+    # serve, so it would defend against a cost that does not exist. The precondition
+    # for reconsidering is a reconciliation sweeper that re-queries Xendit for
+    # top-ups left pending; once webhook delivery is no longer the only unattended
+    # credit path, a 429 here stops being a money-loss event.
     expected = os.getenv("XENDIT_CALLBACK_TOKEN", "")
     # Fail closed: an unset or short token would let anyone credit wallets.
     if not expected or len(expected) < 16:
@@ -588,8 +858,10 @@ def charging_quote(body: ChargingQuoteRequest, user: dict = Depends(security.cur
 
 @app.post("/api/v1/charging/sessions", response_model=ChargingSession, status_code=201,
           tags=["charging"], summary="Start a session (debits the deposit from the wallet)",
-          responses={402: {"description": "Insufficient wallet balance"}})
+          responses={402: {"description": "Insufficient wallet balance"},
+                     429: {"description": "Too many sessions started"}})
 def start_charging_session(body: StartSessionRequest, user: dict = Depends(security.current_user)) -> ChargingSession:
+    _enforce_charging_session_rate_limit(user["id"])
     try:
         session = charging_repo.start_session(
             user_id=user["id"], station_id=body.station_id, energy_kwh=body.energy_kwh,
@@ -630,8 +902,10 @@ def list_charging_sessions(limit: int = Query(20, ge=1, le=100), user: dict = De
 
 # ----------------------------------------------------------------------------- auth endpoints
 @app.post("/api/v1/auth/register", response_model=TokenResponse, status_code=201, tags=["auth"],
-          responses={409: {"description": "username taken"}})
-def register(body: RegisterRequest) -> TokenResponse:
+          responses={409: {"description": "username taken"},
+                     429: {"description": "Too many sign-up attempts"}})
+def register(request: Request, body: RegisterRequest) -> TokenResponse:
+    _enforce_register_rate_limit(request)
     if users_repo.get_by_username(body.username):
         raise HTTPException(409, "username already taken")
     completed = bool(body.ev_model_id and body.main_connector_type and body.location_consent)
@@ -645,10 +919,17 @@ def register(body: RegisterRequest) -> TokenResponse:
 
 
 @app.post("/api/v1/auth/login", response_model=TokenResponse, tags=["auth"],
-          responses={401: {"description": "bad credentials"}})
-def login(body: LoginRequest) -> TokenResponse:
+          responses={401: {"description": "bad credentials"},
+                     429: {"description": "Too many failed sign-in attempts"}})
+def login(request: Request, body: LoginRequest) -> TokenResponse:
+    # First statement: a shed request must not reach the lookup, and above all not
+    # the bcrypt verify below.
+    _enforce_login_rate_limit(request)
     user = users_repo.get_by_username_or_email(body.username.strip())
     if not user or not user.get("password_hash") or not security.verify_password(body.password, user["password_hash"]):
+        # Charged for unknown usernames too, so the 429 cannot answer "does this
+        # account exist?". The 401 text is unchanged and stays generic.
+        _record_login_failure(request)
         raise HTTPException(401, "invalid username/email or password")
     return TokenResponse(access_token=security.create_access_token(user["id"]), user=UserPublic(**user))
 
@@ -681,9 +962,15 @@ def _send_reset_email(user_id: str, email: str) -> None:
 
 @app.post("/api/v1/auth/forgot-password", response_model=ForgotPasswordResponse, tags=["auth"],
           responses={404: {"description": "no account with that email"},
-                     400: {"description": "account has no password (Google sign-in)"}})
-def forgot_password(body: ForgotPasswordRequest, background_tasks: BackgroundTasks) -> ForgotPasswordResponse:
+                     400: {"description": "account has no password (Google sign-in)"},
+                     429: {"description": "Too many password reset requests"}})
+def forgot_password(request: Request, body: ForgotPasswordRequest,
+                    background_tasks: BackgroundTasks) -> ForgotPasswordResponse:
+    # Normalising the address is the only work that precedes the limit, because the
+    # bucket is keyed on the normalised form -- otherwise "A@x" and "a@x " would be
+    # two budgets for one inbox.
     email = body.email.strip().lower()
+    _enforce_forgot_password_rate_limit(request, email)
     if "@" not in email:
         raise HTTPException(422, "enter a valid email address")
     # Honest, non-misleading responses: tell the user when no account matches so a
@@ -780,21 +1067,19 @@ def _enforce_support_ticket_rate_limit(request: Request) -> None:
     has two: per-IP stops one client looping, global caps what the deployment can
     emit no matter how many clients there are.
 
-    Caveat, same as geocoding's: behind nginx `request.client.host` is nginx, so
-    in production every browser shares one per-IP bucket and the global budget is
-    the one doing the work. X-Forwarded-For is not used because it is caller-
-    supplied and would hand an abuser an unlimited supply of buckets. Per-client
-    accounting belongs at the edge, which can see the real address.
+    Caveat, same as geocoding's: `request.client.host` is loopback in production
+    (see _client_ip), so every browser shares one per-IP bucket and the global
+    budget is the one doing the work.
     """
-    client_ip = request.client.host if request.client else "unknown"
     checks = (
-        (f"support:ip:{client_ip}", rate_limit.SUPPORT_TICKET_RATE_LIMIT_REQUESTS),
-        ("support:global", rate_limit.SUPPORT_TICKET_GLOBAL_RATE_LIMIT_REQUESTS),
+        ("support:ip", _client_ip(request), rate_limit.SUPPORT_TICKET_RATE_LIMIT_REQUESTS),
+        ("support:global", None, rate_limit.SUPPORT_TICKET_GLOBAL_RATE_LIMIT_REQUESTS),
     )
-    for key, limit in checks:
-        if not rate_limit.allow(key, limit, rate_limit.SUPPORT_TICKET_RATE_LIMIT_WINDOW_SECONDS):
+    for namespace, subject, limit in checks:
+        if not rate_limit.allow(namespace, subject, limit,
+                                rate_limit.SUPPORT_TICKET_RATE_LIMIT_WINDOW_SECONDS):
             # No address, no subject, no body: this line goes to the access log.
-            logging.warning("support ticket rate limit hit (%s)", key.rsplit(":", 1)[0])
+            logging.warning("support ticket rate limit hit (%s)", namespace)
             raise HTTPException(
                 429,
                 "too many support requests; please try again later or email us directly")
@@ -1824,16 +2109,16 @@ def _enforce_geocoding_rate_limit(request: Request) -> None:
     one caller looping, and a global budget caps what the whole deployment can
     send upstream no matter how many callers there are.
     """
-    client_ip = request.client.host if request.client else "unknown"
     checks = (
-        (f"geocoding:ip:{client_ip}", rate_limit.GEOCODING_RATE_LIMIT_REQUESTS),
-        ("geocoding:global", rate_limit.GEOCODING_GLOBAL_RATE_LIMIT_REQUESTS),
+        ("geocoding:ip", _client_ip(request), rate_limit.GEOCODING_RATE_LIMIT_REQUESTS),
+        ("geocoding:global", None, rate_limit.GEOCODING_GLOBAL_RATE_LIMIT_REQUESTS),
     )
-    for key, limit in checks:
-        if not rate_limit.allow(key, limit, rate_limit.GEOCODING_RATE_LIMIT_WINDOW_SECONDS):
+    for namespace, subject, limit in checks:
+        if not rate_limit.allow(namespace, subject, limit,
+                                rate_limit.GEOCODING_RATE_LIMIT_WINDOW_SECONDS):
             # Neither the query nor any coordinate appears here: this line lands
             # in access/error logs (AC 2.3.2).
-            logging.warning("geocoding rate limit hit (%s)", key.rsplit(":", 1)[0])
+            logging.warning("geocoding rate limit hit (%s)", namespace)
             raise HTTPException(
                 429,
                 f"too many geocoding requests; try again in "
