@@ -28,6 +28,7 @@ import { formatDistance, formatDuration, formatSoc } from './planRouteUtils';
 import type { LocationState } from './planRouteTypes';
 import { RouteDialog } from './components/RouteDialog';
 import { routeColors } from './routeTheme';
+import { buildNavigationMarkers } from './navigationMarkers';
 
 export type NavigationSnapshot = {
   result: RoutePlanResponse;
@@ -334,7 +335,7 @@ export function ActiveNavigationScreen({
       showCurrentLocationPinpoint
       polylineCoordinates={line.map(([longitude, latitude]) => [latitude, longitude])}
       polylineColor={status === 'rerouting' ? '#EAB308' : '#00696F'}
-      markers={[{ id: 'destination', label: destinationName, latitude: destination.latitude, longitude: destination.longitude, type: 'destination' }]}
+      markers={buildNavigationMarkers(routeResult, destination, destinationName)}
     /></View>
 
     <View style={[styles.banner, { top: topInset + 12 }]}>
