@@ -1,0 +1,15 @@
+EV-FLOW TLS deployment verification
+host=ev-flow.opensoft.id
+checked_at_utc=2026-08-08T14:34:05Z
+https_status=200
+http_status=301
+redirect_location=https://ev-flow.opensoft.id/
+tls13=negotiated
+  subject=CN = opensoft.id
+  issuer=C = US, O = Google Trust Services, CN = WE1
+  New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384
+  Verify return code: 0 (ok)
+tls1=rejected
+tls1_1=rejected
+api_over_tls13_status=200
+result=PASS
