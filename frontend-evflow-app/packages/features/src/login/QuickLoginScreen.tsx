@@ -31,6 +31,12 @@ export function QuickLoginScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const handleSelect = (persona: DemoPersona) => {
+    // Second gate, on purpose: the card is already disabled, but this is the
+    // function that would sign someone in to a surface that does not exist yet.
+    if (persona.comingSoon) {
+      return;
+    }
+
     if (pendingKey) {
       return;
     }
@@ -91,14 +97,20 @@ type PersonaCardProps = {
 };
 
 function PersonaCard({ persona, pending, disabled, onPress }: PersonaCardProps) {
+  // A persona still being built is never selectable, whatever the screen's own
+  // busy state is doing.
+  const unavailable = Boolean(persona.comingSoon);
+  const blocked = disabled || unavailable;
   return (
     <Pressable
-      accessibilityLabel={`Continue as ${persona.fullName}`}
+      accessibilityLabel={unavailable
+        ? `${persona.fullName}, coming soon, not available yet`
+        : `Continue as ${persona.fullName}`}
       accessibilityRole="button"
-      accessibilityState={{ busy: pending, disabled }}
-      disabled={disabled}
+      accessibilityState={{ busy: pending && !unavailable, disabled: blocked }}
+      disabled={blocked}
       onPress={onPress}
-      style={[styles.personaCard, disabled && !pending && styles.personaCardDisabled]}
+      style={[styles.personaCard, blocked && !pending && styles.personaCardDisabled]}
     >
       <View style={[styles.avatar, { backgroundColor: persona.avatarColor }]}>
         <Text style={styles.avatarText}>{persona.initials}</Text>
@@ -109,7 +121,11 @@ function PersonaCard({ persona, pending, disabled, onPress }: PersonaCardProps) 
         <Text style={[styles.personaSubtitle, { color: persona.subtitleColor }]}>{persona.subtitle}</Text>
       </View>
 
-      {pending ? <ActivityIndicator color={colors.text} size="small" /> : <Text style={styles.chevron}>›</Text>}
+      {unavailable
+        ? <View style={styles.comingSoonBadge}><Text style={styles.comingSoonText}>Coming soon</Text></View>
+        : pending
+          ? <ActivityIndicator color={colors.text} size="small" />
+          : <Text style={styles.chevron}>›</Text>}
     </Pressable>
   );
 }

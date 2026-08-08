@@ -11,6 +11,8 @@ export type DemoPersona = {
   subtitle: string;
   avatarColor: string;
   subtitleColor: string;
+  /** Shown but not selectable: the role's screens are not part of this release. */
+  comingSoon?: boolean;
 };
 
 // DEMO_PASSWORD is imported from the build environment (see demoCredentials.*),
@@ -34,7 +36,11 @@ export const demoPersonas: readonly DemoPersona[] = [
     initials: 'FO',
     subtitle: 'Business Planner · Jabodetabek',
     avatarColor: '#00565F',
-    subtitleColor: '#0DA6AF'
+    subtitleColor: '#0DA6AF',
+    // The business-planner surface is not in iteration 2. Left visible so the
+    // role is discoverable, but not selectable, rather than removed and then
+    // re-added later.
+    comingSoon: true
   }
 ];
 
