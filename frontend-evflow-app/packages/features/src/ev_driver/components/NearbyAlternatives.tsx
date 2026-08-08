@@ -26,6 +26,19 @@ type NearbyAlternativesProps<StationT extends AlternativeStation> = {
 };
 
 /**
+ * Text colours for the free-count numbers, keyed by the same band as the row
+ * dot. `stationBandColors.limited` (#F0B429) is a pin colour that does not
+ * survive as small text on a white card, so those numbers use the app's amber
+ * instead; an unknown band never has numbers to colour.
+ */
+const bandTextColors = {
+  free: '#10A957',
+  limited: '#E87500',
+  full: '#D64545',
+  unknown: '#687378'
+} as const;
+
+/**
  * AC 3.4.1: rendered on the SAME station-detail screen when the opened station
  * is fully occupied (or its wait estimate exceeds the threshold). Tapping an
  * entry switches the detail drawer to that station without leaving the map.
@@ -65,7 +78,9 @@ export function NearbyAlternatives<StationT extends AlternativeStation>({ altern
 
         {!loading && !error && alternatives ? alternatives.map((station) => {
           const band = getStationAvailabilityBand(station.availableConnectors, station.totalConnectors);
-          const plugsLine = typeof station.availableConnectors === 'number' && typeof station.totalConnectors === 'number'
+          const hasCounts = typeof station.availableConnectors === 'number' && typeof station.totalConnectors === 'number';
+          // Plain-string twins of the styled spans below, for the accessibility label.
+          const plugsLine = hasCounts
             ? `${station.availableConnectors} of ${station.totalConnectors} connectors free`
             : 'Availability unknown';
           const distanceLine = typeof station.distanceKm === 'number' ? `${station.distanceKm.toFixed(1)} km from here` : null;
@@ -81,7 +96,22 @@ export function NearbyAlternatives<StationT extends AlternativeStation>({ altern
               <View style={altStyles.rowCopy}>
                 <Text numberOfLines={1} style={altStyles.rowName}>{station.name}</Text>
                 <Text numberOfLines={1} style={altStyles.rowMeta}>
-                  {distanceLine ? `${distanceLine} · ` : ''}{plugsLine}
+                  {typeof station.distanceKm === 'number' ? (
+                    <>
+                      <Text style={altStyles.rowMetaNumber}>{station.distanceKm.toFixed(1)} km</Text>
+                      {' from here · '}
+                    </>
+                  ) : null}
+                  {hasCounts ? (
+                    <>
+                      <Text style={[altStyles.rowMetaNumber, { color: bandTextColors[band] }]}>{station.availableConnectors}</Text>
+                      {' of '}
+                      <Text style={[altStyles.rowMetaNumber, { color: bandTextColors[band] }]}>{station.totalConnectors}</Text>
+                      {' connectors free'}
+                    </>
+                  ) : (
+                    'Availability unknown'
+                  )}
                 </Text>
               </View>
               <Text style={altStyles.chevron}>›</Text>
@@ -109,5 +139,6 @@ const altStyles = StyleSheet.create({
   rowCopy: { flex: 1, gap: 1 },
   rowName: { color: '#20272A', fontSize: 13, fontWeight: '700' },
   rowMeta: { color: '#687378', fontSize: 11.5 },
+  rowMetaNumber: { color: '#20272A', fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '900' },
   chevron: { color: '#9AA7AB', fontSize: 18, fontWeight: '600' }
 });

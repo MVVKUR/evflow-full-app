@@ -17,7 +17,13 @@ type LeafletMapProps = {
   } | null;
   markerIconSvg?: string;
   markers?: LeafletMapMarker[];
+  onMapPress?: (latitude: number, longitude: number) => void;
   onMarkerPress?: (markerId: string) => void;
+  onPickedPointMoved?: (latitude: number, longitude: number) => void;
+  pickedPoint?: {
+    latitude: number;
+    longitude: number;
+  } | null;
   polylineColor?: string;
   polylineCoordinates?: [number, number][];
   radiusKm?: number | null;
@@ -46,6 +52,14 @@ const defaultCenter = {
   longitude: 106.8272
 };
 
+// Distinctive droplet pin for the interactive point picker: teal fill with a
+// white ring, kept subtly larger than the 32px station pins.
+const pickerPinSvg =
+  '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 5px rgba(0,0,0,0.4));">' +
+  '<path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2Z" fill="#00696F" stroke="#FFFFFF" stroke-width="1.5"/>' +
+  '<circle cx="12" cy="9" r="3.2" fill="none" stroke="#FFFFFF" stroke-width="1.8"/>' +
+  '</svg>';
+
 type Coordinates = {
   latitude: number;
   longitude: number;
@@ -64,7 +78,10 @@ export function LeafletMap({
   currentLocation,
   markerIconSvg,
   markers = [],
+  onMapPress,
   onMarkerPress,
+  onPickedPointMoved,
+  pickedPoint,
   polylineColor,
   polylineCoordinates,
   radiusKm,
@@ -76,6 +93,7 @@ export function LeafletMap({
   const webViewRef = useRef<WebView>(null);
   const selectedMarkerIdRef = useRef<string | null>(selectedMarkerId);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
+  const pickerDraggable = Boolean(onPickedPointMoved);
   const html = useMemo(
     () => `
     <!DOCTYPE html>
@@ -103,6 +121,16 @@ export function LeafletMap({
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
           }).addTo(map);
+
+          map.on('click', function(event) {
+            // Marker taps stay out of here: L.marker never bubbles mouse
+            // events and the circle markers opt out via bubblingMouseEvents.
+            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'mapPress',
+              latitude: event.latlng.lat,
+              longitude: event.latlng.lng
+            }));
+          });
 
           var stationIcon = ${markerIconSvg ? `L.divIcon({ className: 'evflow-station-marker', html: ${JSON.stringify(markerIconSvg)}, iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -20] })` : 'null'};
           var selectedStationIcon = ${
@@ -133,6 +161,7 @@ export function LeafletMap({
           var marker_${safeId} = markerIcon_${safeId}
             ? L.marker([${marker.latitude}, ${marker.longitude}], { icon: markerIcon_${safeId}, zIndexOffset: ${zIndex} }).addTo(map)
             : L.circleMarker([${marker.latitude}, ${marker.longitude}], {
+                bubblingMouseEvents: false,
                 color: '#ffffff',
                 fillColor: '#007a80',
                 fillOpacity: 1,
@@ -174,6 +203,7 @@ export function LeafletMap({
 
             if (!userMarker) {
               userMarker = L.circleMarker(coordinates, {
+                bubblingMouseEvents: false,
                 color: '#ffffff',
                 fillColor: '#00E0EB',
                 fillOpacity: 1,
@@ -263,6 +293,52 @@ export function LeafletMap({
               : ''
           }
 
+          var pickerIcon = L.divIcon({
+            className: 'evflow-station-marker evflow-picker-marker',
+            html: ${toInlineScriptJson(pickerPinSvg)},
+            iconSize: [36, 36],
+            iconAnchor: [18, 36]
+          });
+          var pickerMarker = null;
+          window.setPickedPoint = function(latitude, longitude, draggable) {
+            if (latitude == null || longitude == null) {
+              if (pickerMarker) {
+                map.removeLayer(pickerMarker);
+                pickerMarker = null;
+              }
+              return;
+            }
+
+            var coordinates = [latitude, longitude];
+
+            if (!pickerMarker) {
+              var createdPicker = L.marker(coordinates, {
+                draggable: !!draggable,
+                icon: pickerIcon,
+                zIndexOffset: 1200
+              }).addTo(map);
+              createdPicker.on('dragend', function() {
+                var position = createdPicker.getLatLng();
+                window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'pickedPointMoved',
+                  latitude: position.lat,
+                  longitude: position.lng
+                }));
+              });
+              pickerMarker = createdPicker;
+            } else {
+              pickerMarker.setLatLng(coordinates);
+            }
+
+            if (pickerMarker.dragging) {
+              if (draggable) {
+                pickerMarker.dragging.enable();
+              } else {
+                pickerMarker.dragging.disable();
+              }
+            }
+          };
+
           // Re-center map when props change via reloading html
         </script>
       </body>
@@ -276,6 +352,23 @@ export function LeafletMap({
       window.setSelectedMarker && window.setSelectedMarker(${JSON.stringify(selectedMarkerIdRef.current)});
       true;
     `);
+  }
+
+  function injectPickedPoint() {
+    const point = pickedPoint ?? null;
+
+    webViewRef.current?.injectJavaScript(`
+      window.setPickedPoint && window.setPickedPoint(${point ? point.latitude : 'null'}, ${point ? point.longitude : 'null'}, ${pickerDraggable});
+      true;
+    `);
+  }
+
+  function handleLoadEnd() {
+    // The WebView reloads whenever the generated html changes (markers,
+    // center, ...), wiping in-page state, so re-apply everything that is
+    // delivered by injection instead of baked into the html.
+    injectSelectedMarker();
+    injectPickedPoint();
   }
 
   useEffect(() => {
@@ -322,6 +415,12 @@ export function LeafletMap({
   }, [selectedMarkerId]);
 
   useEffect(() => {
+    // Applied via injection (not the html string) so a drag confirmation or a
+    // new picked point never forces a full WebView reload.
+    injectPickedPoint();
+  }, [pickedPoint?.latitude, pickedPoint?.longitude, pickerDraggable]);
+
+  useEffect(() => {
     if (!userLocation) {
       return;
     }
@@ -351,10 +450,37 @@ export function LeafletMap({
 
   function handleMessage(event: WebViewMessageEvent) {
     try {
-      const message = JSON.parse(event.nativeEvent.data) as { type?: string; markerId?: string };
+      const message = JSON.parse(event.nativeEvent.data) as {
+        type?: string;
+        markerId?: string;
+        latitude?: number;
+        longitude?: number;
+      };
 
       if (message.type === 'markerPress' && message.markerId) {
         onMarkerPress?.(message.markerId);
+        return;
+      }
+
+      if (
+        message.type === 'mapPress' &&
+        typeof message.latitude === 'number' &&
+        Number.isFinite(message.latitude) &&
+        typeof message.longitude === 'number' &&
+        Number.isFinite(message.longitude)
+      ) {
+        onMapPress?.(message.latitude, message.longitude);
+        return;
+      }
+
+      if (
+        message.type === 'pickedPointMoved' &&
+        typeof message.latitude === 'number' &&
+        Number.isFinite(message.latitude) &&
+        typeof message.longitude === 'number' &&
+        Number.isFinite(message.longitude)
+      ) {
+        onPickedPointMoved?.(message.latitude, message.longitude);
       }
     } catch {
       // Ignore non-map messages.
@@ -371,7 +497,7 @@ export function LeafletMap({
         scrollEnabled={false}
         bounces={false}
         onMessage={handleMessage}
-        onLoadEnd={injectSelectedMarker}
+        onLoadEnd={handleLoadEnd}
       />
     </View>
   );

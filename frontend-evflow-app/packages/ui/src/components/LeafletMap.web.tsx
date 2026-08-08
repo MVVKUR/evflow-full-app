@@ -12,7 +12,13 @@ type LeafletMapProps = {
   } | null;
   markerIconSvg?: string;
   markers?: LeafletMapMarker[];
+  onMapPress?: (latitude: number, longitude: number) => void;
   onMarkerPress?: (markerId: string) => void;
+  onPickedPointMoved?: (latitude: number, longitude: number) => void;
+  pickedPoint?: {
+    latitude: number;
+    longitude: number;
+  } | null;
   polylineCoordinates?: [number, number][];
   polylineColor?: string;
   autoFitBounds?: boolean;
@@ -48,13 +54,24 @@ const defaultCenter = {
   longitude: 106.8272
 };
 
+// Distinctive droplet pin for the interactive point picker: teal fill with a
+// white ring, kept subtly larger than the 32px station pins.
+const pickerPinSvg =
+  '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 5px rgba(0,0,0,0.4));">' +
+  '<path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2Z" fill="#00696F" stroke="#FFFFFF" stroke-width="1.5"/>' +
+  '<circle cx="12" cy="9" r="3.2" fill="none" stroke="#FFFFFF" stroke-width="1.8"/>' +
+  '</svg>';
+
 export function LeafletMap({
   autoFitBounds,
   center = defaultCenter,
   currentLocation,
   markerIconSvg,
   markers = [],
+  onMapPress,
   onMarkerPress,
+  onPickedPointMoved,
+  pickedPoint,
   polylineColor,
   polylineCoordinates,
   radiusKm,
@@ -70,12 +87,23 @@ export function LeafletMap({
   const stationMarkersRef = useRef<import('leaflet').Layer[]>([]);
   const radiusCircleRef = useRef<import('leaflet').Circle | null>(null);
   const radiusKmRef = useRef<number | null>(radiusKm ?? null);
+  const pickerMarkerRef = useRef<import('leaflet').Marker | null>(null);
+  // Mirrors of the interaction callbacks: the map instance and the picker
+  // marker outlive any single render, so their Leaflet handlers must read the
+  // latest props through refs (same pattern as radiusKmRef below).
+  const onMapPressRef = useRef<((latitude: number, longitude: number) => void) | null>(
+    onMapPress ?? null
+  );
+  const onPickedPointMovedRef = useRef<((latitude: number, longitude: number) => void) | null>(
+    onPickedPointMoved ?? null
+  );
   const leafletRef = useRef<LeafletNamespace | null>(null);
   const pendingUserLocationRef = useRef<[number, number] | null>(null);
   const [failed, setFailed] = useState(false);
   // Bumped when the Leaflet map instance is (re)created so the markers effect
   // repaints with the freshest props instead of loadMap's stale closure.
   const [mapRevision, setMapRevision] = useState(0);
+  const pickerDraggable = Boolean(onPickedPointMoved);
 
   function renderRadiusCircle() {
     if (!mapRef.current || !leafletRef.current) {
@@ -124,6 +152,7 @@ export function LeafletMap({
     if (!userMarkerRef.current || !mapRef.current.hasLayer(userMarkerRef.current)) {
       userMarkerRef.current = leafletRef.current
         .circleMarker(coordinates, {
+          bubblingMouseEvents: false,
           color: '#ffffff',
           fillColor: '#00E0EB',
           fillOpacity: 1,
@@ -196,6 +225,9 @@ export function LeafletMap({
             .addTo(mapRef.current!)
         : leafletRef.current!
             .circleMarker([marker.latitude, marker.longitude], {
+              // Circle markers bubble clicks to the map by default; opt out so
+              // tapping a station never doubles as a map press.
+              bubblingMouseEvents: false,
               color: '#ffffff',
               // Selection still wins: the driver must be able to see which pin
               // they tapped, whatever its availability colour is.
@@ -256,6 +288,13 @@ export function LeafletMap({
 
         mapRef.current = map;
 
+        map.on('click', (event: import('leaflet').LeafletMouseEvent) => {
+          // Only plain map taps land here: L.Marker never bubbles mouse events
+          // and the circle markers opt out via bubblingMouseEvents. Read the
+          // callback through a ref because this closure survives re-renders.
+          onMapPressRef.current?.(event.latlng.lat, event.latlng.lng);
+        });
+
         if (pendingUserLocationRef.current) {
           renderUserLocation(pendingUserLocationRef.current);
         }
@@ -279,6 +318,7 @@ export function LeafletMap({
       userMarkerRef.current = null;
       stationMarkersRef.current = [];
       radiusCircleRef.current = null;
+      pickerMarkerRef.current = null;
       polylineLayersRef.current = [];
     };
   }, [center.latitude, center.longitude, mapContainerId, zoom]);
@@ -287,6 +327,14 @@ export function LeafletMap({
     radiusKmRef.current = radiusKm ?? null;
     renderRadiusCircle();
   }, [radiusKm]);
+
+  useEffect(() => {
+    onMapPressRef.current = onMapPress ?? null;
+  }, [onMapPress]);
+
+  useEffect(() => {
+    onPickedPointMovedRef.current = onPickedPointMoved ?? null;
+  }, [onPickedPointMoved]);
 
   useEffect(() => {
     mapRef.current?.setView([center.latitude, center.longitude], zoom);
@@ -302,6 +350,55 @@ export function LeafletMap({
       stationMarkersRef.current = [];
     };
   }, [mapRevision, markerIconSvg, markers, onMarkerPress, selectedMarkerIconSvg, selectedMarkerId]);
+
+  useEffect(() => {
+    if (!mapRef.current || !leafletRef.current) {
+      return;
+    }
+
+    if (!pickedPoint) {
+      if (pickerMarkerRef.current) {
+        pickerMarkerRef.current.remove();
+        pickerMarkerRef.current = null;
+      }
+      return;
+    }
+
+    const coordinates: [number, number] = [pickedPoint.latitude, pickedPoint.longitude];
+
+    // The picker pin lives outside the station-markers effect on purpose: a
+    // markers refresh must neither remove nor duplicate it, and a coordinate
+    // change only moves the existing layer instead of recreating it.
+    if (!pickerMarkerRef.current || !mapRef.current.hasLayer(pickerMarkerRef.current)) {
+      const pickerMarker = leafletRef.current
+        .marker(coordinates, {
+          draggable: pickerDraggable,
+          icon: leafletRef.current.divIcon({
+            className: 'evflow-station-marker evflow-picker-marker',
+            html: pickerPinSvg,
+            iconAnchor: [18, 36],
+            iconSize: [36, 36]
+          }),
+          zIndexOffset: 1200
+        })
+        .addTo(mapRef.current);
+
+      pickerMarker.on('dragend', () => {
+        const position = pickerMarker.getLatLng();
+        onPickedPointMovedRef.current?.(position.lat, position.lng);
+      });
+
+      pickerMarkerRef.current = pickerMarker;
+    } else {
+      pickerMarkerRef.current.setLatLng(coordinates);
+    }
+
+    if (pickerDraggable) {
+      pickerMarkerRef.current?.dragging?.enable();
+    } else {
+      pickerMarkerRef.current?.dragging?.disable();
+    }
+  }, [mapRevision, pickedPoint?.latitude, pickedPoint?.longitude, pickerDraggable]);
 
   useEffect(() => {
     if (!mapRef.current || !leafletRef.current) {

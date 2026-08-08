@@ -112,7 +112,10 @@ export function PeakHoursChart({ availabilityState, peakHours }: PeakHoursChartP
         </ScrollView>
         {selectedBar ? (
           <Text accessibilityLiveRegion="polite" style={chartStyles.selectedValue}>
-            {String(selectedBar.hour).padStart(2, '0')}:00 · {selectedBar.occupancyPercent}% typically occupied · {availabilityBandLabels[getAvailabilityBand(selectedBar.occupancyPercent)]}
+            <Text style={chartStyles.selectedValueNumber}>{String(selectedBar.hour).padStart(2, '0')}:00</Text>
+            {' · '}
+            <Text style={chartStyles.selectedValueNumber}>{selectedBar.occupancyPercent}%</Text>
+            {` typically occupied · ${availabilityBandLabels[getAvailabilityBand(selectedBar.occupancyPercent)]}`}
           </Text>
         ) : null}
         <View style={chartStyles.insights}>
@@ -120,7 +123,7 @@ export function PeakHoursChart({ availabilityState, peakHours }: PeakHoursChartP
             <View style={[chartStyles.liveDot, { backgroundColor: currentAccent }]} />
             <Text style={chartStyles.live}>{getLiveComparison(peakHours.currentOccupancyPercent, bars[comparisonHour].occupancyPercent, dayName)}</Text>
           </View>
-          <Text style={chartStyles.recommendation}>{getLowDemandRecommendation(bars.map((bar) => bar.occupancyPercent))}</Text>
+          <Text style={chartStyles.recommendation}>{renderRecommendation(getLowDemandRecommendation(bars.map((bar) => bar.occupancyPercent)))}</Text>
           <Text style={chartStyles.note}>Typical visits · based on the last 4 weeks</Text>
         </View>
       </View>
@@ -132,6 +135,23 @@ function formatChartHour(hour: number) {
   if (hour === 0) return '12a';
   if (hour === 12) return '12p';
   return hour < 12 ? `${hour}a` : `${hour - 12}p`;
+}
+
+/**
+ * The recommendation line with its time ranges emphasised. The sentence is a
+ * constant prefix plus the ranges, so the numeric part is trivially separable;
+ * the digit check keeps the "live pattern unavailable" fallback unstyled.
+ */
+function renderRecommendation(text: string) {
+  const prefix = 'Best times to visit: ';
+  const times = text.slice(prefix.length);
+  if (!text.startsWith(prefix) || !/\d/.test(times)) return text;
+  return (
+    <>
+      {prefix}
+      <Text style={chartStyles.recommendationTimes}>{times}</Text>
+    </>
+  );
 }
 
 const chartStyles = StyleSheet.create({
@@ -153,11 +173,13 @@ const chartStyles = StyleSheet.create({
   hourLabel: { color: '#839095', fontSize: 8, height: 14, marginTop: 5 },
   currentHourLabel: { color: '#20272A', fontWeight: '900' },
   selectedValue: { color: '#005F64', fontSize: 10, fontWeight: '800', marginBottom: 5 },
+  selectedValueNumber: { color: '#005F64', fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '900' },
   insights: { gap: 6, paddingTop: 5 },
   liveRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 7 },
   liveDot: { borderRadius: 4, height: 7, marginTop: 4, width: 7 },
   live: { color: '#263438', flex: 1, fontSize: 10, lineHeight: 15 },
   recommendation: { color: '#465257', fontSize: 10, lineHeight: 15 },
+  recommendationTimes: { color: '#005F64', fontSize: 11, fontVariant: ['tabular-nums'], fontWeight: '900' },
   note: { color: '#839095', fontSize: 9, lineHeight: 14 },
   empty: { color: '#465257', fontSize: 11, lineHeight: 17 }
 });

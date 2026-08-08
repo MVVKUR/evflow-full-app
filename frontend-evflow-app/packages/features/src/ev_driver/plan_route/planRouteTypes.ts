@@ -22,3 +22,9 @@ export interface PlanRouteState {
   isSearching: boolean;
   activeNavigationStepIndex: number;
 }
+
+/** Coordinates the user tagged on the map while choosing an origin or destination. */
+export interface PickedMapPoint {
+  latitude: number;
+  longitude: number;
+}

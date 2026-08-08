@@ -14,6 +14,9 @@ const colors = {
 
 export function StationAvailabilitySummary({ availability }: StationAvailabilitySummaryProps) {
   const palette = colors[availability.state];
+  // "0/0 free", or a fraction built from statuses we never received, would be
+  // a claim we cannot make — the hero figure only renders when the counts are real.
+  const showHeroCount = availability.state !== 'unknown' && availability.totalCount > 0;
   return (
     <View
       accessibilityLabel={`${availability.title}. ${availability.subtitle}`}
@@ -29,10 +32,42 @@ export function StationAvailabilitySummary({ availability }: StationAvailability
       </View>
       <View style={summaryStyles.copy}>
         <Text style={summaryStyles.title}>{availability.title}</Text>
-        <Text style={summaryStyles.subtitle}>{availability.subtitle}</Text>
+        <SummarySubtitle availability={availability} />
       </View>
+      {showHeroCount ? (
+        <View style={summaryStyles.hero}>
+          <Text style={[summaryStyles.heroFigure, { color: palette.accent }]}>
+            {availability.availableCount}/{availability.totalCount}
+          </Text>
+          <Text style={summaryStyles.heroLabel}>FREE</Text>
+        </View>
+      ) : null}
     </View>
   );
+}
+
+/**
+ * The visible subtitle. The card's accessibility label keeps the full
+ * `availability.subtitle` sentence untouched; visually the numbers are pulled
+ * out of the sentence so they read at a glance:
+ * - available: the count lives in the hero "N/M" figure, so only the words remain here;
+ * - occupied with an estimate: the minutes become a bold amber span, units stay small.
+ */
+function SummarySubtitle({ availability }: StationAvailabilitySummaryProps) {
+  if (availability.state === 'available' && availability.totalCount > 0) {
+    return <Text style={summaryStyles.subtitle}>connectors available right now</Text>;
+  }
+  const estimate = availability.earliestEstimate;
+  if (availability.state === 'occupied' && estimate) {
+    return (
+      <Text style={summaryStyles.subtitleLoose}>
+        {'Est. '}
+        <Text style={summaryStyles.subtitleNumber}>~{estimate.minutes}</Text>
+        {` ${estimate.minutes === 1 ? 'min' : 'mins'} left`}
+      </Text>
+    );
+  }
+  return <Text style={summaryStyles.subtitle}>{availability.subtitle}</Text>;
 }
 
 const summaryStyles = StyleSheet.create({
@@ -41,5 +76,11 @@ const summaryStyles = StyleSheet.create({
   indicatorText: { fontSize: 19, fontWeight: '900', lineHeight: 22 },
   copy: { flex: 1, gap: 3 },
   title: { color: '#20272A', fontSize: 15, fontWeight: '900', lineHeight: 19 },
-  subtitle: { color: '#5E696E', fontSize: 11, lineHeight: 15 }
+  subtitle: { color: '#5E696E', fontSize: 11, lineHeight: 15 },
+  // Same voice as `subtitle`, minus the tight lineHeight so the inline number span is not clipped.
+  subtitleLoose: { color: '#5E696E', fontSize: 11 },
+  subtitleNumber: { color: '#E87500', fontSize: 16, fontVariant: ['tabular-nums'], fontWeight: '900' },
+  hero: { alignItems: 'center', paddingLeft: 2 },
+  heroFigure: { fontSize: 22, fontVariant: ['tabular-nums'], fontWeight: '900', lineHeight: 26 },
+  heroLabel: { color: '#687378', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 }
 });
