@@ -780,3 +780,28 @@ def test_geocoding_search_validates_the_query_length(client):
         assert any("q" in d["loc"] for d in r.json()["detail"])
     finally:
         rate_limit.reset()
+
+
+def test_station_response_carries_every_column_the_repo_selects():
+    """_row_to_station names each field by hand, so a new column in
+    stations_repo._COLS is silently dropped unless it is added there too. That
+    is how total_connectors/available_connectors shipped as None after the query
+    was already returning them."""
+    import re
+    from api import stations_repo
+    from api.models import Station
+
+    selected = set(re.findall(r"AS (\w+)", stations_repo._COLS))
+    selected |= {c.strip() for line in stations_repo._COLS.splitlines()
+                 for c in line.split(",")
+                 if c.strip() and c.strip().isidentifier()}
+    known = set(Station.model_fields)
+    missing = {c for c in selected if c in known} - _station_fields_passed_by_the_mapper()
+    assert not missing, f"_row_to_station drops columns the query returns: {sorted(missing)}"
+
+
+def _station_fields_passed_by_the_mapper() -> set:
+    import inspect, re
+    from api.main import _row_to_station
+    src = inspect.getsource(_row_to_station)
+    return set(re.findall(r"^\s*(\w+)=", src, re.M)) | set(re.findall(r"[( ](\w+)=", src))
