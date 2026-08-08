@@ -1239,6 +1239,48 @@ NO_STATION_SUGGESTED_ACTIONS = [
     SUGGEST_CHARGE_BEFORE_DEPARTURE,
 ]
 
+# Human name of the area the catalogue covers, for the message the driver reads.
+SERVED_AREA_NAME = os.getenv("STATION_AREA_NAME", "Jabodetabek")
+
+
+def _route_endpoints_outside_area(origin: tuple, destination: tuple) -> list[str]:
+    """Which trip endpoints fall outside the served station area.
+
+    Returns the names in a fixed order ('origin' before 'destination') so the
+    message and any client-side handling are deterministic. Empty when the
+    station-area filter is off: a deployment that serves everywhere must not
+    decline anything.
+    """
+    if not service_area.STATION_AREA_ENFORCED:
+        return []
+    outside = []
+    if not service_area.station_visible(origin[0], origin[1]):
+        outside.append("origin")
+    if not service_area.station_visible(destination[0], destination[1]):
+        outside.append("destination")
+    return outside
+
+
+def _out_of_area_message(outside: list[str]) -> str:
+    """Why the trip was declined, in the driver's terms.
+
+    Names the offending endpoint rather than blaming the corridor: the plan did
+    not fail because no station qualified, it failed because we hold no station
+    data past the boundary and will not promise a trip we cannot support.
+    """
+    if outside == ["origin", "destination"]:
+        subject = "Both your origin and destination are"
+    elif outside == ["origin"]:
+        subject = "Your origin is"
+    else:
+        subject = "Your destination is"
+    return (
+        f"{subject} outside {SERVED_AREA_NAME}, the area EVFlow currently covers. "
+        "There is no charging station data beyond it, so this trip cannot be planned "
+        "safely. Try a destination inside the area, or charge before departure and "
+        "plan the rest of the journey with another tool."
+    )
+
 # Advisory-only, never blocking: the driver is mid-journey outside the configured
 # service area (AC 2.1.1 / AC 2.4.2 keep the evaluation running regardless).
 WARNING_OUT_OF_SERVICE_AREA = "out_of_service_area"
@@ -1626,7 +1668,16 @@ async def create_route_plan(
         if route_status == ROUTE_STATUS_CHARGING_REQUIRED:
             warning = _below_reserve_warning(est_direct.raw_arrival_soc_pct, reserve_pct)
 
-        ranked = await stop_ranker.rank_stops(
+        # A trip that starts or ends past the served boundary is declined before
+        # any ranking: the catalogue holds no station out there, so the only
+        # honest answer is that we cannot plan it. Without this the planner
+        # happily returns a Jabodetabek stop with completes_trip=True for a
+        # Bandung trip -- the physics work, but the driver arrives in a city
+        # where this app shows zero stations. Ranking is skipped entirely, so
+        # this also saves the candidate fetch and its routing calls.
+        outside = _route_endpoints_outside_area(origin_pos, dest_pos)
+
+        ranked = [] if outside else await stop_ranker.rank_stops(
             origin=origin_pos,
             destination=dest_pos,
             direct_distance_km=distance_km,
@@ -1716,7 +1767,14 @@ async def create_route_plan(
                 triggered=True,
                 code="no_suitable_station",
                 severity="critical",
-                message=(
+                # A trip that starts or ends past the served boundary is declined
+                # for a different reason than one where no candidate qualified,
+                # and saying so is the difference between "try widening the
+                # detour" (useless here) and "we do not cover that area". Without
+                # this the planner answered a Bandung trip with a Jabodetabek
+                # stop and completes_trip=True: the physics work out, but the
+                # driver arrives where this app shows zero stations.
+                message=_out_of_area_message(outside) if outside else (
                     "No charging station on this corridor is reachable with your reserve intact, "
                     "has a free connector your vehicle can use, and can get you to the destination. "
                     "Try charging before departure, choosing another route, or widening the "
