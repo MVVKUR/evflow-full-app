@@ -1774,7 +1774,21 @@ export const walletScreenStyles = StyleSheet.create({
     textAlign: 'center'
   },
   topupSuccessSpacer: {
-    flex: 1
+    flex: 1,
+    // A floor as well as a spring: on a tall web viewport flex alone let the
+    // two buttons drift together until they read as one crowded block.
+    minHeight: 20
+  },
+  // The awaiting-payment state stacks two buttons. The primary one used to
+  // inherit only the amount-entry button's styling, which has no alignSelf, so
+  // it sized to its label while the button under it stretched edge to edge --
+  // two different widths, no gap, and the secondary looking more important
+  // than the action the driver actually has to take.
+  topupSecondaryAction: {
+    alignSelf: 'stretch',
+    marginTop: 24,
+    minHeight: 56,
+    paddingHorizontal: 24
   },
   topupDoneButton: {
     alignItems: 'center',

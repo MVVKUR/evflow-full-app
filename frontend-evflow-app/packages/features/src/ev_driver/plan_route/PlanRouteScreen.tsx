@@ -17,6 +17,7 @@ import { ActiveNavigationScreen, type NavigationSnapshot } from './ActiveNavigat
 import { RouteBottomSheet } from './components/RouteBottomSheet';
 import { RouteDialog } from './components/RouteDialog';
 import { DestinationSearchModal, type LocationSearchMode } from './DestinationSearchModal';
+import { getLocationDialogCopy } from './locationDialogCopy';
 import { createRouteSessionCleaner, shouldDeleteReplacedPlanningSession } from './navigationSession';
 import { buildRouteRequest, clearFieldError, hasUsableVehicle, locationEntryDecision, validateRouteInput, type RouteInputErrors, type RouteInputField } from './routePlanningLogic';
 import { isImmersiveRouteView, transitionPlannerSheet, transitionRouteView, type PlannerSheetMode, type RouteViewAction } from './routeViewState';
@@ -50,6 +51,8 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0, onNavigationMo
   const [searchMode, setSearchMode] = useState<LocationSearchMode | null>(null);
   const [pickedPoint, setPickedPoint] = useState<PickedMapPoint | null>(null);
   const [locationDialog, setLocationDialog] = useState<LocationPermissionStatus | null>(null);
+  const [locationAttempts, setLocationAttempts] = useState(0);
+  const [locationBusy, setLocationBusy] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const [navigationStartSocPct, setNavigationStartSocPct] = useState(currentSocPct);
   const [navigationEstimatedCurrentSocPct, setNavigationEstimatedCurrentSocPct] = useState(currentSocPct);
@@ -117,9 +120,26 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0, onNavigationMo
   }
 
   async function requestLocation() {
-    const result = await getUserLocation({ requestPermission: true });
-    if (result.coordinates) { setLocationDialog(null); await acceptCurrentLocation(result.coordinates.latitude, result.coordinates.longitude); }
-    else setLocationDialog(result.status);
+    // A failed retry used to write back the status the dialog was ALREADY
+    // showing, so pressing "Allow location" with location switched off in the
+    // OS re-rendered the same words and read as a dead button -- the real
+    // explanation was in a toast hidden behind this very dialog. The attempt
+    // counter forces a state change, and locationAttempted turns the dialog
+    // copy into an explanation of what just failed.
+    setLocationBusy(true);
+    try {
+      const result = await getUserLocation({ requestPermission: true });
+      if (result.coordinates) {
+        setLocationDialog(null);
+        setLocationAttempts(0);
+        await acceptCurrentLocation(result.coordinates.latitude, result.coordinates.longitude);
+        return;
+      }
+      setLocationDialog(result.status);
+      setLocationAttempts((count) => count + 1);
+    } finally {
+      setLocationBusy(false);
+    }
   }
 
   function updateField(field: RouteInputField, action: () => void) {
@@ -195,6 +215,7 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0, onNavigationMo
   if (destination) markers.push({ id: 'destination', label: destination.label, latitude: destination.latitude, longitude: destination.longitude, type: 'destination' });
   const stop = simulationResult?.user_requested_stop ?? simulationResult?.recommended_stop;
   if (stop) markers.push({ id: stop.station.id, label: stop.station.name ?? 'Charging stop', latitude: stop.station.latitude, longitude: stop.station.longitude, type: 'charging_stop' });
+  const locationCopy = getLocationDialogCopy(locationDialog, locationAttempts);
   const vehicleDisplay = profileVehicle ?? (manualVehicle.usable_range_km > 0 ? { name: manualVehicle.name || 'Manual EV', usableRangeKm: manualVehicle.usable_range_km, source: 'manual' as const } : null);
 
   return <View style={styles.shell}>
@@ -207,7 +228,7 @@ export function PlanRouteScreen({ topInset = 0, bottomOffset = 0, onNavigationMo
     {viewMode === 'completed' ? <RouteBottomSheet bottom={bottomOffset} scroll={false}><Text style={styles.completedTitle}>Destination reached</Text><Text style={styles.completedText}>Navigation stopped and temporary route data deletion started.</Text><Pressable accessibilityRole="button" style={styles.completedButton} onPress={() => { setViewMode('input'); setSheetMode('peek'); }}><Text style={styles.completedButtonText}>Plan another trip</Text></Pressable></RouteBottomSheet> : null}
     {viewMode === 'simulation' && simulationResult ? <TripSimulationScreen result={simulationResult} expanded={resultExpanded} onToggleExpanded={() => setResultExpanded((value) => !value)} onEditTrip={() => void cancelRoute('preferences')} onCancel={() => cancelRoute()} onChooseAnotherRoute={async () => { setPreferences((value) => ({ ...value, route_type: value.route_type === 'fastest' ? 'shortest' : 'fastest' })); await cancelRoute(); }} onAdjustPreferences={() => cancelRoute('preferences')} onChargeBeforeDeparture={() => cancelRoute('battery')} onStartNavigation={startNavigation} onAddStopToRoute={simulateRoute} originLabel={origin?.label || 'Origin'} destinationLabel={destination?.label || 'Destination'} preferences={preferences} minimumArrivalSocPct={minimumArrivalSocPct} isRecalculating={isSimulating} bottomOffset={bottomOffset} topInset={topInset} /> : null}
     <DestinationSearchModal visible={Boolean(searchMode)} mode={searchMode ?? 'destination'} onClose={() => setSearchMode(null)} onSelect={selectLocation} onNetworkError={() => setConnectionError(true)} onConnectionRestored={() => setConnectionError(false)} originLat={origin?.latitude} originLon={origin?.longitude} pickedPoint={pickedPoint} bottomOffset={bottomOffset} />
-    <RouteDialog visible={Boolean(locationDialog)} title={locationDialog === 'gps_error' ? 'Location unavailable' : 'Location access needed'} primaryLabel="Allow location" onPrimary={() => void requestLocation()} secondaryLabel="Enter origin manually" onSecondary={() => { setLocationDialog(null); setSearchMode('origin'); setSheetMode('expanded'); }}><Text style={styles.dialogText}>{locationDialog === 'gps_error' ? 'GPS could not determine your location. Retry or choose a starting point manually.' : 'EV-FLOW uses your location as the route origin. Raw coordinates are not stored by the frontend.'}</Text><Text style={styles.dialogHint}>You can continue without granting permission.</Text></RouteDialog>
+    <RouteDialog visible={Boolean(locationDialog)} title={locationCopy.title} primaryLabel={locationBusy ? 'Checking…' : locationCopy.primaryLabel} onPrimary={() => { if (!locationBusy) void requestLocation(); }} secondaryLabel="Enter origin manually" onSecondary={() => { setLocationDialog(null); setLocationAttempts(0); setSearchMode('origin'); setSheetMode('expanded'); }}><Text accessibilityLiveRegion="polite" style={styles.dialogText}>{locationCopy.body}</Text><Text style={styles.dialogHint}>{locationCopy.hint}</Text></RouteDialog>
     <RouteDialog visible={connectionError} title="Lost connection" primaryLabel="Retry" onPrimary={() => { if (retryRef.current) retryRef.current(); else void checkRouteApiHealth().then(() => setConnectionError(false)).catch(() => setConnectionError(true)); }} secondaryLabel={Platform.OS === 'web' ? 'Close' : 'Connection settings'} onSecondary={() => Platform.OS === 'web' ? setConnectionError(false) : void Linking.openSettings()}><Text style={styles.dialogText}>Check your mobile or wireless connection. Your current route state remains in memory.</Text></RouteDialog>
   </View>;
 }

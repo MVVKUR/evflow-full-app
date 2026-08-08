@@ -200,7 +200,7 @@ export function TopUpSuccessScreen({ bottomOffset = 0, topInset = 0 }: TopUpWall
   return (
     <View style={styles.page}>
       <WalletFlowHeader
-        title={waiting ? 'Menunggu Pembayaran' : 'Top Up Success'}
+        title={waiting ? 'Awaiting Payment' : 'Top Up Success'}
         topInset={topInset}
         titleStyle={styles.topupSuccessHeaderTitle}
         onBack={() => navigate('/ev-driver/wallet/topup')}
@@ -222,11 +222,11 @@ export function TopUpSuccessScreen({ bottomOffset = 0, topInset = 0 }: TopUpWall
           )}
         </View>
 
-        <Text style={styles.topupSuccessTitle}>{waiting ? 'Menunggu Pembayaran' : 'Top Up Successful'}</Text>
+        <Text style={styles.topupSuccessTitle}>{waiting ? 'Awaiting Payment' : 'Top Up Successful'}</Text>
         <Text style={styles.topupSuccessAmount}>{formatCurrency(amount)}</Text>
         <Text style={styles.topupSuccessSubtitle}>
           {waiting
-            ? 'Selesaikan pembayaran di halaman Xendit. Saldo akan terisi otomatis setelah pembayaran diterima.'
+            ? 'Finish the payment on the Xendit page. Your balance is credited automatically once the payment clears.'
             : 'Your wallet has been topped up successfully.'}
         </Text>
 
@@ -238,16 +238,16 @@ export function TopUpSuccessScreen({ bottomOffset = 0, topInset = 0 }: TopUpWall
                 // Keep the user on this screen; they can tap again if the browser blocks the new tab.
               });
             }}
-            style={styles.topupPrimaryButton}
+            style={[styles.topupPrimaryButton, styles.topupSecondaryAction]}
           >
-            <Text style={styles.topupPrimaryButtonText}>Buka Halaman Pembayaran</Text>
+            <Text style={styles.topupPrimaryButtonText}>Open payment page</Text>
           </Pressable>
         ) : null}
 
         <View style={styles.topupSuccessSpacer} />
 
         <Pressable accessibilityRole="button" onPress={() => navigate('/ev-driver/wallet')} style={styles.topupDoneButton}>
-          <Text style={styles.topupDoneButtonText}>{waiting ? 'Kembali ke Wallet' : 'Done'}</Text>
+          <Text style={styles.topupDoneButtonText}>{waiting ? 'Back to wallet' : 'Done'}</Text>
         </Pressable>
       </View>
     </View>
