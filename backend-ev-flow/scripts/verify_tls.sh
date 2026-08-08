@@ -24,10 +24,30 @@ printf '%s\n' "${tls13}" | grep -Eq 'TLSv1\.3|Protocol *: TLSv1\.3' || { echo "F
 echo "tls13=negotiated"
 printf '%s\n' "${tls13}" | awk '/subject=|issuer=|Verify return code|Protocol *:|Cipher is / {print "  " $0}'
 
+# OpenSSL 3 refuses to OFFER TLS 1.0/1.1 under its default policy
+# ("no protocols available"), which proves nothing about the server. A
+# temporary config lowers the CLIENT floor so the legacy handshake is
+# genuinely attempted and the rejection observed is the server's.
+legacy_cnf="$(mktemp)"
+cat > "${legacy_cnf}" <<'EOF'
+openssl_conf = default_conf
+[default_conf]
+ssl_conf = ssl_sect
+[ssl_sect]
+system_default = system_default_sect
+[system_default_sect]
+MinProtocol = TLSv1
+CipherString = DEFAULT@SECLEVEL=0
+EOF
+trap 'rm -f "${legacy_cnf}"' EXIT
+
 for legacy in tls1 tls1_1; do
-  output="$(openssl s_client -connect "${host}:443" -servername "${host}" "-${legacy}" </dev/null 2>&1 || true)"
+  output="$(OPENSSL_CONF="${legacy_cnf}" openssl s_client -connect "${host}:443" -servername "${host}" "-${legacy}" </dev/null 2>&1 || true)"
   if printf '%s\n' "${output}" | grep -Eq 'Cipher is \(NONE\)|no peer certificate available|alert protocol version|unsupported protocol|handshake failure'; then
     echo "${legacy}=rejected"
+  elif printf '%s\n' "${output}" | grep -q 'no protocols available'; then
+    echo "FAIL: the client still could not offer ${legacy}; rejection not demonstrated" >&2
+    exit 1
   else
     echo "FAIL: ${legacy} was not demonstrably rejected" >&2
     exit 1
