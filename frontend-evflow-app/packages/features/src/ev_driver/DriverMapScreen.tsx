@@ -12,6 +12,8 @@ import { PlatformSlider } from '../shared/PlatformSlider';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import { closeButtonIcon, filterSettingIcon, lightningIcon, searchIcon } from './components/driverMapIcons';
 import { ConnectorAvailabilityRow } from './components/ConnectorAvailabilityRow';
+import { NearbyAlternatives } from './components/NearbyAlternatives';
+import { ALTERNATIVES_FETCH_LIMIT, ALTERNATIVES_RADIUS_KM, selectNearbyAlternatives, shouldOfferAlternatives } from './station-area/nearbyAlternatives';
 import { PeakHoursChart } from './components/PeakHoursChart';
 import { StationAvailabilitySummary } from './components/StationAvailabilitySummary';
 import { StationDetailActions } from './components/StationDetailActions';
@@ -111,6 +113,10 @@ export function DriverMapScreen({
   const [stationStatusError, setStationStatusError] = useState<string | null>(null);
   const [stationStatusLoading, setStationStatusLoading] = useState(false);
   const [stationStatusRetry, setStationStatusRetry] = useState(0);
+  const [nearbyAlternatives, setNearbyAlternatives] = useState<Station[] | null>(null);
+  const [alternativesError, setAlternativesError] = useState<string | null>(null);
+  const [alternativesLoading, setAlternativesLoading] = useState(false);
+  const [alternativesRetry, setAlternativesRetry] = useState(0);
   const previousMapViewRef = useRef<MapViewState>(defaultMapView);
   const previousResultsExpandedRef = useRef(false);
   const requestedLocationPermissionRef = useRef(false);
@@ -207,6 +213,51 @@ export function DriverMapScreen({
       active = false;
     };
   }, [drawerMode, selectedStation?.id, stationStatusLoader, stationStatusRetry]);
+
+  // AC 3.4.1: when the opened station turns out to be unusable right now (all
+  // connectors taken/broken, or the wait estimate is over the threshold), load
+  // nearby stations with a free connector so the driver can pivot without
+  // leaving this screen. The search is centred on the STATION, not the driver.
+  useEffect(() => {
+    const liveAvailability = stationLiveStatus ? aggregateConnectorStatuses(stationLiveStatus.connectors) : null;
+    if (drawerMode !== 'detail' || !selectedStation || !shouldOfferAlternatives(liveAvailability)) {
+      setNearbyAlternatives(null);
+      setAlternativesError(null);
+      setAlternativesLoading(false);
+      return;
+    }
+
+    const stationId = selectedStation.id;
+    let active = true;
+    setAlternativesLoading(true);
+    setAlternativesError(null);
+
+    fetchNearbyStations({
+      lat: selectedStation.latitude,
+      lon: selectedStation.longitude,
+      radius: ALTERNATIVES_RADIUS_KM,
+      connectorType: appliedConnectorTypes.filter((connector) => connector.name),
+      speedTier: appliedChargingSpeeds.filter((speedTier) => speedTier.id),
+      limit: ALTERNATIVES_FETCH_LIMIT
+    })
+      .then((items) => {
+        if (!active || selectedStationRef.current?.id !== stationId) return;
+        setNearbyAlternatives(toUniqueStations(selectNearbyAlternatives(items, stationId)));
+      })
+      .catch(() => {
+        if (!active || selectedStationRef.current?.id !== stationId) return;
+        setNearbyAlternatives(null);
+        setAlternativesError('Unable to load nearby alternatives. Check your connection and retry.');
+      })
+      .finally(() => {
+        if (!active || selectedStationRef.current?.id !== stationId) return;
+        setAlternativesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [drawerMode, selectedStation?.id, selectedStation?.latitude, selectedStation?.longitude, stationLiveStatus, appliedConnectorTypes, appliedChargingSpeeds, alternativesRetry]);
 
   const isScrolledToTopRef = useRef(true);
 
@@ -720,6 +771,9 @@ export function DriverMapScreen({
 
           {drawerMode === 'detail' && selectedStation ? (
             <StationDetailDrawer
+              alternatives={nearbyAlternatives}
+              alternativesError={alternativesError}
+              alternativesLoading={alternativesLoading}
               expanded={expanded}
               liveStatus={stationLiveStatus}
               onScroll={handleScroll}
@@ -730,6 +784,8 @@ export function DriverMapScreen({
                 invalidateCachedStationStatus(stationStatusCacheRef.current, selectedStation.id);
                 setStationStatusRetry((current) => current + 1);
               }}
+              onRetryAlternatives={() => setAlternativesRetry((current) => current + 1)}
+              onSelectAlternative={openStationDetail}
               statusError={stationStatusError}
               statusLoading={stationStatusLoading}
             />
@@ -1000,25 +1056,35 @@ function ResultsDrawer({
 }
 
 type StationDetailDrawerProps = {
+  alternatives: Station[] | null;
+  alternativesError: string | null;
+  alternativesLoading: boolean;
   expanded: boolean;
   liveStatus: StationLiveStatus | null;
   station: Station;
   onClose: () => void;
   onChargeHere?: () => void;
   onRetry: () => void;
+  onRetryAlternatives: () => void;
   onScroll?: (e: any) => void;
+  onSelectAlternative: (station: Station) => void;
   statusError: string | null;
   statusLoading: boolean;
 };
 
 function StationDetailDrawer({
+  alternatives,
+  alternativesError,
+  alternativesLoading,
   expanded,
   liveStatus,
   station,
   onChargeHere,
   onClose,
   onRetry,
+  onRetryAlternatives,
   onScroll,
+  onSelectAlternative,
   statusError,
   statusLoading
 }: StationDetailDrawerProps) {
@@ -1068,6 +1134,16 @@ function StationDetailDrawer({
             <View style={{ gap: 8 }}>
               {availability.groups.map((group) => <ConnectorAvailabilityRow group={group} key={group.key} />)}
             </View>
+          ) : null}
+          {liveStatus && shouldOfferAlternatives(availability) ? (
+            <NearbyAlternatives
+              alternatives={alternatives}
+              error={alternativesError}
+              loading={alternativesLoading}
+              onRetry={onRetryAlternatives}
+              onSelect={onSelectAlternative}
+              reason={availability.availableCount <= 0 ? 'full' : 'long_wait'}
+            />
           ) : null}
           {liveStatus ? <PeakHoursChart availabilityState={availability.state} peakHours={liveStatus.peakHours} /> : null}
           <StationDetailActions availability={availability} onBack={onClose} onChargeHere={onChargeHere} />
