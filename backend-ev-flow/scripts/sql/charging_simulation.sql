@@ -88,7 +88,17 @@ BEGIN
         END IF;
 
         IF random_int < req_threshold THEN
-            SELECT id INTO rand_user_id FROM users ORDER BY random() LIMIT 1;
+            -- Prefer accounts that exist only to own simulated sessions. Without
+            -- this the procedure attributes fabricated charges to whoever happens
+            -- to be in the users table, which on a live deployment means a real
+            -- driver's history fills with charges they never made -- including
+            -- the demo account an assessor opens. Falls back to any user so a
+            -- scratch database with no sim accounts still works.
+            SELECT id INTO rand_user_id FROM users
+             WHERE username LIKE 'sim.%' ORDER BY random() LIMIT 1;
+            IF rand_user_id IS NULL THEN
+                SELECT id INTO rand_user_id FROM users ORDER BY random() LIMIT 1;
+            END IF;
 
             -- Energy drawn is bounded by charger class, so simulated dwell
             -- times stay plausible for the hardware.

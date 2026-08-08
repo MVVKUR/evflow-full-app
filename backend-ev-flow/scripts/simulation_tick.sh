@@ -15,9 +15,13 @@ set -u
 DB="${SIM_DB:-evflow_staging}"
 P="${PODMAN:-/usr/bin/podman}"
 
+# Production is allowed only when asked for explicitly. The guard is not about
+# staging being special; it is about nobody reaching a live map by accident.
 case "$DB" in
   *staging*) ;;
-  *) echo "refusing: '$DB' is not a staging database" >&2; exit 1 ;;
+  *) [ "${SIM_ALLOW_PRODUCTION:-}" = "yes" ] || {
+       echo "refusing: '$DB' is not a staging database. Set SIM_ALLOW_PRODUCTION=yes to mean it." >&2
+       exit 1; } ;;
 esac
 
 psql() { $P exec evflow-db psql -U evflow -d "$DB" -tAq "$@"; }
@@ -35,6 +39,12 @@ UPDATE charging_sessions
        status          = 'completed'
  WHERE status = 'active'
    AND power_kw > 0
+   -- Synthetic rows ONLY. The simulation writes the station id into
+   -- station_name; a real session carries the station's actual name. Closing a
+   -- real one here would mark it complete without ever crediting the refund,
+   -- because the deposit is returned by charging_repo.settle_session, not by SQL.
+   -- The driver would simply lose the money.
+   AND station_name ~ '^(pln_spklu|open_charge_map|osm)-'
    AND created_at + ((energy_kwh / NULLIF(power_kw,0)) * 60 || ' minutes')::interval < now() - interval '10 minutes';
 UPDATE connectors c SET status = 'available', updated_at = now()
  WHERE c.status = 'in_use'
