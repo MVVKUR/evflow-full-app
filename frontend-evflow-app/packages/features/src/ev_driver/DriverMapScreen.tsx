@@ -3,6 +3,7 @@ import { ActivityIndicator, LayoutAnimation, PanResponder, Platform, Pressable, 
 import { driverMapStyles as styles, LeafletMap } from '@evflow/ui';
 import { fetchConnectorTypes, fetchNearbyStations, fetchSpeedTiers, fetchStations, type ConnectorTypeApiItem, type SpeedTierApiItem, type StationApiItem, type StationConnectorApiItem, type StationConnectorTypeApiItem } from '@evflow/shared';
 import { getUserLocation, type LocationPermissionStatus } from './utils/location';
+import { getStationAvailabilityBand, stationBandColors, stationBandLabels } from './station-area/stationAvailabilityBand';
 import { defaultDistanceKm, defaultStationAreaMode, distanceOptions, getAreaFilterLabels, getAreaResultsTitle, getEmptyResultsMessage, getLocationPermissionPrompt, getMountLocationDecision, getStationFetchDecision, getStationQueryPlan, isStationAreaMode, resolveStationAreaMode, shouldRequestLocationForNearMe, shouldShowRadiusRing, stationAreaModeOptions, type DistanceOption, type ResolvedStationAreaMode, type StationAreaMode, type StationFetchDecision, type UserLocationSnapshot } from './station-area/areaFilterMode';
 import { readStationAreaSelection, saveStationAreaSelection } from './station-area/areaFilterSession';
 import { FilterCategory, type FilterOption } from './components/FilterCategory';
@@ -49,6 +50,10 @@ type Station = {
   longitude: number;
   name: string;
   province: string | null;
+  // Live plug counts, used to colour the pin. Optional because an older server
+  // does not send them, and absent must read as "unknown", never as "full".
+  availableConnectors?: number | null;
+  totalConnectors?: number | null;
 };
 
 type Coordinates = {
@@ -442,15 +447,35 @@ export function DriverMapScreen({
     ],
     [appliedAreaResolution, appliedChargingSpeeds, appliedConnectorTypes, appliedDistanceKm]
   );
+  // Four badges, built once, not one per station: with a thousand pins on
+  // screen, generating an SVG string per marker would dominate the render.
+  const bandIcons = useMemo(() => ({
+    free: spkluMarkerSvg(32, stationBandColors.free),
+    limited: spkluMarkerSvg(32, stationBandColors.limited),
+    full: spkluMarkerSvg(32, stationBandColors.full),
+    unknown: spkluMarkerSvg(32)
+  }), []);
+  const selectedBandIcons = useMemo(() => ({
+    free: selectedSpkluMarkerSvg(44, stationBandColors.free),
+    limited: selectedSpkluMarkerSvg(44, stationBandColors.limited),
+    full: selectedSpkluMarkerSvg(44, stationBandColors.full),
+    unknown: selectedSpkluMarkerSvg(44)
+  }), []);
   const stationMarkers = useMemo(
     () =>
-      visibleStations.map((station) => ({
-        id: station.id,
-        label: station.name,
-        latitude: station.latitude,
-        longitude: station.longitude
-      })),
-    [visibleStations]
+      visibleStations.map((station) => {
+        const band = getStationAvailabilityBand(station.availableConnectors, station.totalConnectors);
+        return {
+          id: station.id,
+          // Colour is not the only carrier: the popup label says it in words.
+          label: band === 'unknown' ? station.name : `${station.name ?? 'SPKLU'} — ${stationBandLabels[band]}`,
+          latitude: station.latitude,
+          longitude: station.longitude,
+          iconSvg: bandIcons[band],
+          selectedIconSvg: selectedBandIcons[band]
+        };
+      }),
+    [bandIcons, selectedBandIcons, visibleStations]
   );
   const stationMarkerIcon = useMemo(() => spkluMarkerSvg(32), []);
   // Selected badge: same artwork ringed in dark teal + white and slightly larger,
@@ -1181,7 +1206,9 @@ function toStation(item: StationApiItem): Station {
     latitude: item.latitude,
     longitude: item.longitude,
     name: item.name ?? 'Unnamed SPKLU Station',
-    province: item.province
+    province: item.province,
+    availableConnectors: item.available_connectors ?? null,
+    totalConnectors: item.total_connectors ?? null
   };
 }
 

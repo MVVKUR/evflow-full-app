@@ -26,22 +26,43 @@ function badgeInner(gradientId: string) {
   );
 }
 
+/**
+ * Availability pip: a filled dot on the badge rim, ringed in white so it reads
+ * against both the green and the blue end of the gradient.
+ *
+ * A pip rather than recolouring the badge, for two reasons. The badge is how a
+ * driver recognises an SPKLU at all, and repainting it red would trade that
+ * away. And the selected marker already owns a ring, so availability needs a
+ * different channel or the two signals overwrite each other.
+ */
+function availabilityPip(color?: string) {
+  if (!color) {
+    return '';
+  }
+  return (
+    `<circle cx="400" cy="112" r="104" fill="#ffffff"/>` +
+    `<circle cx="400" cy="112" r="82" fill="${color}"/>`
+  );
+}
+
 /** Default SPKLU marker: the gradient badge at `size` px (square). */
-export function spkluMarkerSvg(size: number) {
+export function spkluMarkerSvg(size: number, availabilityColor?: string) {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="${size}" height="${size}" style="display:block">` +
     badgeInner('evflowSpkluGradient') +
+    availabilityPip(availabilityColor) +
     `</svg>`
   );
 }
 
 /** Selected SPKLU marker: same badge with a dark ring + white gap so the tapped station stands out. */
-export function selectedSpkluMarkerSvg(size: number) {
+export function selectedSpkluMarkerSvg(size: number, availabilityColor?: string) {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-44 -44 600 600" width="${size}" height="${size}" style="display:block">` +
     `<circle cx="256" cy="256" r="286" fill="none" stroke="#00565F" stroke-width="24"/>` +
     `<circle cx="256" cy="256" r="266" fill="none" stroke="#ffffff" stroke-width="20"/>` +
     badgeInner('evflowSpkluGradientSelected') +
+    availabilityPip(availabilityColor) +
     `</svg>`
   );
 }

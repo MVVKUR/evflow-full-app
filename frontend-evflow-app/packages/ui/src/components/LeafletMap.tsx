@@ -33,6 +33,12 @@ export type LeafletMapMarker = {
   latitude: number;
   longitude: number;
   type?: 'origin' | 'destination' | 'charging_stop' | 'station' | 'default';
+  /** Pin fill for an ordinary station. Callers use it to signal live availability. */
+  fillColor?: string;
+  /** Per-marker artwork, overriding markerIconSvg. */
+  iconSvg?: string;
+  /** Per-marker artwork while selected, overriding selectedMarkerIconSvg. */
+  selectedIconSvg?: string;
 };
 
 const defaultCenter = {

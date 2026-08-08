@@ -30,6 +30,12 @@ export type LeafletMapMarker = {
   latitude: number;
   longitude: number;
   type?: 'origin' | 'destination' | 'charging_stop' | 'station' | 'default';
+  /** Pin fill for an ordinary station. Callers use it to signal live availability. */
+  fillColor?: string;
+  /** Per-marker artwork, overriding markerIconSvg. Lets one map mix availability variants. */
+  iconSvg?: string;
+  /** Per-marker artwork while selected, overriding selectedMarkerIconSvg. */
+  selectedIconSvg?: string;
 };
 
 type LeafletNamespace = typeof import('leaflet');
@@ -141,7 +147,11 @@ export function LeafletMap({
     stationMarkersRef.current.forEach((marker) => marker.remove());
     stationMarkersRef.current = nextMarkers.map((marker) => {
       const isSelected = selectedMarkerId != null && marker.id === selectedMarkerId;
-      const iconSvg = isSelected ? selectedMarkerIconSvg ?? markerIconSvg : markerIconSvg;
+      // Per-marker artwork wins over the map-wide default, so stations can carry
+      // their own availability colour while everything else stays untouched.
+      const iconSvg = isSelected
+        ? marker.selectedIconSvg ?? selectedMarkerIconSvg ?? marker.iconSvg ?? markerIconSvg
+        : marker.iconSvg ?? markerIconSvg;
 
       let markerIconHtml: string | undefined = iconSvg;
       let iconAnchor: [number, number] = isSelected ? [22, 22] : [16, 16];
@@ -187,7 +197,9 @@ export function LeafletMap({
         : leafletRef.current!
             .circleMarker([marker.latitude, marker.longitude], {
               color: '#ffffff',
-              fillColor: isSelected ? '#00E0EB' : '#007a80',
+              // Selection still wins: the driver must be able to see which pin
+              // they tapped, whatever its availability colour is.
+              fillColor: isSelected ? '#00E0EB' : (marker.fillColor ?? '#007a80'),
               fillOpacity: 1,
               radius: isSelected ? 12 : 10,
               weight: 3

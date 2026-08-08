@@ -76,6 +76,15 @@ class Station(BaseModel):
     connectors: list[Connector] = Field(
         default_factory=list,
         description="Per-connector breakdown: type (inferred), real count/power/speed.")
+    total_connectors: Optional[int] = Field(
+        None, description="Physical connectors at this station, every status included.",
+        examples=[8])
+    available_connectors: Optional[int] = Field(
+        None,
+        description="Connectors free to plug into right now. Together with total_connectors "
+                    "this is what colours a station pin on the map: 0 free means the driver "
+                    "cannot charge here at all, which is a different answer from 'busy'.",
+        examples=[3])
     connector_types: list[str] = Field(
         default_factory=list,
         description="Connector standards present, e.g. ['CCS2'] or ['AC Type 2']. Currently inferred.",

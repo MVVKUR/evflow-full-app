@@ -19,6 +19,9 @@ export type StationApiItem = {
   charge_type: string | null;
   speed_tier: string | null;
   connectors: StationConnectorApiItem[];
+  /** Live plug counts. Absent on older servers, so treat as unknown rather than zero. */
+  total_connectors?: number | null;
+  available_connectors?: number | null;
   connector_types: StationConnectorTypeApiItem[];
   connector_inferred: boolean | null;
   status: string | null;
