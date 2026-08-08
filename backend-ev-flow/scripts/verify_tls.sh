@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-host="${1:-ev-flow-api.opensoft.id}"
+host="${1:-ev-flow.opensoft.id}"
 
 echo "EV-FLOW TLS deployment verification"
 echo "host=${host}"
@@ -33,5 +33,13 @@ for legacy in tls1 tls1_1; do
     exit 1
   fi
 done
+
+# AC 2.3.1 is about more than the handshake: coordinate data sent over TLS 1.3
+# must actually be processed. Force the client to TLS 1.3 and hit a real
+# coordinate-taking endpoint; 200 proves the backend served it on that protocol.
+api_status="$(curl -sS --tlsv1.3 --tls-max 1.3 -o /dev/null -w '%{http_code}' \
+  "https://${host}/api/v1/stations/nearby?lat=-6.2088&lon=106.8456&radius_km=3&limit=1")"
+echo "api_over_tls13_status=${api_status}"
+case "${api_status}" in 200) ;; *) echo "FAIL: coordinate request over TLS 1.3 was not processed" >&2; exit 1 ;; esac
 
 echo "result=PASS"

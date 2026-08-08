@@ -3,7 +3,7 @@
 Run from `backend-ev-flow` against the deployed frontend/API origin:
 
 ```sh
-bash scripts/verify_tls.sh ev-flow-api.opensoft.id
+bash scripts/verify_tls.sh ev-flow.opensoft.id
 ```
 
 The check fails unless all of the following are observed from the deployed service:
@@ -13,5 +13,8 @@ The check fails unless all of the following are observed from the deployed servi
 - An OpenSSL client negotiates TLS 1.3.
 - TLS 1.0 and TLS 1.1 handshakes are rejected.
 - The peer certificate verifies successfully and its subject/issuer are recorded.
+- A real coordinate request (`/api/v1/stations/nearby`) forced onto TLS 1.3
+  returns 200, proving route data is processed over that protocol, not just
+  that the handshake succeeds.
 
 Store each release's complete output in `docs/deployment-evidence/` with the UTC date. Evidence is environment-specific and must be regenerated after certificate or reverse-proxy changes.
