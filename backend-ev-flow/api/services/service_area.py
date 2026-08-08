@@ -164,3 +164,40 @@ def advisory_message(fields: Iterable[str]) -> str:
         f"Your {listed} is {rejection_message()}. Battery warnings continue, but "
         f"charging-station coverage and travel-time estimates are unreliable here."
     )
+
+
+# ---- Station visibility area -------------------------------------------------
+# What the product SHOWS, as opposed to what routing UNDERSTANDS (above). The
+# catalogue is Jabodetabek-only for now (AC 2.2.6 scopes the served corridor
+# there), so every station read path hides rows outside this box. Routing keeps
+# the wider bounds on purpose: a trip to an out-of-area destination must fail
+# as "no suitable charging station", not as an invalid coordinate.
+#
+# The box covers Jakarta, Bogor, Depok, Tangerang (incl. Tangsel) and Bekasi
+# with a small margin. A box is an approximation of the administrative border:
+# a sliver of Puncak/Cianjur at the south-east corner slips in, which is
+# harmless -- a shown station that exists beats a hidden one that was promised.
+STATION_AREA_SOUTH = _env_float("STATION_AREA_SOUTH", -6.95)
+STATION_AREA_WEST = _env_float("STATION_AREA_WEST", 106.25)
+STATION_AREA_NORTH = _env_float("STATION_AREA_NORTH", -5.85)
+STATION_AREA_EAST = _env_float("STATION_AREA_EAST", 107.25)
+
+# ON by default: hiding is the product behaviour, not an opt-in. The test suite
+# flips this module global off (tests/conftest.py) because its legacy fixtures
+# seed synthetic stations across the whole archipelago.
+STATION_AREA_ENFORCED = _env_bool("STATION_AREA_ENFORCED", True)
+
+
+def station_area_bounds() -> Tuple[float, float, float, float]:
+    """(west, south, east, north) -- read from module globals on every call so
+    tests and runtime overrides take effect without a reload."""
+    return (STATION_AREA_WEST, STATION_AREA_SOUTH, STATION_AREA_EAST, STATION_AREA_NORTH)
+
+
+def station_visible(latitude: float, longitude: float) -> bool:
+    """True when the point lies inside the visible station area.
+
+    Pure geometry: callers decide what the enforcement flag means for them.
+    """
+    west, south, east, north = station_area_bounds()
+    return south <= latitude <= north and west <= longitude <= east

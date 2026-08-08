@@ -8,6 +8,7 @@ from typing import Optional
 from sqlalchemy import text
 
 from .db import engine
+from .services import service_area
 
 # geom decomposed back to lat/lon; arrays come back as Python lists.
 _COLS = """
@@ -25,9 +26,35 @@ _COLS = """
 """
 
 
+def _visibility_clauses() -> tuple[list[str], dict]:
+    """Hide stations outside the visible service area (Jabodetabek by default).
+
+    Shared by every read path: _filter_clauses splices it into the list,
+    nearby and corridor queries, and the aggregate/lookup functions below
+    splice it in by hand via _visibility_sql. The geom && envelope form keeps
+    the spatial index doing the work. Rows are only hidden, never deleted --
+    widening the area later is an env change, not a re-import.
+    """
+    if not service_area.STATION_AREA_ENFORCED:
+        return [], {}
+    west, south, east, north = service_area.station_area_bounds()
+    return (["geom && ST_MakeEnvelope(:vis_w, :vis_s, :vis_e, :vis_n, 4326)"],
+            {"vis_w": west, "vis_s": south, "vis_e": east, "vis_n": north})
+
+
+def _visibility_sql(has_where: bool) -> tuple[str, dict]:
+    """The visibility filter as an SQL fragment: '' when not enforced,
+    otherwise ' AND …' or ' WHERE …' depending on the statement it joins."""
+    clauses, params = _visibility_clauses()
+    if not clauses:
+        return "", {}
+    return (" AND " if has_where else " WHERE ") + " AND ".join(clauses), params
+
+
 def _filter_clauses(filters: dict) -> tuple[list[str], dict]:
     """Build SQL WHERE clauses + params from a filters dict (shared by list + nearby)."""
-    clauses, params = [], {}
+    clauses, params = _visibility_clauses()
+    clauses, params = list(clauses), dict(params)
     if filters.get("source"):
         clauses.append(":source = ANY(sources)"); params["source"] = filters["source"]
     connector_types = list(filters.get("connector_type") or [])
@@ -80,9 +107,13 @@ def list_stations(filters: dict, limit: int, offset: int) -> tuple[int, list[dic
 
 
 def get_station(station_id: str) -> Optional[dict]:
+    # A hidden station has no detail page either: deep links and forced
+    # waypoints outside the service area behave like the id does not exist.
+    vis, params = _visibility_sql(has_where=True)
+    params["id"] = station_id
     with engine.connect() as c:
-        row = c.execute(text(f"SELECT {_COLS} FROM stations WHERE id = :id"),
-                        {"id": station_id}).mappings().first()
+        row = c.execute(text(f"SELECT {_COLS} FROM stations WHERE id = :id{vis}"),
+                        params).mappings().first()
     return dict(row) if row else None
 
 
@@ -162,34 +193,39 @@ def along_corridor(
 
 
 def count() -> int:
+    vis, params = _visibility_sql(has_where=False)
     with engine.connect() as c:
-        return c.execute(text("SELECT count(*) FROM stations")).scalar_one()
+        return c.execute(text(f"SELECT count(*) FROM stations{vis}"), params).scalar_one()
 
 
 def source_counts() -> list[tuple[str, int]]:
-    sql = "SELECT unnest(sources) AS s, count(*) FROM stations GROUP BY s ORDER BY count(*) DESC"
+    vis, params = _visibility_sql(has_where=False)
+    sql = f"SELECT unnest(sources) AS s, count(*) FROM stations{vis} GROUP BY s ORDER BY count(*) DESC"
     with engine.connect() as c:
-        return [(r[0], r[1]) for r in c.execute(text(sql)).all()]
+        return [(r[0], r[1]) for r in c.execute(text(sql), params).all()]
 
 
 def connector_counts() -> list[tuple[str, int]]:
-    sql = ("SELECT unnest(connector_types) AS t, count(*) FROM stations "
+    vis, params = _visibility_sql(has_where=False)
+    sql = (f"SELECT unnest(connector_types) AS t, count(*) FROM stations{vis} "
            "GROUP BY t ORDER BY count(*) DESC")
     with engine.connect() as c:
-        return [(r[0], r[1]) for r in c.execute(text(sql)).all()]
+        return [(r[0], r[1]) for r in c.execute(text(sql), params).all()]
 
 
 def speed_tier_counts() -> dict[str, int]:
-    sql = "SELECT speed_tier, count(*) FROM stations WHERE speed_tier IS NOT NULL GROUP BY speed_tier"
+    vis, params = _visibility_sql(has_where=True)
+    sql = f"SELECT speed_tier, count(*) FROM stations WHERE speed_tier IS NOT NULL{vis} GROUP BY speed_tier"
     with engine.connect() as c:
-        return {r[0]: r[1] for r in c.execute(text(sql)).all()}
+        return {r[0]: r[1] for r in c.execute(text(sql), params).all()}
 
 
 def provinces() -> list[tuple[str, int]]:
-    sql = ("SELECT province, count(*) FROM stations WHERE province IS NOT NULL "
+    vis, params = _visibility_sql(has_where=True)
+    sql = (f"SELECT province, count(*) FROM stations WHERE province IS NOT NULL{vis} "
            "GROUP BY province ORDER BY count(*) DESC")
     with engine.connect() as c:
-        return [(r[0], r[1]) for r in c.execute(text(sql)).all()]
+        return [(r[0], r[1]) for r in c.execute(text(sql), params).all()]
 
 
 def cities(province: Optional[str]) -> list[tuple[str, int]]:
@@ -197,17 +233,20 @@ def cities(province: Optional[str]) -> list[tuple[str, int]]:
     params = {}
     if province:
         where += " AND lower(province) = lower(:prov)"; params["prov"] = province
-    sql = f"SELECT city, count(*) FROM stations {where} GROUP BY city ORDER BY count(*) DESC"
+    vis, vis_params = _visibility_sql(has_where=True)
+    params.update(vis_params)
+    sql = f"SELECT city, count(*) FROM stations {where}{vis} GROUP BY city ORDER BY count(*) DESC"
     with engine.connect() as c:
         return [(r[0], r[1]) for r in c.execute(text(sql), params).all()]
 
 
 def stats() -> dict:
+    vis, params = _visibility_sql(has_where=False)
     with engine.connect() as c:
-        total = c.execute(text("SELECT count(*) FROM stations")).scalar_one()
+        total = c.execute(text(f"SELECT count(*) FROM stations{vis}"), params).scalar_one()
         p = c.execute(text(
             "SELECT count(power_kw), min(power_kw), max(power_kw), round(avg(power_kw)::numeric,2) "
-            "FROM stations")).one()
+            f"FROM stations{vis}"), params).one()
     return {"total": total, "with_power_kw": p[0],
             "power_kw_min": float(p[1]) if p[1] is not None else None,
             "power_kw_max": float(p[2]) if p[2] is not None else None,
@@ -215,10 +254,13 @@ def stats() -> dict:
 
 
 def routing_coords(source: Optional[str] = None) -> list[dict]:
-    """id + lat/lon for every station, for the routing nearest-station scan."""
+    """id + lat/lon for every VISIBLE station, for the routing nearest-station
+    scan -- the recommender must not offer what the map hides."""
     where = " WHERE :source = ANY(sources)" if source else ""
     params = {"source": source} if source else {}
-    sql = f"SELECT id, ST_Y(geom) AS latitude, ST_X(geom) AS longitude FROM stations{where}"
+    vis, vis_params = _visibility_sql(has_where=bool(source))
+    params.update(vis_params)
+    sql = f"SELECT id, ST_Y(geom) AS latitude, ST_X(geom) AS longitude FROM stations{where}{vis}"
     with engine.connect() as c:
         return [dict(r) for r in c.execute(text(sql), params).mappings().all()]
 

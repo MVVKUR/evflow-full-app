@@ -49,3 +49,19 @@ def rate_limit_clock(monkeypatch) -> FakeClock:
     fake = FakeClock()
     monkeypatch.setattr(rate_limit, "time", fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def _station_area_off_by_default():
+    """The Jabodetabek visibility filter is ON in production code, but the
+    legacy DB fixtures in this suite seed synthetic stations across the whole
+    archipelago (Sulawesi corridors, nationwide bboxes). With enforcement on,
+    every one of those tests would fail for a reason unrelated to what it
+    tests. So the suite runs with enforcement OFF, and the service-area tests
+    opt back in explicitly via their own fixture.
+    """
+    from api.services import service_area
+    prev = service_area.STATION_AREA_ENFORCED
+    service_area.STATION_AREA_ENFORCED = False
+    yield
+    service_area.STATION_AREA_ENFORCED = prev
