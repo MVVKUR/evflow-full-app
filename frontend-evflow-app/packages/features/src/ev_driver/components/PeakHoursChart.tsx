@@ -27,7 +27,7 @@ export function PeakHoursChart({ availabilityState, peakHours }: PeakHoursChartP
   const bars = createPeakHourBars(day);
   const dayName = peakDayLabels.find((item) => item.dayOfWeek === day?.dayOfWeek)?.fullLabel ?? 'selected day';
   const comparisonHour = jakartaNow.hour;
-  const currentAccent = availabilityState === 'occupied' ? '#E87500' : '#10A957';
+  const currentAccent = availabilityState === 'occupied' ? '#C62828' : '#0B7A41';
   const selectedBar = selectedHour === null ? null : bars[selectedHour];
 
   // Without history every bar would be a placeholder zero. Drawing that chart

@@ -79,7 +79,7 @@ const summaryStyles = StyleSheet.create({
   subtitle: { color: '#5E696E', fontSize: 11, lineHeight: 15 },
   // Same voice as `subtitle`, minus the tight lineHeight so the inline number span is not clipped.
   subtitleLoose: { color: '#5E696E', fontSize: 11 },
-  subtitleNumber: { color: '#E87500', fontSize: 16, fontVariant: ['tabular-nums'], fontWeight: '900' },
+  subtitleNumber: { color: '#C62828', fontSize: 16, fontVariant: ['tabular-nums'], fontWeight: '900' },
   hero: { alignItems: 'center', paddingLeft: 2 },
   heroFigure: { fontSize: 22, fontVariant: ['tabular-nums'], fontWeight: '900', lineHeight: 26 },
   heroLabel: { color: '#687378', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 }
