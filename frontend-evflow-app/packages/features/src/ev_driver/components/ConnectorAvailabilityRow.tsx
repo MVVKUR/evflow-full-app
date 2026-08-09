@@ -2,18 +2,16 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SvgAssetIcon } from '../../shared/SvgAssetIcon';
 import type { AggregatedConnectorStatus } from '../station-status/aggregateConnectorStatuses';
+import { connectorStatusPalette } from '../station-status/connectorStatusPalette';
 import { resolveConnectorEstimate } from '../station-status/aggregateConnectorStatuses';
 import { lightningIcon } from './driverMapIcons';
 
 type ConnectorAvailabilityRowProps = { group: AggregatedConnectorStatus };
 
 /** Tinted pill backgrounds with the darker semantic colour as text. */
-const pillPalettes = {
-  free: { background: '#EAF8F0', text: '#10A957' },
-  inUse: { background: '#FFF7ED', text: '#E87500' },
-  outOfService: { background: '#F9E9E9', text: '#D64545' },
-  unknown: { background: '#F3F5F5', text: '#667176' }
-} as const;
+// AC 3.1.2 owns these colours; they live in one module so the summary card
+// above these rows cannot drift to a different meaning for the same status.
+const pillPalettes = connectorStatusPalette;
 
 type StatusPill = {
   background: string;

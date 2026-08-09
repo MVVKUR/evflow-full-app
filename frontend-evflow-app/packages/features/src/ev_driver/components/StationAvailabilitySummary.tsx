@@ -6,8 +6,8 @@ type StationAvailabilitySummaryProps = {
 };
 
 const colors = {
-  available: { accent: '#10A957', background: '#EAF8F0', border: '#87D7A8', glyph: '✓', indicator: '#10A957', indicatorText: '#FFFFFF' },
-  occupied: { accent: '#E87500', background: '#FFF7ED', border: '#F5BD82', glyph: '◷', indicator: '#FFE7CC', indicatorText: '#E87500' },
+  available: { accent: '#0B7A41', background: '#EAF8F0', border: '#87D7A8', glyph: '✓', indicator: '#10A957', indicatorText: '#FFFFFF' },
+  occupied: { accent: '#C62828', background: '#FBEAEA', border: '#EFB4B4', glyph: '◷', indicator: '#F6D6D6', indicatorText: '#C62828' },
   out_of_service: { accent: '#667176', background: '#F3F5F5', border: '#C9D0D4', glyph: '!', indicator: '#E1E5E6', indicatorText: '#667176' },
   unknown: { accent: '#667176', background: '#F5F6F6', border: '#D4D9DC', glyph: '?', indicator: '#E5E8E9', indicatorText: '#667176' }
 } as const;
