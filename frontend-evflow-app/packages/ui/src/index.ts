@@ -1,6 +1,7 @@
 export * from './theme/colors';
 export * from './styles/styles';
 export * from './components/BottomNavigation';
+export * from './components/NavigationBarButton';
 export * from './components/Button';
 export * from './components/Card';
 export * from './components/FilterPill';

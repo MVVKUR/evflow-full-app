@@ -38,3 +38,10 @@ frontend-evflow-app/ios/
 
 # Local browser-test artifacts
 .playwright-mcp/
+
+# Local Codex and Graphify workspace artifacts
+AGENTS.md
+.graphifyignore
+SKILL.md
+.codex/
+graphify-out/

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import { renderIcon, type NavigationItem } from './BottomNavigation';
+import { Text, View } from 'react-native';
+import { NavigationBarButton, type NavigationItem } from './NavigationBarButton';
 import { sideMenuStyles as styles } from '../styles/styles';
 
 type SideMenuProps = {
@@ -37,22 +37,14 @@ export function SideMenu({
         <View style={styles.items}>
           {items.map((item) => {
             const active = item.key === activeKey;
-            const icon = renderIcon(item, active);
-
             return (
-              <Pressable
-                accessibilityLabel={item.accessibilityLabel ?? item.label}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
+              <NavigationBarButton
+                active={active}
+                item={item}
                 key={item.key}
-                onPress={() => onItemPress?.(item.key)}
-                style={[styles.item, active && styles.activeItem]}
-              >
-                <View style={styles.icon}>{icon}</View>
-                <Text style={[styles.label, active && styles.activeLabel]} numberOfLines={1}>
-                  {item.label}
-                </Text>
-              </Pressable>
+                onPress={onItemPress}
+                variant="side"
+              />
             );
           })}
         </View>

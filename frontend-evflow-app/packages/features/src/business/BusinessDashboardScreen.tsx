@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, useWindowDimensions, View, type LayoutChangeEvent } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useNavigate } from 'react-router';
 import { clearAuthSession, fetchStats, getAuthSession } from '@evflow/shared';
 import { businessDashboardStyles as styles } from '@evflow/ui';
@@ -8,20 +8,13 @@ import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import {
   bellIconSvg,
   buildDonutSvg,
-  buildNavIconSvg,
-  menuIconSvg,
-  plusIconSvg,
-  type BusinessNavIconName
+  menuIconSvg
 } from './businessDashboardIcons';
 
 const FALLBACK_STATION_TOTAL_TEXT = '480';
 const FALLBACK_STATION_SOURCE = 'Source: OCM';
 const LIVE_STATION_SOURCE = 'Source: PLN · OCM · OSM';
 const NETWORK_UTILIZATION_PERCENT = 70;
-// Estimate used only until the bottom nav reports its real height via onLayout.
-const NAV_FALLBACK_HEIGHT = 90;
-const NAV_ACTIVE_COLOR = '#00565F';
-const NAV_INACTIVE_COLOR = '#3D494B';
 
 type SuitabilityTierLabel = 'PRIORITY' | 'POTENTIAL' | 'SECONDARY';
 
@@ -115,19 +108,6 @@ const additionalCandidates: readonly SuitabilityCandidate[] = [
   }
 ];
 
-type BusinessNavItem = {
-  key: BusinessNavIconName;
-  label: string;
-};
-
-const navItems: readonly BusinessNavItem[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'stations', label: 'Stations' },
-  { key: 'planner', label: 'Planner' },
-  { key: 'customers', label: 'Customers' },
-  { key: 'reports', label: 'Reports' }
-];
-
 function formatDashboardSubtitle(): string {
   const formattedDate = new Date().toLocaleDateString('id-ID', {
     weekday: 'long',
@@ -155,12 +135,14 @@ function getUserInitials(): string {
   return initials || 'FO';
 }
 
-export function BusinessDashboardScreen() {
+type BusinessDashboardScreenProps = {
+  bottomOffset: number;
+};
+
+export function BusinessDashboardScreen({ bottomOffset }: BusinessDashboardScreenProps) {
   const navigate = useNavigate();
   const insets = useAppSafeAreaInsets();
-  const { height } = useWindowDimensions();
   const [stationTotal, setStationTotal] = useState<number | null>(null);
-  const [navHeight, setNavHeight] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -186,19 +168,9 @@ export function BusinessDashboardScreen() {
     navigate('/', { replace: true });
   };
 
-  const handleNavLayout = (event: LayoutChangeEvent) => {
-    const measuredHeight = event.nativeEvent.layout.height;
-
-    setNavHeight((current) => (current === measuredHeight ? current : measuredHeight));
-  };
-
-  const fabBottom = (navHeight ?? NAV_FALLBACK_HEIGHT + insets.bottom) + 16;
-
   return (
-    // Bound the screen to the viewport (mirrors EVDriverContainer) so on web the
-    // ScrollView scrolls internally and the bottom nav/FAB stay pinned.
-    <View style={[styles.screen, { height, maxHeight: height, minHeight: height }]}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+    <View style={styles.screen}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: 24 + bottomOffset }]}>
         <DashboardHeader topInset={insets.top} onSignOut={handleSignOut} />
 
         <View style={styles.section}>
@@ -217,20 +189,6 @@ export function BusinessDashboardScreen() {
         <InsightsFooter />
       </ScrollView>
 
-      <BottomNav bottomInset={insets.bottom} onLayout={handleNavLayout} onOpenStations={() => navigate('/ev-driver/map')} />
-
-      <Pressable
-        accessibilityLabel="Open station map"
-        accessibilityRole="button"
-        onPress={() => navigate('/ev-driver/map')}
-        style={({ pressed }) => [
-          styles.fab,
-          { bottom: fabBottom },
-          pressed && styles.pressed
-        ]}
-      >
-        <SvgAssetIcon height={22} svg={plusIconSvg} width={22} />
-      </Pressable>
     </View>
   );
 }
@@ -434,48 +392,5 @@ function InsightsFooter() {
         <Text style={styles.utilityCaption}>Optimal Load Utilization</Text>
       </View>
     </View>
-  );
-}
-
-type BottomNavProps = {
-  bottomInset: number;
-  onLayout: (event: LayoutChangeEvent) => void;
-  onOpenStations: () => void;
-};
-
-function BottomNav({ bottomInset, onLayout, onOpenStations }: BottomNavProps) {
-  return (
-    <View onLayout={onLayout} style={[styles.bottomNav, { paddingBottom: 28 + bottomInset }]}>
-      {navItems.map((item) => (
-        <BottomNavItem
-          active={item.key === 'planner'}
-          key={item.key}
-          item={item}
-          onPress={item.key === 'stations' ? onOpenStations : undefined}
-        />
-      ))}
-    </View>
-  );
-}
-
-type BottomNavItemProps = {
-  item: BusinessNavItem;
-  active: boolean;
-  onPress?: () => void;
-};
-
-function BottomNavItem({ item, active, onPress }: BottomNavItemProps) {
-  const iconColor = active ? NAV_ACTIVE_COLOR : NAV_INACTIVE_COLOR;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      onPress={onPress}
-      style={({ pressed }) => [styles.navItem, active && styles.navItemActive, pressed && styles.pressed]}
-    >
-      <SvgAssetIcon height={20} svg={buildNavIconSvg(item.key, iconColor)} width={20} />
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
-    </Pressable>
   );
 }

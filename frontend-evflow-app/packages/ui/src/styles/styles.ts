@@ -109,6 +109,9 @@ export const bottomNavigationStyles = StyleSheet.create({
   activeItem: {
     backgroundColor: colors.primary
   },
+  disabledItem: {
+    opacity: 0.45
+  },
   prominentItem: {
     alignItems: 'center',
     flex: 1,

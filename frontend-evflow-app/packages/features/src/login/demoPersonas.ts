@@ -36,11 +36,7 @@ export const demoPersonas: readonly DemoPersona[] = [
     initials: 'FO',
     subtitle: 'Business Planner · Jabodetabek',
     avatarColor: '#00565F',
-    subtitleColor: '#0DA6AF',
-    // The business-planner surface is not in iteration 2. Left visible so the
-    // role is discoverable, but not selectable, rather than removed and then
-    // re-added later.
-    comingSoon: true
+    subtitleColor: '#0DA6AF'
   }
 ];
 

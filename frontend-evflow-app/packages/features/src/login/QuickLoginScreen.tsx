@@ -46,7 +46,7 @@ export function QuickLoginScreen() {
 
     ensureDemoSession(persona)
       .then(() => {
-        navigate(persona.key === 'driver' ? '/onboarding/vehicle' : '/business/dashboard');
+        navigate(persona.key === 'driver' ? '/onboarding/vehicle' : '/business-dashboard');
       })
       .catch((err: unknown) => {
         console.error('Quick login failed', err);
