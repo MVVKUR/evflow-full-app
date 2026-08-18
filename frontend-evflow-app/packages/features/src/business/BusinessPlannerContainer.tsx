@@ -3,8 +3,8 @@ import { Text, useWindowDimensions, View } from 'react-native';
 import { useLocation, useNavigate } from 'react-router';
 import { BottomNavigation, evDriverContainerStyles as containerStyles, SideMenu } from '@evflow/ui';
 import { useAppSafeAreaInsets } from '../shared/useAppSafeAreaInsets';
-import { BusinessDashboardScreen } from './BusinessDashboardScreen';
-import { BusinessPlannerEmptyScreen } from './BusinessPlannerEmptyScreen';
+import { ProfileScreen } from '../ev_driver/ProfileScreen';
+import { DemandHeatmapScreen } from './DemandHeatmapScreen';
 import { getBusinessPlannerNavigationItems, getBusinessPlannerPath, getBusinessPlannerTab } from './businessPlannerNavigation';
 
 /**
@@ -38,13 +38,10 @@ export function BusinessPlannerContainer() {
       ) : null}
 
       <View style={[containerStyles.content, containerStyles.viewportContent]}>
-        {activeTab === 'planner' ? (
-          <BusinessDashboardScreen bottomOffset={bottomOffset} />
+        {activeTab === 'demand-heatmap' ? (
+          <DemandHeatmapScreen bottomOffset={bottomOffset} topInset={insets.top} />
         ) : (
-          <BusinessPlannerEmptyScreen
-            title={activeTab === 'demand-heatmap' ? 'Demand Heatmap' : 'Site Analytics'}
-            topInset={insets.top}
-          />
+          <ProfileScreen bottomOffset={bottomOffset} topInset={insets.top} />
         )}
 
         {!desktop ? (

@@ -1,20 +1,20 @@
 import { createElement } from 'react';
 import type { NavigationItem } from '@evflow/ui';
-import { SvgAssetIcon } from '../shared/SvgAssetIcon';
-import { buildNavIconSvg, type BusinessNavIconName } from './businessDashboardIcons';
+import { DriverAssetIcon } from '../ev_driver/components/DriverAssetIcon';
 
-export type BusinessPlannerTabKey = 'demand-heatmap' | 'planner' | 'site-analytics';
+export type BusinessPlannerTabKey = 'demand-heatmap' | 'profile';
 
 export const businessPlannerTabs: readonly BusinessPlannerTabKey[] = [
   'demand-heatmap',
-  'planner',
-  'site-analytics'
+  'profile'
 ];
 
 export function getBusinessPlannerTab(pathname: string): BusinessPlannerTabKey {
   const tab = pathname.split('/')[2];
 
-  return businessPlannerTabs.includes(tab as BusinessPlannerTabKey) ? tab as BusinessPlannerTabKey : 'planner';
+  return businessPlannerTabs.includes(tab as BusinessPlannerTabKey)
+    ? tab as BusinessPlannerTabKey
+    : 'demand-heatmap';
 }
 
 export function getBusinessPlannerPath(tab: BusinessPlannerTabKey): string {
@@ -23,17 +23,16 @@ export function getBusinessPlannerPath(tab: BusinessPlannerTabKey): string {
 
 export function getBusinessPlannerNavigationItems(): NavigationItem[] {
   return [
-    makeItem('demand-heatmap', 'Demand Heatmap', 'overview'),
-    makeItem('planner', 'Planner', 'planner'),
-    makeItem('site-analytics', 'Site Analytics', 'reports')
+    makeItem('demand-heatmap', 'Demand Heatmap', 'map'),
+    makeItem('profile', 'Profile', 'profile')
   ];
 }
 
-function makeItem(key: BusinessPlannerTabKey, label: string, iconName: BusinessNavIconName): NavigationItem {
+function makeItem(key: BusinessPlannerTabKey, label: string, iconName: 'map' | 'profile'): NavigationItem {
   return {
     key,
     label,
     accessibilityLabel: label,
-    icon: ({ color }) => createElement(SvgAssetIcon, { height: 20, svg: buildNavIconSvg(iconName, color), width: 20 })
+    icon: ({ color }) => createElement(DriverAssetIcon, { color, name: iconName })
   };
 }

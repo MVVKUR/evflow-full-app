@@ -27,7 +27,7 @@ export function AppRoutes() {
       />
       <Route path="/register" element={<RegistrationRoute />} />
       <Route path="/reset-password" element={<ResetPasswordRoute />} />
-      <Route path="/business-dashboard" element={<Navigate replace to="/business-dashboard/planner" />} />
+      <Route path="/business-dashboard" element={<Navigate replace to="/business-dashboard/demand-heatmap" />} />
       <Route path="/business-dashboard/:tab" element={<BusinessPlannerContainer />} />
       <Route path="/ev-driver" element={<Navigate replace to="/ev-driver/map" />} />
       <Route path="/ev-driver/wallet/topup" element={<EVDriverContainer />} />

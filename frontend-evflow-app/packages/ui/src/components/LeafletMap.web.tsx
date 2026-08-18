@@ -15,6 +15,8 @@ type LeafletMapProps = {
   onMapPress?: (latitude: number, longitude: number) => void;
   onMarkerPress?: (markerId: string) => void;
   onPickedPointMoved?: (latitude: number, longitude: number) => void;
+  onViewportChange?: (viewport: MapViewport) => void;
+  polygonLayers?: LeafletPolygonLayer[];
   pickedPoint?: {
     latitude: number;
     longitude: number;
@@ -29,6 +31,22 @@ type LeafletMapProps = {
   zoom?: number;
 };
 
+export type MapViewport = {
+  east: number;
+  north: number;
+  south: number;
+  west: number;
+  zoom: number;
+};
+
+export type LeafletPolygonLayer = {
+  color?: string;
+  coordinates: Array<[number, number]>;
+  fillColor: string;
+  fillOpacity: number;
+  id: string;
+  weight?: number;
+};
 
 export type LeafletMapMarker = {
   id: string;
@@ -71,6 +89,8 @@ export function LeafletMap({
   onMapPress,
   onMarkerPress,
   onPickedPointMoved,
+  onViewportChange,
+  polygonLayers = [],
   pickedPoint,
   polylineColor,
   polylineCoordinates,
@@ -88,6 +108,7 @@ export function LeafletMap({
   const radiusCircleRef = useRef<import('leaflet').Circle | null>(null);
   const radiusKmRef = useRef<number | null>(radiusKm ?? null);
   const pickerMarkerRef = useRef<import('leaflet').Marker | null>(null);
+  const polygonLayersRef = useRef<import('leaflet').Layer[]>([]);
   // Mirrors of the interaction callbacks: the map instance and the picker
   // marker outlive any single render, so their Leaflet handlers must read the
   // latest props through refs (same pattern as radiusKmRef below).
@@ -97,6 +118,7 @@ export function LeafletMap({
   const onPickedPointMovedRef = useRef<((latitude: number, longitude: number) => void) | null>(
     onPickedPointMoved ?? null
   );
+  const onViewportChangeRef = useRef<((viewport: MapViewport) => void) | null>(onViewportChange ?? null);
   const leafletRef = useRef<LeafletNamespace | null>(null);
   const pendingUserLocationRef = useRef<[number, number] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -294,6 +316,12 @@ export function LeafletMap({
           // callback through a ref because this closure survives re-renders.
           onMapPressRef.current?.(event.latlng.lat, event.latlng.lng);
         });
+        map.on('moveend', () => {
+          const bounds = map!.getBounds();
+          onViewportChangeRef.current?.({
+            east: bounds.getEast(), north: bounds.getNorth(), south: bounds.getSouth(), west: bounds.getWest(), zoom: map!.getZoom()
+          });
+        });
 
         if (pendingUserLocationRef.current) {
           renderUserLocation(pendingUserLocationRef.current);
@@ -320,6 +348,7 @@ export function LeafletMap({
       radiusCircleRef.current = null;
       pickerMarkerRef.current = null;
       polylineLayersRef.current = [];
+      polygonLayersRef.current = [];
     };
   }, [center.latitude, center.longitude, mapContainerId, zoom]);
 
@@ -337,6 +366,10 @@ export function LeafletMap({
   }, [onPickedPointMoved]);
 
   useEffect(() => {
+    onViewportChangeRef.current = onViewportChange ?? null;
+  }, [onViewportChange]);
+
+  useEffect(() => {
     mapRef.current?.setView([center.latitude, center.longitude], zoom);
   }, [center.latitude, center.longitude, zoom]);
 
@@ -350,6 +383,16 @@ export function LeafletMap({
       stationMarkersRef.current = [];
     };
   }, [mapRevision, markerIconSvg, markers, onMarkerPress, selectedMarkerIconSvg, selectedMarkerId]);
+
+  useEffect(() => {
+    if (!mapRef.current || !leafletRef.current) return;
+    polygonLayersRef.current.forEach((layer) => layer.remove());
+    polygonLayersRef.current = polygonLayers.map((polygon) => leafletRef.current!.polygon(polygon.coordinates, {
+      color: polygon.color ?? polygon.fillColor, fillColor: polygon.fillColor, fillOpacity: polygon.fillOpacity,
+      interactive: false, weight: polygon.weight ?? 1
+    }).addTo(mapRef.current!));
+    return () => { polygonLayersRef.current.forEach((layer) => layer.remove()); polygonLayersRef.current = []; };
+  }, [mapRevision, polygonLayers]);
 
   useEffect(() => {
     if (!mapRef.current || !leafletRef.current) {

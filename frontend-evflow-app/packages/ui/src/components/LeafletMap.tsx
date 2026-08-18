@@ -20,6 +20,8 @@ type LeafletMapProps = {
   onMapPress?: (latitude: number, longitude: number) => void;
   onMarkerPress?: (markerId: string) => void;
   onPickedPointMoved?: (latitude: number, longitude: number) => void;
+  onViewportChange?: (viewport: MapViewport) => void;
+  polygonLayers?: LeafletPolygonLayer[];
   pickedPoint?: {
     latitude: number;
     longitude: number;
@@ -32,6 +34,9 @@ type LeafletMapProps = {
   showCurrentLocationPinpoint?: boolean;
   zoom?: number;
 };
+
+export type MapViewport = { east: number; north: number; south: number; west: number; zoom: number };
+export type LeafletPolygonLayer = { color?: string; coordinates: Array<[number, number]>; fillColor: string; fillOpacity: number; id: string; weight?: number };
 
 export type LeafletMapMarker = {
   id: string;
@@ -81,6 +86,8 @@ export function LeafletMap({
   onMapPress,
   onMarkerPress,
   onPickedPointMoved,
+  onViewportChange,
+  polygonLayers = [],
   pickedPoint,
   polylineColor,
   polylineCoordinates,
@@ -130,6 +137,17 @@ export function LeafletMap({
               latitude: event.latlng.lat,
               longitude: event.latlng.lng
             }));
+          });
+          map.on('moveend', function() {
+            var bounds = map.getBounds();
+            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'viewportChange', north: bounds.getNorth(), south: bounds.getSouth(), east: bounds.getEast(), west: bounds.getWest(), zoom: map.getZoom()
+            }));
+          });
+
+          var overlayPolygons = ${JSON.stringify(polygonLayers)};
+          overlayPolygons.forEach(function(polygon) {
+            L.polygon(polygon.coordinates, { color: polygon.color || polygon.fillColor, fillColor: polygon.fillColor, fillOpacity: polygon.fillOpacity, interactive: false, weight: polygon.weight || 1 }).addTo(map);
           });
 
           var stationIcon = ${markerIconSvg ? `L.divIcon({ className: 'evflow-station-marker', html: ${JSON.stringify(markerIconSvg)}, iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -20] })` : 'null'};
@@ -344,7 +362,7 @@ export function LeafletMap({
       </body>
     </html>
   `,
-    [autoFitBounds, center.latitude, center.longitude, currentLocation, markerIconSvg, markers, polylineColor, polylineCoordinates, radiusKm, selectedMarkerIconSvg, zoom]
+    [autoFitBounds, center.latitude, center.longitude, currentLocation, markerIconSvg, markers, polygonLayers, polylineColor, polylineCoordinates, radiusKm, selectedMarkerIconSvg, zoom]
   );
 
   function injectSelectedMarker() {
@@ -455,6 +473,11 @@ export function LeafletMap({
         markerId?: string;
         latitude?: number;
         longitude?: number;
+        north?: number;
+        south?: number;
+        east?: number;
+        west?: number;
+        zoom?: number;
       };
 
       if (message.type === 'markerPress' && message.markerId) {
@@ -471,6 +494,10 @@ export function LeafletMap({
       ) {
         onMapPress?.(message.latitude, message.longitude);
         return;
+      }
+
+      if (message.type === 'viewportChange' && typeof message.north === 'number' && typeof message.south === 'number' && typeof message.east === 'number' && typeof message.west === 'number' && typeof message.zoom === 'number') {
+        onViewportChange?.({ north: message.north, south: message.south, east: message.east, west: message.west, zoom: message.zoom });
       }
 
       if (
