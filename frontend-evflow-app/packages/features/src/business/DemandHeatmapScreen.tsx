@@ -1,36 +1,572 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { LeafletMap, type MapViewport } from '@evflow/ui';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  LayoutAnimation,
+  PanResponder,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  UIManager,
+  View,
+  useWindowDimensions,
+  type ViewStyle
+} from 'react-native';
+import { driverMapStyles as mapStyles, LeafletMap, type MapViewport } from '@evflow/ui';
+import { SvgAssetIcon } from '../shared/SvgAssetIcon';
+import { closeButtonIcon, filterSettingIcon, searchIcon } from '../ev_driver/components/driverMapIcons';
 import { getUserLocation } from '../ev_driver/utils/location';
-import { defaultPlannerLayers, generateMockOptimalSites, jakartaViewport, plannerMarkers, plannerPolygons, prioritySemanticCategory, type PlannerLayerKey, type PlannerLayerState } from './demandHeatmap';
+import {
+  commercialPoiIcon,
+  currentLocationIcon,
+  heatmapLayerIcon,
+  landUseIcon,
+  layersIcon,
+  optimalSiteIcon,
+  populationIcon,
+  spkluLayerIcon
+} from './demandHeatmapIcons';
+import {
+  defaultPlannerLayers,
+  generateMockOptimalSites,
+  jakartaViewport,
+  plannerMarkers,
+  plannerPolygons,
+  prioritySemanticCategory,
+  type PlannerLayerKey,
+  type PlannerLayerState
+} from './demandHeatmap';
 
-type Props = { bottomOffset?: number; topInset?: number };
-const locations: Record<string, { latitude: number; longitude: number }> = { jakarta: { latitude: -6.1754, longitude: 106.8272 }, 'south jakarta': { latitude: -6.2615, longitude: 106.8106 }, 'central jakarta': { latitude: -6.1865, longitude: 106.8341 }, 'west jakarta': { latitude: -6.1683, longitude: 106.7588 } };
-const layerRows: Array<{ key: PlannerLayerKey; icon: string; subtitle: string; title: string }> = [
-  { key: 'optimalSites', icon: '✦', title: 'Optimal Sites', subtitle: 'AI Recommended' }, { key: 'demandHeatmap', icon: '▦', title: 'Demand Heatmap', subtitle: 'AI Gap Analysis' }, { key: 'existingSpklus', icon: 'ϟ', title: 'Existing SPKLUs', subtitle: 'Active Network' }, { key: 'commercialPois', icon: '▰', title: 'Commercial POIs', subtitle: 'Activity Hubs' }, { key: 'populationDensity', icon: '●', title: 'Population Density', subtitle: 'Census Data' }, { key: 'landUse', icon: '▦', title: 'Land Use', subtitle: 'Grid & Land Use' }
-];
-
-export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: Props) {
-  const [layers, setLayers] = useState<PlannerLayerState>(defaultPlannerLayers); const [sheetOpen, setSheetOpen] = useState(false); const [query, setQuery] = useState(''); const [viewport, setViewport] = useState<MapViewport>(jakartaViewport); const [center, setCenter] = useState(locations.jakarta); const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null); const [status, setStatus] = useState<string | null>(null); const [analyzing, setAnalyzing] = useState(true); const [sites, setSites] = useState(() => generateMockOptimalSites(jakartaViewport));
-  useEffect(() => { if (!layers.optimalSites) return; setAnalyzing(true); const timer = setTimeout(() => { setSites(generateMockOptimalSites(viewport)); setAnalyzing(false); }, 420); return () => clearTimeout(timer); }, [layers.optimalSites, viewport]);
-  const onViewportChange = useCallback((next: MapViewport) => setViewport(next), []);
-  const submitSearch = () => { const match = locations[query.trim().toLowerCase()]; if (match) { setCenter(match); setStatus(null); } else if (query.trim()) setStatus('No mock location found. Map unchanged.'); };
-  const locate = async () => { setStatus(null); const result = await getUserLocation({ requestPermission: true }); if (result.coordinates) { setCurrentLocation(result.coordinates); setCenter(result.coordinates); } else setStatus('Location unavailable. Staying in Jakarta.'); };
-  const markers = useMemo(() => plannerMarkers(layers, sites), [layers, sites]); const polygons = useMemo(() => plannerPolygons(layers), [layers]);
-  return <View style={styles.page}><LeafletMap center={center} currentLocation={currentLocation} markers={markers} onViewportChange={onViewportChange} polygonLayers={polygons} zoom={viewport.zoom} />
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <View style={[styles.search, { top: topInset + 16 }]}><Text style={styles.searchIcon}>⌕</Text><TextInput accessibilityLabel="Search location" onChangeText={setQuery} onSubmitEditing={submitSearch} placeholder="Search location..." placeholderTextColor="#758185" returnKeyType="search" style={styles.input} value={query} /></View>
-      <View style={[styles.controls, { top: topInset + 86 }]}><RoundButton label="Use current location" onPress={() => void locate()} symbol="◎" /><RoundButton label="Open map layers" onPress={() => setSheetOpen(true)} symbol="◆" primary /></View>
-      {status ? <Text style={[styles.status, { top: topInset + 150 }]}>{status}</Text> : null}
-      {analyzing && layers.optimalSites ? <View style={styles.analysis}><ActivityIndicator color="#006973" size="small" /><Text style={styles.analysisText}>Analyzing visible area...</Text></View> : null}
-      {layers.demandHeatmap ? <Legend bottom={bottomOffset + (sheetOpen ? 475 : 22)} /> : null}
-      {sheetOpen ? <LayerSheet bottomOffset={bottomOffset} layers={layers} onClose={() => setSheetOpen(false)} onToggle={(key) => setLayers((current) => ({ ...current, [key]: !current[key] }))} /> : null}
-    </View>
-  </View>;
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-function RoundButton({ label, onPress, primary, symbol }: { label: string; onPress: () => void; primary?: boolean; symbol: string }) { return <Pressable accessibilityLabel={label} onPress={onPress} style={[styles.roundButton, primary && styles.roundButtonPrimary]}><Text style={[styles.roundSymbol, primary && styles.primarySymbol]}>{symbol}</Text></Pressable>; }
-function Legend({ bottom }: { bottom: number }) { return <View style={[styles.legend, { bottom }]}>{(['high', 'moderate', 'low'] as const).map((priority) => <View key={priority} style={styles.legendRow}><View style={[styles.dot, { backgroundColor: priority === 'high' ? '#ef4444' : priority === 'moderate' ? '#f59e0b' : '#10b981' }]} /><Text style={styles.legendText}>{prioritySemanticCategory(priority)}</Text></View>)}</View>; }
-function LayerSheet({ bottomOffset, layers, onClose, onToggle }: { bottomOffset: number; layers: PlannerLayerState; onClose: () => void; onToggle: (key: PlannerLayerKey) => void }) { return <View style={[styles.sheet, { bottom: bottomOffset }]}><View style={styles.handle} /><View style={styles.sheetHeader}><View><Text style={styles.sheetTitle}>Map Layers</Text><Text style={styles.sheetSubtitle}>Customize map views</Text></View><Pressable accessibilityLabel="Close map layers" hitSlop={8} onPress={onClose} style={styles.close}><Text style={styles.closeText}>×</Text></Pressable></View>{layerRows.map((row) => <View key={row.key} style={styles.layerRow}><View style={styles.layerIcon}><Text>{row.icon}</Text></View><View style={styles.layerCopy}><Text style={styles.layerTitle}>{row.title}</Text><Text style={styles.layerSubtitle}>{row.subtitle}</Text>{row.key === 'optimalSites' ? <Text style={styles.helper}>Recommended candidate locations based on demand, infrastructure gaps, population, POIs, and land use.</Text> : null}</View><Pressable accessibilityLabel={`Toggle ${row.title}`} accessibilityRole="switch" accessibilityState={{ checked: layers[row.key] }} onPress={() => onToggle(row.key)} style={[styles.toggle, layers[row.key] && styles.toggleOn]}><View style={[styles.knob, layers[row.key] && styles.knobOn]} /></Pressable></View>)}</View>; }
+type DemandHeatmapScreenProps = {
+  bottomOffset?: number;
+  topInset?: number;
+};
 
-const styles = StyleSheet.create({ page: { backgroundColor: '#dbe8ea', flex: 1, overflow: 'hidden' }, search: { alignItems: 'center', backgroundColor: '#fff', borderColor: '#e6eaeb', borderRadius: 14, borderWidth: 1, elevation: 4, flexDirection: 'row', height: 56, left: 18, paddingHorizontal: 14, position: 'absolute', right: 18, shadowColor: '#152326', shadowOpacity: .15, shadowRadius: 10 }, searchIcon: { color: '#54666a', fontSize: 29, marginRight: 8 }, input: { color: '#1f2937', flex: 1, fontFamily: 'Space Grotesk', fontSize: 15, height: '100%' }, controls: { gap: 12, position: 'absolute', right: 18 }, roundButton: { alignItems: 'center', backgroundColor: '#fff', borderRadius: 24, elevation: 4, height: 48, justifyContent: 'center', shadowColor: '#152326', shadowOpacity: .16, shadowRadius: 6, width: 48 }, roundButtonPrimary: { backgroundColor: '#007d8c' }, roundSymbol: { color: '#344347', fontSize: 24, fontWeight: '900' }, primarySymbol: { color: '#fff' }, status: { backgroundColor: '#fff', borderRadius: 8, color: '#4b5563', left: 16, padding: 8, position: 'absolute', right: 78, textAlign: 'center' }, analysis: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,.94)', borderRadius: 16, flexDirection: 'row', gap: 8, left: 16, paddingHorizontal: 12, paddingVertical: 8, position: 'absolute', top: 150 }, analysisText: { color: '#355055', fontSize: 12, fontWeight: '700' }, legend: { backgroundColor: 'rgba(255,255,255,.96)', borderRadius: 10, elevation: 3, gap: 7, left: 14, padding: 10, position: 'absolute', shadowColor: '#152326', shadowOpacity: .12, shadowRadius: 6 }, legendRow: { alignItems: 'center', flexDirection: 'row', gap: 8 }, dot: { borderRadius: 5, height: 10, width: 10 }, legendText: { color: '#364246', fontSize: 12, fontWeight: '600' }, sheet: { backgroundColor: '#fff', borderColor: '#d8e0e2', borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, left: 0, maxHeight: 475, paddingBottom: 14, position: 'absolute', right: 0, shadowColor: '#152326', shadowOpacity: .18, shadowRadius: 14 }, handle: { alignSelf: 'center', backgroundColor: '#bac8ce', borderRadius: 3, height: 5, marginTop: 10, width: 48 }, sheetHeader: { alignItems: 'center', borderBottomColor: '#e0e7e9', borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', padding: 18 }, sheetTitle: { color: '#18243a', fontSize: 19, fontWeight: '800' }, sheetSubtitle: { color: '#5a6870', fontSize: 14, marginTop: 4 }, close: { alignItems: 'center', backgroundColor: '#edf0ff', borderRadius: 18, height: 36, justifyContent: 'center', width: 36 }, closeText: { color: '#354052', fontSize: 28, lineHeight: 31 }, layerRow: { alignItems: 'center', flexDirection: 'row', minHeight: 53, paddingHorizontal: 18, paddingVertical: 7 }, layerIcon: { alignItems: 'center', backgroundColor: '#e5f6fb', borderRadius: 19, height: 38, justifyContent: 'center', marginRight: 12, width: 38 }, layerCopy: { flex: 1, paddingRight: 8 }, layerTitle: { color: '#1f2937', fontSize: 14, fontWeight: '800' }, layerSubtitle: { color: '#0077a7', fontFamily: 'monospace', fontSize: 11, marginTop: 2 }, helper: { color: '#607077', fontSize: 10, lineHeight: 13, marginTop: 3 }, toggle: { backgroundColor: '#dbe4fa', borderColor: '#b5c1d8', borderRadius: 12, borderWidth: 1, height: 22, justifyContent: 'center', paddingHorizontal: 2, width: 40 }, toggleOn: { backgroundColor: '#007d8c', borderColor: '#007d8c' }, knob: { backgroundColor: '#718096', borderRadius: 9, height: 18, width: 18 }, knobOn: { alignSelf: 'flex-end', backgroundColor: '#fff' } });
+type Coordinates = {
+  latitude: number;
+  longitude: number;
+};
+
+type LayerRow = {
+  icon: string;
+  key: PlannerLayerKey;
+  subtitle: string;
+  title: string;
+};
+
+const collapsedSheetHeight = 104;
+const sheetAnimation = LayoutAnimation.Presets.easeInEaseOut;
+
+const mockLocations: Record<string, Coordinates> = {
+  jakarta: { latitude: -6.1754, longitude: 106.8272 },
+  'south jakarta': { latitude: -6.2615, longitude: 106.8106 },
+  'central jakarta': { latitude: -6.1865, longitude: 106.8341 },
+  'west jakarta': { latitude: -6.1683, longitude: 106.7588 }
+};
+
+const layerRows: LayerRow[] = [
+  { key: 'optimalSites', icon: optimalSiteIcon, title: 'Optimal Sites', subtitle: 'AI Recommended' },
+  { key: 'demandHeatmap', icon: heatmapLayerIcon, title: 'Demand Heatmap', subtitle: 'AI Gap Analysis' },
+  { key: 'existingSpklus', icon: spkluLayerIcon, title: 'Existing SPKLUs', subtitle: 'Active Network' },
+  { key: 'commercialPois', icon: commercialPoiIcon, title: 'Commercial POIs', subtitle: 'Activity Hubs' },
+  { key: 'populationDensity', icon: populationIcon, title: 'Population Density', subtitle: 'Census Data' },
+  { key: 'landUse', icon: landUseIcon, title: 'Land Use', subtitle: 'Grid & Land Use' }
+];
+
+export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHeatmapScreenProps) {
+  const { height } = useWindowDimensions();
+  const [layers, setLayers] = useState<PlannerLayerState>(defaultPlannerLayers);
+  const [expanded, setExpanded] = useState(false);
+  const [query, setQuery] = useState('');
+  const [viewport, setViewport] = useState<MapViewport>(jakartaViewport);
+  const [center, setCenter] = useState<Coordinates>(mockLocations.jakarta);
+  const [currentLocation, setCurrentLocation] = useState<Coordinates | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(true);
+  const [sites, setSites] = useState(() => generateMockOptimalSites(jakartaViewport));
+  const expandedRef = useRef(expanded);
+  const sheetScrollAtTopRef = useRef(true);
+
+  useEffect(() => {
+    expandedRef.current = expanded;
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!layers.optimalSites) return;
+
+    setAnalyzing(true);
+    const timer = setTimeout(() => {
+      setSites(generateMockOptimalSites(viewport));
+      setAnalyzing(false);
+    }, 420);
+
+    return () => clearTimeout(timer);
+  }, [layers.optimalSites, viewport]);
+
+  const animateNext = useCallback(() => {
+    LayoutAnimation.configureNext(sheetAnimation);
+  }, []);
+
+  const setSheetExpanded = useCallback((nextExpanded: boolean) => {
+    animateNext();
+    setExpanded(nextExpanded);
+  }, [animateNext]);
+
+  const drawerPanResponder = useMemo(
+    () => PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const isSwipingDown = gestureState.dy > 8;
+        const isSwipingUp = gestureState.dy < -8;
+
+        if (expandedRef.current) {
+          return isSwipingDown && sheetScrollAtTopRef.current;
+        }
+
+        return isSwipingDown || isSwipingUp;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 18 && expandedRef.current) {
+          setSheetExpanded(false);
+        } else if (gestureState.dy < -18 && !expandedRef.current) {
+          setSheetExpanded(true);
+        }
+      }
+    }),
+    [setSheetExpanded]
+  );
+
+  const onViewportChange = useCallback((next: MapViewport) => setViewport(next), []);
+
+  const submitSearch = () => {
+    const match = mockLocations[query.trim().toLowerCase()];
+
+    if (match) {
+      setCenter(match);
+      setStatus(null);
+    } else if (query.trim()) {
+      setStatus('No mock location found. Map unchanged.');
+    }
+  };
+
+  const locate = async () => {
+    setStatus(null);
+    const result = await getUserLocation({ requestPermission: true });
+
+    if (result.coordinates) {
+      setCurrentLocation(result.coordinates);
+      setCenter(result.coordinates);
+    } else {
+      setStatus('Location unavailable. Staying in Jakarta.');
+    }
+  };
+
+  const markers = useMemo(() => plannerMarkers(layers, sites), [layers, sites]);
+  const polygons = useMemo(() => plannerPolygons(layers), [layers]);
+  const expandedSheetHeight = getExpandedSheetHeight(height, topInset, bottomOffset);
+  const sheetHeight = expanded ? expandedSheetHeight : collapsedSheetHeight;
+
+  return (
+    <View style={mapStyles.page}>
+      <LeafletMap
+        center={center}
+        currentLocation={currentLocation}
+        markers={markers}
+        onViewportChange={onViewportChange}
+        polygonLayers={polygons}
+        zoom={viewport.zoom}
+      />
+
+      <View style={[mapStyles.searchBar, { top: 24 + topInset }]}>
+        <View style={mapStyles.searchIcon}>
+          <SvgAssetIcon color="#6B7A7B" height={18} name="search" svg={searchIcon} width={18} />
+        </View>
+        <TextInput
+          accessibilityLabel="Search location"
+          onChangeText={setQuery}
+          onSubmitEditing={submitSearch}
+          placeholder="Search location..."
+          placeholderTextColor="#819097"
+          returnKeyType="search"
+          style={mapStyles.searchInput}
+          value={query}
+        />
+        <Pressable
+          accessibilityLabel="Open map layers"
+          accessibilityRole="button"
+          onPress={() => setSheetExpanded(true)}
+          style={mapStyles.filterIcon}
+        >
+          <SvgAssetIcon color="#005F64" height={18} name="filter" svg={filterSettingIcon} width={18} />
+        </Pressable>
+      </View>
+
+      <View style={[plannerStyles.mapControls, { top: topInset + 104 }]}>
+        <MapControlButton
+          accessibilityLabel="Use current location"
+          icon={currentLocationIcon}
+          onPress={() => void locate()}
+        />
+        <MapControlButton
+          accessibilityLabel="Open map layers"
+          icon={layersIcon}
+          onPress={() => setSheetExpanded(true)}
+          primary
+        />
+      </View>
+
+      {status ? <Text accessibilityLiveRegion="polite" style={[plannerStyles.status, { top: topInset + 168 }]}>{status}</Text> : null}
+
+      {analyzing && layers.optimalSites ? (
+        <View style={[plannerStyles.analysis, { top: topInset + 168 }]}>
+          <ActivityIndicator color="#006973" size="small" />
+          <Text style={plannerStyles.analysisText}>Analyzing visible area...</Text>
+        </View>
+      ) : null}
+
+      {layers.demandHeatmap && !expanded ? (
+        <DemandHeatmapLegend bottom={bottomOffset + collapsedSheetHeight + 12} />
+      ) : null}
+
+      <View
+        style={[
+          mapStyles.sheet,
+          plannerStyles.sheet,
+          getSheetStateStyle(sheetHeight),
+          { bottom: bottomOffset }
+        ]}
+        {...drawerPanResponder.panHandlers}
+      >
+        <Pressable
+          accessibilityLabel={expanded ? 'Collapse Map Layers' : 'Expand Map Layers'}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          onPress={() => setSheetExpanded(!expanded)}
+          style={mapStyles.drawerHandleWrap}
+        >
+          <View style={mapStyles.drawerHandle} />
+        </Pressable>
+
+        <View style={mapStyles.drawerBody}>
+          <View style={[mapStyles.sheetHeader, plannerStyles.sheetHeader]}>
+            <View>
+              <Text style={mapStyles.sheetTitle}>Map Layers</Text>
+              <Text style={plannerStyles.sheetSubtitle}>Customize map views</Text>
+            </View>
+
+            {expanded ? (
+              <Pressable
+                accessibilityLabel="Collapse map layers"
+                accessibilityRole="button"
+                onPress={() => setSheetExpanded(false)}
+                style={mapStyles.closeButton}
+              >
+                <SvgAssetIcon color="#191C1D" height={14} name="close" svg={closeButtonIcon} width={14} />
+              </Pressable>
+            ) : (
+              <Pressable
+                accessibilityLabel="Expand map layers"
+                accessibilityRole="button"
+                onPress={() => setSheetExpanded(true)}
+                style={mapStyles.filterButton}
+              >
+                <SvgAssetIcon color="#4C5960" height={16} name="filter" svg={filterSettingIcon} width={16} />
+                <Text style={mapStyles.filterButtonText}>Layers</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <ScrollView
+            contentContainerStyle={plannerStyles.layerList}
+            onScroll={(event) => {
+              sheetScrollAtTopRef.current = event.nativeEvent.contentOffset.y <= 0;
+            }}
+            scrollEnabled={expanded}
+            scrollEventThrottle={16}
+            showsVerticalScrollIndicator={false}
+            style={[mapStyles.expandedContent, getExpandedContentStateStyle(expanded)]}
+          >
+            {layerRows.map((row) => (
+              <LayerToggleRow
+                key={row.key}
+                enabled={layers[row.key]}
+                row={row}
+                onToggle={() => setLayers((current) => ({ ...current, [row.key]: !current[row.key] }))}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function MapControlButton({
+  accessibilityLabel,
+  icon,
+  onPress,
+  primary = false
+}: {
+  accessibilityLabel: string;
+  icon: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[plannerStyles.mapControlButton, primary && plannerStyles.mapControlButtonPrimary]}
+    >
+      <SvgAssetIcon height={22} svg={icon} width={22} />
+    </Pressable>
+  );
+}
+
+function DemandHeatmapLegend({ bottom }: { bottom: number }) {
+  return (
+    <View style={[plannerStyles.legend, { bottom }]}>
+      {(['high', 'moderate', 'low'] as const).map((priority) => (
+        <View key={priority} style={plannerStyles.legendRow}>
+          <View
+            style={[
+              plannerStyles.legendDot,
+              { backgroundColor: priority === 'high' ? '#EF4444' : priority === 'moderate' ? '#F59E0B' : '#10B981' }
+            ]}
+          />
+          <Text style={plannerStyles.legendText}>{prioritySemanticCategory(priority)}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function LayerToggleRow({ enabled, onToggle, row }: { enabled: boolean; onToggle: () => void; row: LayerRow }) {
+  return (
+    <View style={plannerStyles.layerRow}>
+      <View style={[plannerStyles.layerIcon, enabled && plannerStyles.layerIconEnabled]}>
+        <SvgAssetIcon height={20} svg={row.icon} width={20} />
+      </View>
+      <View style={plannerStyles.layerCopy}>
+        <Text style={plannerStyles.layerTitle}>{row.title}</Text>
+        <Text style={[plannerStyles.layerSubtitle, enabled && plannerStyles.layerSubtitleEnabled]}>{row.subtitle}</Text>
+        {row.key === 'optimalSites' ? (
+          <Text style={plannerStyles.helperText}>
+            Recommended candidate locations based on demand, infrastructure gaps, population, POIs, and land use.
+          </Text>
+        ) : null}
+      </View>
+      <Pressable
+        accessibilityLabel={`Toggle ${row.title}`}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: enabled }}
+        onPress={onToggle}
+        style={[plannerStyles.toggle, enabled && plannerStyles.toggleEnabled]}
+      >
+        <View style={[plannerStyles.toggleKnob, enabled && plannerStyles.toggleKnobEnabled]} />
+      </Pressable>
+    </View>
+  );
+}
+
+function getExpandedSheetHeight(screenHeight: number, topInset: number, bottomOffset: number) {
+  const searchBarBottom = topInset + 24 + 66 + 12;
+  const availableHeight = screenHeight - bottomOffset - searchBarBottom;
+  const viewportProportion = (screenHeight - bottomOffset) * 0.68;
+  return Math.max(360, Math.floor(Math.min(600, availableHeight, viewportProportion)));
+}
+
+type WebTransitionStyle = ViewStyle & {
+  transitionDuration?: string;
+  transitionProperty?: string;
+  transitionTimingFunction?: string;
+};
+
+function getSheetStateStyle(height: number): WebTransitionStyle {
+  return {
+    height,
+    ...(Platform.OS === 'web'
+      ? {
+          transitionDuration: '240ms',
+          transitionProperty: 'height',
+          transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)'
+        }
+      : {})
+  };
+}
+
+function getExpandedContentStateStyle(expanded: boolean): WebTransitionStyle {
+  return {
+    opacity: expanded ? 1 : 0,
+    pointerEvents: expanded ? 'auto' : 'none',
+    transform: [{ translateY: expanded ? 0 : 16 }],
+    ...(Platform.OS === 'web'
+      ? {
+          transitionDuration: '180ms',
+          transitionProperty: 'opacity, transform',
+          transitionTimingFunction: 'ease-out'
+        }
+      : {})
+  };
+}
+
+const plannerStyles = StyleSheet.create({
+  mapControls: {
+    gap: 12,
+    position: 'absolute',
+    right: 22,
+    zIndex: 9999
+  },
+  mapControlButton: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.14)',
+    height: 48,
+    justifyContent: 'center',
+    width: 48
+  },
+  mapControlButtonPrimary: {
+    backgroundColor: '#007D8C'
+  },
+  status: {
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 8,
+    color: '#4B5563',
+    left: 22,
+    padding: 8,
+    position: 'absolute',
+    right: 82,
+    textAlign: 'center',
+    zIndex: 9999
+  },
+  analysis: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 8,
+    left: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    position: 'absolute',
+    zIndex: 9999
+  },
+  analysisText: {
+    color: '#355055',
+    fontSize: 12,
+    fontWeight: '700'
+  },
+  legend: {
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 10,
+    boxShadow: '0 3px 10px rgba(21,35,38,0.14)',
+    gap: 7,
+    left: 14,
+    padding: 10,
+    position: 'absolute',
+    zIndex: 9999
+  },
+  legendRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8
+  },
+  legendDot: {
+    borderRadius: 5,
+    height: 10,
+    width: 10
+  },
+  legendText: {
+    color: '#364246',
+    fontSize: 12,
+    fontWeight: '600'
+  },
+  sheet: {
+    paddingBottom: 20
+  },
+  sheetHeader: {
+    marginBottom: 0
+  },
+  sheetSubtitle: {
+    color: '#5A6870',
+    fontSize: 14,
+    marginTop: 2
+  },
+  layerList: {
+    paddingBottom: 10,
+    paddingTop: 12
+  },
+  layerRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    minHeight: 62,
+    paddingVertical: 6
+  },
+  layerIcon: {
+    alignItems: 'center',
+    backgroundColor: '#EEF1FF',
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    marginRight: 12,
+    width: 40
+  },
+  layerIconEnabled: {
+    backgroundColor: '#D5F3FA'
+  },
+  layerCopy: {
+    flex: 1,
+    paddingRight: 10
+  },
+  layerTitle: {
+    color: '#1F2937',
+    fontSize: 14,
+    fontWeight: '800'
+  },
+  layerSubtitle: {
+    color: '#71808A',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    marginTop: 2
+  },
+  layerSubtitleEnabled: {
+    color: '#0077A7'
+  },
+  helperText: {
+    color: '#607077',
+    fontSize: 10,
+    lineHeight: 13,
+    marginTop: 3
+  },
+  toggle: {
+    backgroundColor: '#DBE4FA',
+    borderColor: '#B5C1D8',
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 24,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+    width: 42
+  },
+  toggleEnabled: {
+    backgroundColor: '#007D8C',
+    borderColor: '#007D8C'
+  },
+  toggleKnob: {
+    backgroundColor: '#718096',
+    borderRadius: 9,
+    height: 18,
+    width: 18
+  },
+  toggleKnobEnabled: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#FFFFFF'
+  }
+});

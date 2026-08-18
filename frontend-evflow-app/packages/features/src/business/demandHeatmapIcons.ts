@@ -1,0 +1,34 @@
+const svg = (body: string) =>
+  `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
+
+export const currentLocationIcon = svg(
+  '<path d="M10 1V3M10 17V19M1 10H3M17 10H19" stroke="#3B494A" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="10" r="5.8" stroke="#3B494A" stroke-width="1.8"/><circle cx="10" cy="10" r="2.4" fill="#3B494A"/>'
+);
+
+export const layersIcon = svg(
+  '<path d="M10 2L18 6.5L10 11L2 6.5L10 2ZM4.1 10.2L10 13.5L15.9 10.2L18 11.4L10 16L2 11.4L4.1 10.2ZM4.1 14L10 17.3L15.9 14L18 15.2L10 19.8L2 15.2L4.1 14Z" fill="#FFFFFF"/>'
+);
+
+export const optimalSiteIcon = svg(
+  '<path d="M10 1.5C6.4 1.5 3.5 4.4 3.5 8C3.5 12.8 10 18.5 10 18.5C10 18.5 16.5 12.8 16.5 8C16.5 4.4 13.6 1.5 10 1.5ZM10 10.7L8.9 8.8L6.8 8.3L8.2 6.7L8 4.6L10 5.4L12 4.6L11.8 6.7L13.2 8.3L11.1 8.8L10 10.7Z" fill="#006F9E"/>'
+);
+
+export const heatmapLayerIcon = svg(
+  '<path d="M3 3H5V5H3V3ZM7 3H9V5H7V3ZM11 3H13V5H11V3ZM15 3H17V5H15V3ZM3 7H5V9H3V7ZM7 7H9V9H7V7ZM11 7H13V9H11V7ZM15 7H17V9H15V7ZM3 11H5V13H3V11ZM7 11H9V13H7V11ZM11 11H13V13H11V11ZM15 11H17V13H15V11ZM3 15H5V17H3V15ZM7 15H9V17H7V15ZM11 15H13V17H11V15ZM15 15H17V17H15V15Z" fill="#007D8C"/>'
+);
+
+export const spkluLayerIcon = svg(
+  '<path d="M4 18V3C4 2.45 4.45 2 5 2H12C12.55 2 13 2.45 13 3V9H15C16.1 9 17 9.9 17 11V16C17 16.55 17.45 17 18 17V19C16.34 19 15 17.66 15 16V11H13V18H14V20H3V18H4ZM6 4V8H11V4H6ZM9.4 9.5L6.6 13H8.5V16.5L11.4 12.6H9.4V9.5Z" fill="#53686A"/>'
+);
+
+export const commercialPoiIcon = svg(
+  '<path d="M2 7L4 2H16L18 7V8.2C18 9.2 17.4 10.1 16.5 10.5V18H3.5V10.5C2.6 10.1 2 9.2 2 8.2V7ZM5 4L4.1 7H15.9L15 4H5ZM5.5 11V16H14.5V11C13.4 10.8 12.6 10.2 12 9.4C11.5 10.1 10.8 10.5 10 10.5C9.2 10.5 8.5 10.1 8 9.4C7.4 10.2 6.6 10.8 5.5 11Z" fill="#53686A"/>'
+);
+
+export const populationIcon = svg(
+  '<circle cx="10" cy="5" r="3" fill="#53686A"/><circle cx="4" cy="8" r="2" fill="#53686A"/><circle cx="16" cy="8" r="2" fill="#53686A"/><path d="M4 18V16.5C4 13.7 6.7 11.5 10 11.5C13.3 11.5 16 13.7 16 16.5V18H4ZM0.5 17V15.8C0.5 13.8 2.1 12.2 4.2 12C3.4 13 3 14.3 3 15.7V17H0.5ZM17 17V15.7C17 14.3 16.6 13 15.8 12C17.9 12.2 19.5 13.8 19.5 15.8V17H17Z" fill="#53686A"/>'
+);
+
+export const landUseIcon = svg(
+  '<path d="M2 2H9V9H2V2ZM4 4V7H7V4H4ZM11 2H18V6H11V2ZM13 4H16V4H13ZM11 8H18V18H11V8ZM13 10V16H16V10H13ZM2 11H9V18H2V11ZM4 13V16H7V13H4Z" fill="#53686A"/>'
+);
