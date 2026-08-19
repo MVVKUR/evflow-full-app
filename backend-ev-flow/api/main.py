@@ -35,6 +35,7 @@ from . import users_repo
 from . import mailer
 from . import password_reset_repo
 from . import log_privacy
+from . import planner_repo
 from . import rate_limit
 from . import cors_policy
 from .models import (
@@ -51,8 +52,18 @@ from .models import (
     ManualVehicleInput, RoutePreferencesInput, ServiceAreaSummary,
     StationStatusResponse, StationOccupancyResponse,
     SupportTicketRequest, SupportTicketResponse,
+    PlannerBenchmarkResponse,
+    PlannerCandidate,
+    PlannerCandidatesResponse,
+    PlannerCellDetail,
+    PlannerCellScore,
+    PlannerGridSummary,
+    PlannerNearbyStation,
+    PlannerScoreResponse,
+    SiteWeightsInput,
 )
 from .services import service_area
+from .services.site_scoring import SiteWeights, normalised_weights
 
 # Coordinate masking must not depend on the ASGI lifespan running: with
 # `--lifespan off`, or under a bare TestClient, the filter used to be defined but
@@ -2295,3 +2306,143 @@ def get_station_occupancy(station_id: str) -> StationOccupancyResponse:
         raise HTTPException(404, f"station '{station_id}' not found")
     return StationOccupancyResponse(**repo.get_hourly_occupancy(station_id))
 # </Aidil> 2026-07-29
+
+# =============================================================================
+# Planner surface (Epic 4: demand heatmap; Epic 5: site feasibility)
+# =============================================================================
+# Reads planning_cells, which is built offline by ev-planner-study and loaded by
+# scripts/load_planning_cells.py. Nothing here parses OSM or samples a raster:
+# scoring is a window function plus a weighted sum, and clustering is
+# ST_ClusterKMeans, so the interactive part stays in the API while the heavy
+# geospatial stack stays out of its image.
+
+PLANNER_ACCOUNT_TYPE = "business_planner"
+
+
+def require_planner(user: dict = Depends(security.current_user)) -> dict:
+    """Authenticated is not enough; the planner surface needs the planner role.
+
+    403 rather than 401: the caller is who they say they are, they are simply not
+    permitted, and 401 would send a driver round a login loop that can never
+    succeed. Anything other than the planner role is refused, so a role added by
+    a later migration does not inherit access by silence.
+    """
+    if (user or {}).get("account_type") != PLANNER_ACCOUNT_TYPE:
+        raise HTTPException(403, "this endpoint requires a planner account")
+    return user
+
+
+def _weights_from(body: SiteWeightsInput) -> SiteWeights:
+    return SiteWeights(coverage=body.coverage, population=body.population,
+                       activity=body.activity, roads=body.roads)
+
+
+def _planner_weights_or_422(body: SiteWeightsInput) -> tuple[SiteWeights, dict]:
+    """Validate the weight vector, surfacing the failure as a 422 on the body.
+
+    Field bounds already block negatives; what they cannot express is "not every
+    weight may be zero", which would score every cell identically and leave the
+    ranking to database order while still looking like a result.
+    """
+    weights = _weights_from(body)
+    try:
+        return weights, normalised_weights(weights)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/v1/planner/score", response_model=PlannerScoreResponse, tags=["planner"],
+          summary="Rank grid cells under a weight vector (AC Epic 4)")
+def planner_score(body: SiteWeightsInput,
+                  limit: int = Query(50, ge=1, le=500),
+                  min_overlap: float = Query(0.5, ge=0.0, le=1.0,
+                                             description="Skip cells whose area lies mostly outside the region."),
+                  user: dict = Depends(require_planner)) -> PlannerScoreResponse:
+    """Score every cell and return the strongest.
+
+    Each feature is converted to its percentile rank before weighting, so the
+    weights mean the same thing across features that live on very different
+    scales. A consequence worth stating: scores are comparable WITHIN one weight
+    vector, never between two.
+    """
+    weights, applied = _planner_weights_or_422(body)
+    rows = planner_repo.score_cells(weights, limit=limit, min_overlap=min_overlap)
+    return PlannerScoreResponse(
+        weights_applied={k: round(v, 4) for k, v in applied.items()},
+        cells_considered=planner_repo.grid_summary()["cells"],
+        cells=[PlannerCellScore(**r) for r in rows],
+    )
+
+
+@app.post("/api/v1/planner/candidates", response_model=PlannerCandidatesResponse, tags=["planner"],
+          summary="Suggested coordinates, clustered from the strongest cells (AC Epic 4)")
+def planner_candidates(body: SiteWeightsInput,
+                       clusters: int = Query(15, ge=1, le=50),
+                       quantile: float = Query(0.90, ge=0.5, lt=1.0,
+                                               description="Only cells at or above this score quantile are clustered."),
+                       user: dict = Depends(require_planner)) -> PlannerCandidatesResponse:
+    """Group the top-scoring cells and report each group at its best member.
+
+    The best member rather than the cluster centroid: a centroid can land in a
+    river or on the far side of a toll road, while a real cell is somewhere a
+    field survey can actually be sent.
+    """
+    weights, applied = _planner_weights_or_422(body)
+    rows = planner_repo.candidate_sites(weights, clusters=clusters, quantile=quantile)
+    return PlannerCandidatesResponse(
+        weights_applied={k: round(v, 4) for k, v in applied.items()},
+        candidates=[PlannerCandidate(**r) for r in rows],
+        excluded_areas=list(planner_repo.DEFAULT_EXCLUDED_KOTA),
+    )
+
+
+@app.get("/api/v1/planner/cells/{cell_id}", response_model=PlannerCellDetail, tags=["planner"],
+         summary="Every feature behind one cell's score",
+         responses={404: {"description": "No such cell"}})
+def planner_cell(cell_id: str, user: dict = Depends(require_planner)) -> PlannerCellDetail:
+    """The evidence for a single cell, so a recommendation can be interrogated.
+
+    Scored under the DEFAULT weights and within the same filtered set the ranked
+    list uses, so a cell shows one score wherever a planner meets it. A cell the
+    filter excludes still returns, with a null score and `in_scored_set` false.
+    """
+    row = planner_repo.get_cell(cell_id)
+    if row is None:
+        raise HTTPException(404, f"cell '{cell_id}' not found")
+    poi = {k[4:]: v for k, v in row.items() if k.startswith("poi_")}
+    land_use = {k[3:-6]: float(v) for k, v in row.items() if k.startswith("lu_")}
+    return PlannerCellDetail(
+        cell_id=row["cell_id"], kota=row["kota"],
+        latitude=row["latitude"], longitude=row["longitude"],
+        score=float(row["score"]) if row["score"] is not None else None,
+        rank_overall=row["rank_overall"], cells_total=row["cells_total"],
+        in_scored_set=row["in_scored_set"],
+        overlap_frac=row["overlap_frac"], population=row["population"],
+        poi=poi, land_use=land_use,
+        road_nodes=row["road_nodes"], road_length_m=row["road_length_m"],
+        station_count=row["station_count"], connector_count=row["connector_count"],
+        nearest_station_m=row["nearest_station_m"], stations_2km=row["stations_2km"],
+    )
+
+
+@app.get("/api/v1/planner/benchmark/{cell_id}", response_model=PlannerBenchmarkResponse, tags=["planner"],
+         summary="Existing stations around a cell (AC Epic 5)")
+def planner_benchmark(cell_id: str,
+                      radius_km: float = Query(5.0, gt=0, le=25),
+                      limit: int = Query(10, ge=1, le=50),
+                      user: dict = Depends(require_planner)) -> PlannerBenchmarkResponse:
+    """What a new site at this cell would be competing with, nearest first."""
+    if planner_repo.get_cell(cell_id) is None:
+        raise HTTPException(404, f"cell '{cell_id}' not found")
+    rows = planner_repo.nearby_stations(cell_id, radius_km=radius_km, limit=limit)
+    return PlannerBenchmarkResponse(
+        cell_id=cell_id, radius_km=radius_km,
+        stations=[PlannerNearbyStation(**r) for r in rows],
+    )
+
+
+@app.get("/api/v1/planner/grid", response_model=PlannerGridSummary, tags=["planner"],
+         summary="What the loaded grid covers")
+def planner_grid(user: dict = Depends(require_planner)) -> PlannerGridSummary:
+    """Coverage of the loaded grid, so the dashboard can state its own basis."""
+    return PlannerGridSummary(**planner_repo.grid_summary())

@@ -1087,3 +1087,138 @@ class StationOccupancyResponse(BaseModel):
     station_id: str = Field(..., description="ID of the station.", examples=["pln_spklu-6"])
     days: list[StationOccupancyDay]
 # </Aidil> 2026-07-29
+
+
+# --- Planner surface (Epic 4 / Epic 5) ---------------------------------------
+# Weights arrive from the dashboard, so they are request input and validated as
+# such. `ge=0` blocks a negative weight at the schema boundary; a negative weight
+# inverts a feature's meaning and would recommend places BECAUSE they are already
+# well served. The all-zero case cannot be expressed as a field rule and is
+# rejected in api/services/site_scoring.py.
+class SiteWeightsInput(BaseModel):
+    coverage: float = Field(0.35, ge=0, le=100,
+                            description="How much an area being far from any existing station counts.")
+    population: float = Field(0.35, ge=0, le=100, description="How much resident population counts.")
+    activity: float = Field(0.20, ge=0, le=100,
+                            description="How much surrounding activity counts (17 point-of-interest categories).")
+    roads: float = Field(0.10, ge=0, le=100, description="How much road connectivity counts.")
+
+
+class PlannerCellScore(BaseModel):
+    cell_id: str = Field(..., examples=["JBDTBK_13989"])
+    kota: Optional[str] = Field(None, examples=["Kota Jakarta Selatan"])
+    score: float = Field(..., description="0..1 under the submitted weights. Not comparable across weight sets.",
+                         examples=[0.8421])
+    latitude: float
+    longitude: float
+    population: float = Field(..., description="WorldPop 2026 constrained. A projection, not a census count.")
+    poi_total: int
+    road_nodes: int
+    station_count: int
+    connector_count: int
+    nearest_station_m: Optional[float] = Field(None, description="Metres from the cell centre to the nearest station.")
+    stations_2km: int
+
+
+class PlannerCandidate(BaseModel):
+    cluster_id: int
+    cell_id: str
+    kota: Optional[str] = None
+    score: float
+    latitude: float
+    longitude: float
+    population: float
+    poi_total: int
+    station_count: int
+    nearest_station_m: Optional[float] = None
+    stations_2km: int
+    cluster_size: int = Field(..., description="How many qualifying cells this suggestion stands for.")
+
+
+class PlannerProvenance(BaseModel):
+    """What the numbers rest on. Carried in every response, not only in the UI.
+
+    Two of these inputs are not measurements: population is a projection, and any
+    figure derived from charging sessions currently comes from a simulation. A
+    consumer that shows one without the other is presenting invented data as fact.
+    """
+    population_source: str = "WorldPop 2026 constrained, release R2025A (projection, not a census count)"
+    features_source: str = "OpenStreetMap via Geofabrik Java extract, snapshot 2026-08-14 (ODbL)"
+    demand_basis: str = "Coverage and surroundings only. No charging-session data is used in this score."
+    cell_size_m: int = 500
+
+
+class PlannerScoreResponse(BaseModel):
+    weights_applied: dict[str, float] = Field(..., description="Rescaled to sum to 1.")
+    cells_considered: int
+    cells: list[PlannerCellScore]
+    provenance: PlannerProvenance = PlannerProvenance()
+
+
+class PlannerCandidatesResponse(BaseModel):
+    weights_applied: dict[str, float]
+    candidates: list[PlannerCandidate]
+    excluded_areas: list[str] = Field(
+        ..., description="Areas held out of the candidate pool, e.g. sea-separated cells unreachable by road.")
+    provenance: PlannerProvenance = PlannerProvenance()
+
+
+class PlannerCellDetail(BaseModel):
+    cell_id: str
+    kota: Optional[str] = None
+    latitude: float
+    longitude: float
+    score: Optional[float] = Field(
+        None, description="Null when the cell is outside the scored set; see in_scored_set.")
+    rank_overall: Optional[int] = Field(
+        None, description="1 is the highest scoring cell under the default weights. Null when unranked.")
+    cells_total: int = Field(..., description="Size of the set the rank is taken within.")
+    in_scored_set: bool = Field(
+        True, description="False for a cell the filter excludes, which is shown but not ranked.")
+    overlap_frac: Optional[float] = Field(
+        None, description="Share of the cell inside the administrative outline. Edge cells are partial.")
+    population: float
+    poi: dict[str, int] = Field(..., description="Counts for the 17 point-of-interest categories, plus a total.")
+    land_use: dict[str, float] = Field(
+        ..., description="Share of the cell each class covers, 0..1 per class. These are "
+                         "independent coverages, not a partition: OpenStreetMap maps "
+                         "overlapping polygons of different classes over the same ground, "
+                         "so the four can sum above 1 (657 of 28,176 cells do, up to 2.19). "
+                         "The remainder of a cell is unmapped, not necessarily empty.")
+    road_nodes: int
+    road_length_m: float
+    station_count: int
+    connector_count: int
+    nearest_station_m: Optional[float] = None
+    stations_2km: int
+    provenance: PlannerProvenance = PlannerProvenance()
+
+
+class PlannerNearbyStation(BaseModel):
+    id: str
+    name: Optional[str] = None
+    operator: Optional[str] = None
+    power_kw: Optional[float] = None
+    speed_tier: Optional[str] = None
+    distance_m: float
+    available_connectors: int
+    total_connectors: int
+
+
+class PlannerBenchmarkResponse(BaseModel):
+    cell_id: str
+    radius_km: float
+    stations: list[PlannerNearbyStation]
+    provenance: PlannerProvenance = PlannerProvenance()
+
+
+class PlannerGridSummary(BaseModel):
+    cells: int
+    cells_with_station: int
+    cells_populated: int
+    stations: int
+    connectors: int
+    population_total: float
+    areas: int
+    built_at: Optional[datetime] = None
+    provenance: PlannerProvenance = PlannerProvenance()

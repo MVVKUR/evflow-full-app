@@ -1,0 +1,431 @@
+{
+  "1_raw_pln_spklu": {
+    "_records": 3029,
+    "sample": {
+      "id": 1,
+      "nama_lokasi": "SPKLU PLN UID JAKARTA RAYA",
+      "alamat": "Jl. M.I. Ridwan Rais No.1, Gambir",
+      "provinsi": "DKI Jakarta ",
+      "kabupaten_kota": "Kota ADM Jakarta Pusat",
+      "latitude": "-6.1803900",
+      "longitude": "106.8331910",
+      "type_charge": "medium",
+      "watt": "22 kW",
+      "total_charger": 0,
+      "total_konektor": 0,
+      "status": 1
+    }
+  },
+  "2_raw_open_charge_map": {
+    "_records": 527,
+    "sample": {
+      "ID": 479002,
+      "Title": "PLN ULP Babelan",
+      "AddressLine1": "",
+      "Town": "Bekasi",
+      "StateOrProvince": "Jawa Barat",
+      "Latitude": -6.1847,
+      "Longitude": 107.0388,
+      "NumberOfPoints": 1,
+      "DateLastVerified": "2026-04-04T18:04:00Z"
+    }
+  },
+  "3_raw_openstreetmap": {
+    "_records": 13,
+    "sample": {
+      "type": "node",
+      "id": 6222913188,
+      "lat": -6.184263,
+      "lon": 106.8217903,
+      "tags": {
+        "amenity": "charging_station",
+        "operator": "BPPT"
+      }
+    }
+  },
+  "4_station_cleaned": {
+    "_national": 2931,
+    "_jabodetabek": 1236,
+    "sample_single_source": {
+      "id": "pln_spklu-100",
+      "name": "SPKLU Brilian 1",
+      "address": "Jl. Jenderal Sudirman No.14, Bendungan Hilir, Tanah Abang, Jakarta Pusat",
+      "city": "Kota ADM Jakarta Pusat",
+      "province": "DKI Jakarta",
+      "latitude": -6.216833,
+      "longitude": 106.813159,
+      "power_kw": 25.0,
+      "speed_tier": "medium",
+      "connector_types": [
+        "AC Type 2",
+        "CCS2"
+      ],
+      "sources": [
+        "pln_spklu"
+      ],
+      "status": "operational"
+    },
+    "sample_merged_multi_source": {
+      "id": "pln_spklu-1",
+      "name": "SPKLU PLN UID JAKARTA RAYA",
+      "city": "Kota ADM Jakarta Pusat",
+      "latitude": -6.18039,
+      "longitude": 106.833191,
+      "power_kw": 200.0,
+      "connector_types": [
+        "AC Type 2",
+        "CCS2"
+      ],
+      "sources": [
+        "pln_spklu",
+        "open_charge_map",
+        "osm"
+      ]
+    },
+    "sample_connectors": [
+      {
+        "type": "AC Type 2",
+        "count": 3,
+        "speed_tier": "medium",
+        "power_kw": 22.0,
+        "type_inferred": true
+      },
+      {
+        "type": "CCS2",
+        "count": 4,
+        "speed_tier": "ultra_fast",
+        "power_kw": 200.0,
+        "type_inferred": true
+      },
+      {
+        "type": "CCS2",
+        "count": 4,
+        "speed_tier": "fast",
+        "power_kw": 120.0,
+        "type_inferred": true
+      },
+      {
+        "type": "CCS2",
+        "count": 2,
+        "speed_tier": "fast",
+        "power_kw": 60.0,
+        "type_inferred": true
+      },
+      {
+        "type": "CCS2",
+        "count": 2,
+        "speed_tier": "fast",
+        "power_kw": 62.5,
+        "type_inferred": true
+      },
+      {
+        "type": "CCS2",
+        "count": 2,
+        "speed_tier": "medium",
+        "power_kw": 47,
+        "type_inferred": true
+      }
+    ],
+    "_source_combinations": {
+      "pln_spklu": 718,
+      "open_charge_map + pln_spklu": 355,
+      "open_charge_map": 150,
+      "open_charge_map + osm + pln_spklu": 7,
+      "osm": 6
+    }
+  },
+  "5_grid_cell": {
+    "_cells": 28176,
+    "_columns": 32,
+    "_status": "complete: POI, land use, roads and population all populated",
+    "_total_population": 33258283,
+    "_populated_cells": 24727,
+    "_feature_coverage": {
+      "population": {
+        "min": 0.0,
+        "max": 10655.7,
+        "mean": 1180.3763,
+        "cells_nonzero": 24727
+      },
+      "restaurant": {
+        "min": 0,
+        "max": 66,
+        "mean": 0.1465,
+        "cells_nonzero": 1411
+      },
+      "school": {
+        "min": 0,
+        "max": 23,
+        "mean": 0.3529,
+        "cells_nonzero": 5056
+      },
+      "place_of_worship": {
+        "min": 0,
+        "max": 18,
+        "mean": 0.3521,
+        "cells_nonzero": 5004
+      },
+      "mall": {
+        "min": 0,
+        "max": 8,
+        "mean": 0.0131,
+        "cells_nonzero": 261
+      },
+      "fuel": {
+        "min": 0,
+        "max": 5,
+        "mean": 0.033,
+        "cells_nonzero": 785
+      },
+      "node": {
+        "min": 0,
+        "max": 828,
+        "mean": 91.4695,
+        "cells_nonzero": 22110
+      },
+      "lu_residential_share": {
+        "min": 0.0,
+        "max": 2.7677,
+        "mean": 0.19,
+        "cells_nonzero": 12201
+      },
+      "lu_industrial_share": {
+        "min": 0.0,
+        "max": 2.2923,
+        "mean": 0.0393,
+        "cells_nonzero": 3361
+      },
+      "lu_commercial_share": {
+        "min": 0.0,
+        "max": 1.2494,
+        "mean": 0.0097,
+        "cells_nonzero": 2025
+      },
+      "lu_retail_share": {
+        "min": 0.0,
+        "max": 0.6432,
+        "mean": 0.0016,
+        "cells_nonzero": 659
+      }
+    },
+    "_caveat": "lu_retail_share is near-empty (659 of 28,176 cells, mean 0.0016): Indonesian OSM mappers rarely use landuse=retail. Kept for transparency, excluded from the selected feature set.",
+    "sample_cell_with_features": {
+      "fid": 19503,
+      "overlap_frac": 1.0,
+      "kota": "Kota Jakarta Selatan",
+      "cell_id": "JBDTBK_19502",
+      "centroid_x": 705250.0,
+      "centroid_y": 9310750.0,
+      "lon": 106.855104,
+      "lat": -6.23235,
+      "parking": 1,
+      "parking_space": 0,
+      "restaurant": 13,
+      "park": 1,
+      "school": 3,
+      "university": 0,
+      "cinema": 0,
+      "library": 0,
+      "community_centre": 0,
+      "place_of_worship": 1,
+      "townhall": 0,
+      "government": 1,
+      "civic": 1,
+      "fuel": 0,
+      "mall": 0,
+      "hospital": 0,
+      "rest_area": 0,
+      "lu_commercial_share": 0.0,
+      "lu_retail_share": 0.0,
+      "lu_residential_share": 0.0,
+      "lu_industrial_share": 0.0,
+      "node": 208,
+      "edge_len_m": 7580.0,
+      "population": 6851.9
+    }
+  },
+  "6_admin_boundaries": {
+    "_adm2": 14,
+    "_adm3": 187,
+    "sample_adm2": [
+      {
+        "adm2_name": "Kepulauan Seribu",
+        "adm2_pcode": "ID3101",
+        "bps_kode_wilayah": "3101",
+        "adm1_name": "Dki Jakarta"
+      },
+      {
+        "adm2_name": "Kota Jakarta Selatan",
+        "adm2_pcode": "ID3171",
+        "bps_kode_wilayah": "3171",
+        "adm1_name": "Dki Jakarta"
+      }
+    ],
+    "sample_adm3": [
+      {
+        "adm3_name": "Babakan Madang",
+        "adm3_pcode": "ID3201140",
+        "bps_kode_wilayah": "3201140",
+        "parent_adm2": "Bogor"
+      },
+      {
+        "adm3_name": "Babelan",
+        "adm3_pcode": "ID3216090",
+        "bps_kode_wilayah": "3216090",
+        "parent_adm2": "Bekasi"
+      }
+    ]
+  },
+  "7_zenodo_labels": {
+    "_rows": 139,
+    "_columns": 27,
+    "_label_columns": {
+      "num_transaction": {
+        "min": 8,
+        "median": 424,
+        "max": 1953
+      },
+      "unique_users": {
+        "min": 3,
+        "median": 137,
+        "max": 440
+      }
+    },
+    "_landuse_values": {
+      "commercial": 72,
+      "residential": 65,
+      "recreation_ground": 2
+    },
+    "sample": {
+      "population_density": 104.572176,
+      "dist_sec_road": 2790.626112,
+      "northing": 9298779.573350511,
+      "evcs_name": "Rest Area KM 10.6 Tol Jagorawi",
+      "dist_nearest_road": 83.48171,
+      "loc_type": "Rest Area",
+      "lot_criteria": "Besar",
+      "longitude": 106.890173,
+      "num_ev_user_5k": 35.0,
+      "dist_prim_road": 3097.721209,
+      "power_capacity_criteria": "Daya Kecil",
+      "num_gas_10k": 48.0,
+      "dist_nearest_toll_gate": 2779.095405,
+      "land_use_criteria": "Residensial",
+      "num_rec_10k": 18.0,
+      "type_nearest_road": "residential",
+      "percap_income": 546877290.0,
+      "num_transaction": 1026.0,
+      "nearest_evcs_dist": 2227.051643,
+      "num_ev_user_10k": 187.0,
+      "easting": 709088.183964483,
+      "dist_trunk_road": 2308.294304,
+      "dist_nearest_toll": 112.946805,
+      "latitude": -6.340455,
+      "unique_users": 241.0,
+      "num_fac_10k": 70.0,
+      "landuse": "commercial"
+    }
+  },
+  "8_geocoded_spklu_dataset": {
+    "_source": "Richard Wiputra, Bina Nusantara. v1.0, retrieved 2026-06-16. Same upstream feed as our PLN records (petaspklu.id), independently cleaned and enriched.",
+    "_stations": 3029,
+    "_charger_boxes": 4707,
+    "_in_jabodetabek_provinces": 1565,
+    "_what_it_adds": [
+      "bps_province_code + bps_regency_code (3029/3029 complete)",
+      "provider_type (PLN vs independent CPO vs dealership)",
+      "location_group (venue class of the station site)",
+      "station_power_tier",
+      "colocation_cluster_id",
+      "quality_flags"
+    ],
+    "_distributions": {
+      "provider_type": {
+        "PLN / SPKLU network": 1876,
+        "Independent CPO": 716,
+        "Automaker / dealership": 405,
+        "Other / unknown": 32
+      },
+      "location_group": {
+        "Utility (PLN site)": 776,
+        "Retail & Commercial": 690,
+        "Other / Unclassified": 659,
+        "Office & Residential": 314,
+        "Hospitality": 215,
+        "Public & Civic": 206,
+        "Transport corridor": 169
+      },
+      "station_power_tier": {
+        "AC fast (11-22 kW)": 1670,
+        "DC rapid (50-99 kW)": 451,
+        "DC ultra-rapid (>=100 kW)": 348,
+        "AC slow (<=7 kW)": 341,
+        "DC fast (25-49 kW)": 219
+      }
+    },
+    "sample_station": {
+      "﻿station_id": "1",
+      "location_name": "SPKLU PLN UID JAKARTA RAYA",
+      "address": "Jl. M.I. Ridwan Rais No.1, Gambir",
+      "provider_type": "PLN / SPKLU network",
+      "operator_brand": "",
+      "location_type": "PLN / Utility facility",
+      "location_group": "Utility (PLN site)",
+      "province_name": "DKI Jakarta",
+      "bps_province_code": "31",
+      "regency_city_raw": "Kota ADM Jakarta Pusat",
+      "regency_city_clean": "Kota Administrasi Jakarta Pusat",
+      "admin_level": "Kota",
+      "bps_regency_code": "3173",
+      "latitude": "-6.1803900",
+      "longitude": "106.8331910",
+      "station_power_kW": "22.0",
+      "station_power_tier": "AC fast (11-22 kW)",
+      "type_charge_source": "medium",
+      "n_chargerboxes": "1",
+      "total_chargers": "1",
+      "total_connectors": "1",
+      "max_box_power_kW": "22.0",
+      "box_types": "medium",
+      "status_active": "1",
+      "colocation_cluster_id": "1",
+      "colocation_cluster_size": "5",
+      "quality_flags": "station_charger_count_recomputed|co_located"
+    },
+    "sample_charger_box": {
+      "﻿station_id": "1",
+      "bps_province_code": "31",
+      "province_name": "DKI Jakarta",
+      "regency_city_clean": "Kota Administrasi Jakarta Pusat",
+      "location_name": "SPKLU PLN UID JAKARTA RAYA",
+      "latitude": "-6.1803900",
+      "longitude": "106.8331910",
+      "chargerbox_id": "CSE_UP3_MENTENG",
+      "chargerbox_name": "CS AC Charger",
+      "box_type_charge": "medium",
+      "box_power_kW": "22.0",
+      "box_power_tier": "AC fast (11-22 kW)",
+      "inferred_current": "AC",
+      "n_chargers": "1",
+      "n_connectors": "1"
+    },
+    "sample_province_coverage": {
+      "﻿bps_province_code": "11",
+      "province_name": "Aceh",
+      "population_sp2020": "5274871",
+      "grdp_current_idr_billion": "257502",
+      "grdp_year": "2025",
+      "bev_registered": "",
+      "n_stations": "32",
+      "n_chargers": "44",
+      "n_connectors": "46",
+      "total_installed_kW": "1166.0",
+      "stations_per_100k": "0.607",
+      "chargers_per_100k": "0.834",
+      "kW_per_10k": "2.21",
+      "stations_per_trillion_gdp": "0.124",
+      "chargers_per_1000_bev": ""
+    },
+    "_caution": "total_connectors here (1) disagrees with our derived value (17) for the same station: they keep co-located sites as separate rows with a cluster id, we merge them. Do not mix capacity columns across the two without reconciling."
+  }
+}

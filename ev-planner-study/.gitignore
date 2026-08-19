@@ -1,0 +1,21 @@
+# Raw source data. Large, downloadable from the origin, and named in README.md
+# with the exact URL and date so a reader can fetch the same bytes rather than
+# pull them out of git history.
+java-260814.osm.pbf
+idn_admin_boundaries.gdb/
+idn_pop_2026_CN_100m_R2025A_v1.tif
+*.osm.pbf
+*.tif
+
+# Symlink farm pointing at the files above.
+data/
+
+# Local ETL environment. Rebuilt from requirements, never shared.
+.venv-etl/
+.ruff_cache/
+__pycache__/
+
+# Working copies kept while the land use double counting was being tracked down.
+# The corrected grid is grid_jabodetabek_500m.gpkg, which IS committed.
+grid_before_landuse_fix.gpkg
+*.backup.gpkg
