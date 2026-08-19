@@ -17,6 +17,7 @@ import {
 import { driverMapStyles as mapStyles, LeafletMap, type MapViewport } from '@evflow/ui';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import { closeButtonIcon, filterSettingIcon, searchIcon } from '../ev_driver/components/driverMapIcons';
+import { getDrawerAwareMapCenter } from '../ev_driver/station-status/stationDetailState';
 import { getUserLocation } from '../ev_driver/utils/location';
 import {
   commercialPoiIcon,
@@ -35,9 +36,14 @@ import {
   plannerMarkers,
   plannerPolygons,
   prioritySemanticCategory,
+  type OptimalSite,
   type PlannerLayerKey,
   type PlannerLayerState
 } from './demandHeatmap';
+import { SiteFeasibilitySheet } from './site-feasibility/SiteFeasibilitySheet';
+import { resolveOptimalSite } from './site-feasibility/siteFeasibilityLogic';
+import { getSiteFeasibility } from './site-feasibility/siteFeasibilityMockData';
+import type { SiteFeasibilityData, SiteFeasibilityTab } from './site-feasibility/siteFeasibilityTypes';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -53,6 +59,8 @@ type Coordinates = {
   longitude: number;
 };
 
+type PlannerSheetMode = 'layers' | 'site-feasibility';
+
 type LayerRow = {
   icon: string;
   key: PlannerLayerKey;
@@ -61,6 +69,8 @@ type LayerRow = {
 };
 
 const collapsedSheetHeight = 104;
+const collapsedSiteSheetHeight = 258;
+const siteDetailZoom = 15;
 const sheetAnimation = LayoutAnimation.Presets.easeInEaseOut;
 
 const mockLocations: Record<string, Coordinates> = {
@@ -80,7 +90,7 @@ const layerRows: LayerRow[] = [
 ];
 
 export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHeatmapScreenProps) {
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const [layers, setLayers] = useState<PlannerLayerState>(defaultPlannerLayers);
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState('');
@@ -90,7 +100,13 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   const [status, setStatus] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(true);
   const [sites, setSites] = useState(() => generateMockOptimalSites(jakartaViewport));
+  const [sheetMode, setSheetMode] = useState<PlannerSheetMode>('layers');
+  const [selectedSite, setSelectedSite] = useState<OptimalSite | null>(null);
+  const [siteData, setSiteData] = useState<SiteFeasibilityData | null>(null);
+  const [siteLoading, setSiteLoading] = useState(false);
+  const [siteTab, setSiteTab] = useState<SiteFeasibilityTab>('feasibility');
   const expandedRef = useRef(expanded);
+  const sheetModeRef = useRef(sheetMode);
   const sheetScrollAtTopRef = useRef(true);
 
   useEffect(() => {
@@ -98,7 +114,29 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   }, [expanded]);
 
   useEffect(() => {
-    if (!layers.optimalSites) return;
+    sheetModeRef.current = sheetMode;
+  }, [sheetMode]);
+
+  useEffect(() => {
+    if (!selectedSite) {
+      setSiteData(null);
+      setSiteLoading(false);
+      return;
+    }
+
+    let active = true;
+    setSiteLoading(true);
+    void getSiteFeasibility(selectedSite.id).then((data) => {
+      if (active) {
+        setSiteData(data);
+        setSiteLoading(false);
+      }
+    });
+    return () => { active = false; };
+  }, [selectedSite]);
+
+  useEffect(() => {
+    if (!layers.optimalSites || selectedSite) return;
 
     setAnalyzing(true);
     const timer = setTimeout(() => {
@@ -107,7 +145,7 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
     }, 420);
 
     return () => clearTimeout(timer);
-  }, [layers.optimalSites, viewport]);
+  }, [layers.optimalSites, selectedSite, viewport]);
 
   const animateNext = useCallback(() => {
     LayoutAnimation.configureNext(sheetAnimation);
@@ -116,6 +154,23 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   const setSheetExpanded = useCallback((nextExpanded: boolean) => {
     animateNext();
     setExpanded(nextExpanded);
+  }, [animateNext]);
+
+  const closeSiteFeasibility = useCallback(() => {
+    animateNext();
+    setSelectedSite(null);
+    setSiteData(null);
+    setSiteTab('feasibility');
+    setSheetMode('layers');
+    setExpanded(false);
+  }, [animateNext]);
+
+  const openLayers = useCallback(() => {
+    animateNext();
+    setSelectedSite(null);
+    setSiteData(null);
+    setSheetMode('layers');
+    setExpanded(true);
   }, [animateNext]);
 
   const drawerPanResponder = useMemo(
@@ -131,7 +186,9 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
         return isSwipingDown || isSwipingUp;
       },
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 18 && expandedRef.current) {
+        if (gestureState.dy > 18 && sheetModeRef.current === 'site-feasibility') {
+          setSheetExpanded(false);
+        } else if (gestureState.dy > 18 && expandedRef.current) {
           setSheetExpanded(false);
         } else if (gestureState.dy < -18 && !expandedRef.current) {
           setSheetExpanded(true);
@@ -142,6 +199,17 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   );
 
   const onViewportChange = useCallback((next: MapViewport) => setViewport(next), []);
+
+  const onMarkerPress = useCallback((markerId: string) => {
+    const site = resolveOptimalSite(sites, markerId);
+    if (!site) return;
+
+    animateNext();
+    setSelectedSite(site);
+    setSiteTab('feasibility');
+    setSheetMode('site-feasibility');
+    setExpanded(true);
+  }, [animateNext, sites]);
 
   const submitSearch = () => {
     const match = mockLocations[query.trim().toLowerCase()];
@@ -170,6 +238,19 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   const polygons = useMemo(() => plannerPolygons(layers), [layers]);
   const expandedSheetHeight = getExpandedSheetHeight(height, topInset, bottomOffset);
   const sheetHeight = expanded ? expandedSheetHeight : collapsedSheetHeight;
+  const expandedSiteSheetHeight = getSiteExpandedSheetHeight(height, width, topInset, bottomOffset);
+  const siteSheetHeight = expanded ? expandedSiteSheetHeight : collapsedSiteSheetHeight;
+
+  useEffect(() => {
+    if (sheetMode !== 'site-feasibility' || !selectedSite) return;
+
+    setCenter(getDrawerAwareMapCenter(
+      selectedSite,
+      siteDetailZoom,
+      bottomOffset + siteSheetHeight
+    ));
+    setViewport((current) => ({ ...current, zoom: siteDetailZoom }));
+  }, [bottomOffset, selectedSite, sheetMode, siteSheetHeight]);
 
   return (
     <View style={mapStyles.page}>
@@ -177,8 +258,10 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
         center={center}
         currentLocation={currentLocation}
         markers={markers}
+        onMarkerPress={onMarkerPress}
         onViewportChange={onViewportChange}
         polygonLayers={polygons}
+        selectedMarkerId={selectedSite?.id ?? null}
         zoom={viewport.zoom}
       />
 
@@ -199,7 +282,7 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
         <Pressable
           accessibilityLabel="Open map layers"
           accessibilityRole="button"
-          onPress={() => setSheetExpanded(true)}
+          onPress={openLayers}
           style={mapStyles.filterIcon}
         >
           <SvgAssetIcon color="#005F64" height={18} name="filter" svg={filterSettingIcon} width={18} />
@@ -215,7 +298,7 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
         <MapControlButton
           accessibilityLabel="Open map layers"
           icon={layersIcon}
-          onPress={() => setSheetExpanded(true)}
+          onPress={openLayers}
           primary
         />
       </View>
@@ -229,19 +312,20 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
         </View>
       ) : null}
 
-      {layers.demandHeatmap && !expanded ? (
+      {layers.demandHeatmap && sheetMode === 'layers' && !expanded ? (
         <DemandHeatmapLegend bottom={bottomOffset + collapsedSheetHeight + 12} />
       ) : null}
 
-      <View
-        style={[
-          mapStyles.sheet,
-          plannerStyles.sheet,
-          getSheetStateStyle(sheetHeight),
-          { bottom: bottomOffset }
-        ]}
-        {...drawerPanResponder.panHandlers}
-      >
+      {sheetMode === 'layers' ? (
+        <View
+          style={[
+            mapStyles.sheet,
+            plannerStyles.sheet,
+            getSheetStateStyle(sheetHeight),
+            { bottom: bottomOffset }
+          ]}
+          {...drawerPanResponder.panHandlers}
+        >
         <Pressable
           accessibilityLabel={expanded ? 'Collapse Map Layers' : 'Expand Map Layers'}
           accessibilityRole="button"
@@ -301,7 +385,22 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
             ))}
           </ScrollView>
         </View>
-      </View>
+        </View>
+      ) : (
+        <SiteFeasibilitySheet
+          activeTab={siteTab}
+          bottom={bottomOffset}
+          data={siteData}
+          expanded={expanded}
+          height={siteSheetHeight}
+          loading={siteLoading}
+          onClose={closeSiteFeasibility}
+          onScrollTopChange={(atTop) => { sheetScrollAtTopRef.current = atTop; }}
+          onTabChange={setSiteTab}
+          onToggleExpanded={() => setSheetExpanded(!expanded)}
+          panHandlers={drawerPanResponder.panHandlers}
+        />
+      )}
     </View>
   );
 }
@@ -380,6 +479,13 @@ function getExpandedSheetHeight(screenHeight: number, topInset: number, bottomOf
   const availableHeight = screenHeight - bottomOffset - searchBarBottom;
   const viewportProportion = (screenHeight - bottomOffset) * 0.68;
   return Math.max(360, Math.floor(Math.min(600, availableHeight, viewportProportion)));
+}
+
+function getSiteExpandedSheetHeight(screenHeight: number, screenWidth: number, topInset: number, bottomOffset: number) {
+  const usableHeight = screenHeight - bottomOffset;
+  const roomBelowSearch = usableHeight - (topInset + 102);
+  const targetHeight = screenWidth < 768 ? roomBelowSearch : Math.min(720, usableHeight * 0.8, roomBelowSearch);
+  return Math.max(collapsedSiteSheetHeight, Math.floor(targetHeight));
 }
 
 type WebTransitionStyle = ViewStyle & {
