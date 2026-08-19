@@ -4,7 +4,7 @@ import { energyIcon, paybackIcon, revenueIcon, sessionsIcon } from './siteFeasib
 import { formatRevenueIdr, getPaybackStatus } from './siteFeasibilityLogic';
 import type { FinancialProjection } from './siteFeasibilityTypes';
 
-export function FinancialProjectionsTab({ financial }: { financial: FinancialProjection }) {
+export function FinancialProjectionsTab({ basis, financial }: { basis?: string; financial: FinancialProjection }) {
   const metrics = [
     { title: 'Sessions/day', value: String(financial.sessionsPerDay), supporting: 'High utilization per port', icon: sessionsIcon },
     { title: 'Energy/day', value: `${financial.energyPerDayKwh} kWh`, supporting: 'Target grid utilization', icon: energyIcon },
@@ -14,6 +14,7 @@ export function FinancialProjectionsTab({ financial }: { financial: FinancialPro
   return (
     <View>
       <Text style={styles.sectionTitle}>PROJECTION SUMMARY</Text>
+      {basis ? <Text style={styles.basis}>{basis}</Text> : null}
       <View style={styles.grid}>
         {metrics.map((metric) => (
           <View key={metric.title} style={styles.card}>
@@ -29,6 +30,7 @@ export function FinancialProjectionsTab({ financial }: { financial: FinancialPro
 
 const styles = StyleSheet.create({
   sectionTitle: { color: '#697586', fontFamily: 'monospace', fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 14 },
+  basis: { color: '#667386', fontSize: 10, lineHeight: 14, marginBottom: 12, marginTop: -8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   card: { alignItems: 'center', backgroundColor: '#FFFFFF', borderColor: '#BCE3FA', borderRadius: 12, borderWidth: 1, justifyContent: 'center', minHeight: 134, padding: 12, width: '48.7%' },
   heading: { alignItems: 'center', alignSelf: 'stretch', flexDirection: 'row', gap: 6 },

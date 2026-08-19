@@ -14,7 +14,14 @@ import {
   useWindowDimensions,
   type ViewStyle
 } from 'react-native';
-import { driverMapStyles as mapStyles, LeafletMap, type MapViewport } from '@evflow/ui';
+import {
+  driverMapStyles as mapStyles,
+  LeafletMap,
+  type LeafletMapMarker,
+  type LeafletPolygonLayer,
+  type MapViewport
+} from '@evflow/ui';
+import { fetchPlannerCandidates, fetchPlannerCells, fetchStations, PlannerApiError } from '@evflow/shared';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import { closeButtonIcon, filterSettingIcon, searchIcon } from '../ev_driver/components/driverMapIcons';
 import { getDrawerAwareMapCenter } from '../ev_driver/station-status/stationDetailState';
@@ -31,6 +38,7 @@ import {
 } from './demandHeatmapIcons';
 import {
   defaultPlannerLayers,
+  demandHeatmapPolygons,
   generateMockOptimalSites,
   jakartaViewport,
   plannerMarkers,
@@ -40,9 +48,18 @@ import {
   type PlannerLayerKey,
   type PlannerLayerState
 } from './demandHeatmap';
+import {
+  plannerCandidateToOptimalSite,
+  plannerCellsToMetricPolygons,
+  plannerCellsToPolygons,
+  plannerLandUseToPolygons,
+  plannerStationsToMarkers,
+  plannerViewportBbox,
+  type PlannerLandUseMetric
+} from './plannerApiAdapters';
 import { SiteFeasibilitySheet } from './site-feasibility/SiteFeasibilitySheet';
 import { resolveOptimalSite } from './site-feasibility/siteFeasibilityLogic';
-import { getSiteFeasibility } from './site-feasibility/siteFeasibilityMockData';
+import { getSiteFeasibility } from './site-feasibility/siteFeasibilityData';
 import type { SiteFeasibilityData, SiteFeasibilityTab } from './site-feasibility/siteFeasibilityTypes';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -84,7 +101,7 @@ const layerRows: LayerRow[] = [
   { key: 'optimalSites', icon: optimalSiteIcon, title: 'Optimal Sites', subtitle: 'AI Recommended' },
   { key: 'demandHeatmap', icon: heatmapLayerIcon, title: 'Demand Heatmap', subtitle: 'AI Gap Analysis' },
   { key: 'existingSpklus', icon: spkluLayerIcon, title: 'Existing SPKLUs', subtitle: 'Active Network' },
-  { key: 'commercialPois', icon: commercialPoiIcon, title: 'Commercial POIs', subtitle: 'Activity Hubs' },
+  { key: 'commercialPois', icon: commercialPoiIcon, title: 'Commercial POIs', subtitle: 'Activity Density' },
   { key: 'populationDensity', icon: populationIcon, title: 'Population Density', subtitle: 'Census Data' },
   { key: 'landUse', icon: landUseIcon, title: 'Land Use', subtitle: 'Grid & Land Use' }
 ];
@@ -96,18 +113,34 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   const [query, setQuery] = useState('');
   const [viewport, setViewport] = useState<MapViewport>(jakartaViewport);
   const [center, setCenter] = useState<Coordinates>(mockLocations.jakarta);
+  const [mapZoom, setMapZoom] = useState(jakartaViewport.zoom);
   const [currentLocation, setCurrentLocation] = useState<Coordinates | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(true);
+  const [heatmapUpdating, setHeatmapUpdating] = useState(true);
   const [sites, setSites] = useState(() => generateMockOptimalSites(jakartaViewport));
+  const [demandPolygons, setDemandPolygons] = useState(demandHeatmapPolygons);
+  const [existingSpkluMarkers, setExistingSpkluMarkers] = useState<LeafletMapMarker[]>([]);
+  const [commercialPoiPolygons, setCommercialPoiPolygons] = useState<LeafletPolygonLayer[]>([]);
+  const [populationPolygons, setPopulationPolygons] = useState<LeafletPolygonLayer[]>([]);
+  const [landUsePolygons, setLandUsePolygons] = useState<LeafletPolygonLayer[]>([]);
+  const [layerStatus, setLayerStatus] = useState<string | null>(null);
   const [sheetMode, setSheetMode] = useState<PlannerSheetMode>('layers');
   const [selectedSite, setSelectedSite] = useState<OptimalSite | null>(null);
   const [siteData, setSiteData] = useState<SiteFeasibilityData | null>(null);
   const [siteLoading, setSiteLoading] = useState(false);
+  const [siteError, setSiteError] = useState<string | null>(null);
+  const [siteRetry, setSiteRetry] = useState(0);
   const [siteTab, setSiteTab] = useState<SiteFeasibilityTab>('feasibility');
   const expandedRef = useRef(expanded);
   const sheetModeRef = useRef(sheetMode);
   const sheetScrollAtTopRef = useRef(true);
+  const candidatesRequestRef = useRef<ReturnType<typeof fetchPlannerCandidates> | null>(null);
+  const lastMapViewRef = useRef({
+    center: mockLocations.jakarta,
+    viewport: jakartaViewport,
+    zoom: jakartaViewport.zoom
+  });
 
   useEffect(() => {
     expandedRef.current = expanded;
@@ -121,31 +154,157 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
     if (!selectedSite) {
       setSiteData(null);
       setSiteLoading(false);
+      setSiteError(null);
       return;
     }
 
     let active = true;
     setSiteLoading(true);
+    setSiteError(null);
     void getSiteFeasibility(selectedSite.id).then((data) => {
       if (active) {
         setSiteData(data);
         setSiteLoading(false);
       }
+    }).catch((error: unknown) => {
+      if (active) {
+        setSiteError(plannerErrorCopy(error));
+        setSiteLoading(false);
+      }
     });
     return () => { active = false; };
-  }, [selectedSite]);
+  }, [selectedSite, siteRetry]);
 
   useEffect(() => {
     if (!layers.optimalSites || selectedSite) return;
 
+    let active = true;
     setAnalyzing(true);
-    const timer = setTimeout(() => {
-      setSites(generateMockOptimalSites(viewport));
-      setAnalyzing(false);
-    }, 420);
+    candidatesRequestRef.current ??= fetchPlannerCandidates({ clusters: 15, quantile: 0.9 });
+    void candidatesRequestRef.current
+      .then((response) => {
+        if (!active) return;
+        setSites(response.candidates.map(plannerCandidateToOptimalSite));
+        setStatus((current) => current?.startsWith('Planning API:') ? null : current);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        candidatesRequestRef.current = null;
+        setStatus(`Planning API: ${plannerErrorCopy(error)} Showing fallback recommendations.`);
+      })
+      .finally(() => {
+        if (active) setAnalyzing(false);
+      });
 
-    return () => clearTimeout(timer);
-  }, [layers.optimalSites, selectedSite, viewport]);
+    return () => { active = false; };
+  }, [layers.optimalSites, selectedSite]);
+
+  useEffect(() => {
+    if (!layers.demandHeatmap || selectedSite) return;
+
+    const controller = new AbortController();
+    setHeatmapUpdating(true);
+    const timer = setTimeout(() => {
+      void fetchPlannerCells({ ...viewport, limit: 10_000, metric: 'score', signal: controller.signal })
+        .then((response) => {
+          setDemandPolygons(plannerCellsToPolygons(response));
+          setStatus(response.truncated
+            ? `Planning API: Showing ${response.cells_returned.toLocaleString()} highest-scoring of ${response.cells_in_viewport.toLocaleString()} cells. Zoom in for full coverage.`
+            : null);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          setStatus(`Planning API: ${plannerErrorCopy(error)} Keeping the previous heatmap.`);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setHeatmapUpdating(false);
+        });
+    }, 280);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [layers.demandHeatmap, selectedSite, viewport]);
+
+  useEffect(() => {
+    if (!layers.existingSpklus || selectedSite) return;
+
+    let active = true;
+    const timer = setTimeout(() => {
+      void fetchStations({ bbox: plannerViewportBbox(viewport), limit: 1000 })
+        .then((response) => {
+          if (!active) return;
+          setExistingSpkluMarkers(plannerStationsToMarkers(response.items));
+          setLayerStatus(response.total > response.items.length
+            ? `Existing SPKLUs: showing ${response.items.length.toLocaleString()} of ${response.total.toLocaleString()} stations in view.`
+            : null);
+        })
+        .catch(() => {
+          if (active) setLayerStatus('Existing SPKLUs could not be loaded for this area.');
+        });
+    }, 280);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [layers.existingSpklus, selectedSite, viewport]);
+
+  useEffect(() => {
+    if (!layers.commercialPois || selectedSite) return;
+    return loadMetricLayer({
+      color: '#0891B2',
+      idPrefix: 'commercial-poi',
+      metric: 'poi_total',
+      onError: () => setLayerStatus('Commercial POI density could not be loaded for this area.'),
+      onLoad: (polygons) => {
+        setCommercialPoiPolygons(polygons);
+        setLayerStatus(null);
+      },
+      viewport
+    });
+  }, [layers.commercialPois, selectedSite, viewport]);
+
+  useEffect(() => {
+    if (!layers.populationDensity || selectedSite) return;
+    return loadMetricLayer({
+      color: '#7C3AED',
+      idPrefix: 'population',
+      metric: 'population',
+      onError: () => setLayerStatus('Population density could not be loaded for this area.'),
+      onLoad: (polygons) => {
+        setPopulationPolygons(polygons);
+        setLayerStatus(null);
+      },
+      viewport
+    });
+  }, [layers.populationDensity, selectedSite, viewport]);
+
+  useEffect(() => {
+    if (!layers.landUse || selectedSite) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const metrics: PlannerLandUseMetric[] = ['residential', 'commercial', 'retail', 'industrial'];
+      void Promise.all(metrics.map(async (metric) => [
+        metric,
+        await fetchPlannerCells({ ...viewport, limit: 10_000, metric, signal: controller.signal })
+      ] as const))
+        .then((responses) => {
+          setLandUsePolygons(plannerLandUseToPolygons(Object.fromEntries(responses)));
+          setLayerStatus(null);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setLayerStatus('Land-use coverage could not be loaded for this area.');
+        });
+    }, 280);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [layers.landUse, selectedSite, viewport]);
 
   const animateNext = useCallback(() => {
     LayoutAnimation.configureNext(sheetAnimation);
@@ -157,18 +316,26 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   }, [animateNext]);
 
   const closeSiteFeasibility = useCallback(() => {
+    const previousMapView = lastMapViewRef.current;
+    sheetModeRef.current = 'layers';
     animateNext();
     setSelectedSite(null);
     setSiteData(null);
+    setSiteError(null);
     setSiteTab('feasibility');
     setSheetMode('layers');
     setExpanded(false);
+    setCenter(previousMapView.center);
+    setMapZoom(previousMapView.zoom);
+    setViewport(previousMapView.viewport);
   }, [animateNext]);
 
   const openLayers = useCallback(() => {
+    sheetModeRef.current = 'layers';
     animateNext();
     setSelectedSite(null);
     setSiteData(null);
+    setSiteError(null);
     setSheetMode('layers');
     setExpanded(true);
   }, [animateNext]);
@@ -198,14 +365,31 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
     [setSheetExpanded]
   );
 
-  const onViewportChange = useCallback((next: MapViewport) => setViewport(next), []);
+  const onViewportChange = useCallback((next: MapViewport) => {
+    setViewport(next);
+    if (sheetModeRef.current === 'layers') {
+      lastMapViewRef.current = {
+        center: next.center ?? {
+          latitude: (next.north + next.south) / 2,
+          longitude: (next.east + next.west) / 2
+        },
+        viewport: next,
+        zoom: next.zoom
+      };
+    }
+  }, []);
 
   const onMarkerPress = useCallback((markerId: string) => {
     const site = resolveOptimalSite(sites, markerId);
     if (!site) return;
 
+    // Freeze the return viewport synchronously. Leaflet may auto-pan an open
+    // marker popup before React commits the sheet-mode state; waiting for the
+    // effect would accidentally save that detail movement as the user's view.
+    sheetModeRef.current = 'site-feasibility';
     animateNext();
     setSelectedSite(site);
+    setSiteError(null);
     setSiteTab('feasibility');
     setSheetMode('site-feasibility');
     setExpanded(true);
@@ -234,8 +418,16 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
     }
   };
 
-  const markers = useMemo(() => plannerMarkers(layers, sites), [layers, sites]);
-  const polygons = useMemo(() => plannerPolygons(layers), [layers]);
+  const markers = useMemo(
+    () => plannerMarkers(layers, sites, existingSpkluMarkers),
+    [existingSpkluMarkers, layers, sites]
+  );
+  const polygons = useMemo(() => plannerPolygons(layers, {
+    commercialPois: commercialPoiPolygons,
+    demandHeatmap: demandPolygons,
+    landUse: landUsePolygons,
+    populationDensity: populationPolygons
+  }), [commercialPoiPolygons, demandPolygons, landUsePolygons, layers, populationPolygons]);
   const expandedSheetHeight = getExpandedSheetHeight(height, topInset, bottomOffset);
   const sheetHeight = expanded ? expandedSheetHeight : collapsedSheetHeight;
   const expandedSiteSheetHeight = getSiteExpandedSheetHeight(height, width, topInset, bottomOffset);
@@ -249,7 +441,7 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
       siteDetailZoom,
       bottomOffset + siteSheetHeight
     ));
-    setViewport((current) => ({ ...current, zoom: siteDetailZoom }));
+    setMapZoom(siteDetailZoom);
   }, [bottomOffset, selectedSite, sheetMode, siteSheetHeight]);
 
   return (
@@ -262,7 +454,7 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
         onViewportChange={onViewportChange}
         polygonLayers={polygons}
         selectedMarkerId={selectedSite?.id ?? null}
-        zoom={viewport.zoom}
+        zoom={mapZoom}
       />
 
       <View style={[mapStyles.searchBar, { top: 24 + topInset }]}>
@@ -303,12 +495,23 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
         />
       </View>
 
-      {status ? <Text accessibilityLiveRegion="polite" style={[plannerStyles.status, { top: topInset + 168 }]}>{status}</Text> : null}
+      {status || layerStatus ? (
+        <Text accessibilityLiveRegion="polite" style={[plannerStyles.status, { top: topInset + 168 }]}>
+          {layerStatus ?? status}
+        </Text>
+      ) : null}
 
       {analyzing && layers.optimalSites ? (
         <View style={[plannerStyles.analysis, { top: topInset + 168 }]}>
           <ActivityIndicator color="#006973" size="small" />
           <Text style={plannerStyles.analysisText}>Analyzing visible area...</Text>
+        </View>
+      ) : null}
+
+      {heatmapUpdating && layers.demandHeatmap && !analyzing ? (
+        <View style={[plannerStyles.analysis, { top: topInset + 168 }]}>
+          <ActivityIndicator color="#006973" size="small" />
+          <Text style={plannerStyles.analysisText}>Updating analysis...</Text>
         </View>
       ) : null}
 
@@ -391,6 +594,7 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
           activeTab={siteTab}
           bottom={bottomOffset}
           data={siteData}
+          error={siteError}
           expanded={expanded}
           height={siteSheetHeight}
           loading={siteLoading}
@@ -398,6 +602,7 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
           onScrollTopChange={(atTop) => { sheetScrollAtTopRef.current = atTop; }}
           onTabChange={setSiteTab}
           onToggleExpanded={() => setSheetExpanded(!expanded)}
+          onRetry={() => setSiteRetry((current) => current + 1)}
           panHandlers={drawerPanResponder.panHandlers}
         />
       )}
@@ -486,6 +691,42 @@ function getSiteExpandedSheetHeight(screenHeight: number, screenWidth: number, t
   const roomBelowSearch = usableHeight - (topInset + 102);
   const targetHeight = screenWidth < 768 ? roomBelowSearch : Math.min(720, usableHeight * 0.8, roomBelowSearch);
   return Math.max(collapsedSiteSheetHeight, Math.floor(targetHeight));
+}
+
+function plannerErrorCopy(error: unknown) {
+  if (error instanceof PlannerApiError) return error.message;
+  if (error instanceof TypeError) return 'Unable to reach the backend.';
+  return 'Planning data could not be loaded.';
+}
+
+function loadMetricLayer({
+  color,
+  idPrefix,
+  metric,
+  onError,
+  onLoad,
+  viewport
+}: {
+  color: string;
+  idPrefix: string;
+  metric: string;
+  onError: () => void;
+  onLoad: (polygons: LeafletPolygonLayer[]) => void;
+  viewport: MapViewport;
+}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    void fetchPlannerCells({ ...viewport, limit: 10_000, metric, signal: controller.signal })
+      .then((response) => onLoad(plannerCellsToMetricPolygons(response, color, idPrefix)))
+      .catch(() => {
+        if (!controller.signal.aborted) onError();
+      });
+  }, 280);
+
+  return () => {
+    clearTimeout(timer);
+    controller.abort();
+  };
 }
 
 type WebTransitionStyle = ViewStyle & {

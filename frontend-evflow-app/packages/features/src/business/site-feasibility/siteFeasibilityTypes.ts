@@ -14,19 +14,24 @@ export type NearbyStationBenchmark = {
   averageDailySessions: number;
   averageWeeklySessions: number;
   averageMonthlySessions: number;
+  availableConnectors?: number;
+  totalConnectors?: number;
 };
 
 export type SiteFeasibilityData = {
   optimalSiteId: string;
   locationCode: string;
   locationName: string;
+  locationScore?: number;
   heatmapScore: number;
   commercialPoiCount: number;
   nearestSpkluDistanceKm: number;
   roadType: RoadType;
   residentialPoints: number;
   financial: FinancialProjection;
+  financialBasis?: string;
   nearbyStations: NearbyStationBenchmark[];
+  nearbyBenchmarkBasis?: string;
 };
 
 export type SiteFeasibilityTab = 'feasibility' | 'financial' | 'nearby';

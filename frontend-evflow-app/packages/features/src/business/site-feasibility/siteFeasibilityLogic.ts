@@ -33,7 +33,7 @@ export function calculateSiteScores(data: SiteFeasibilityData): SiteFeasibilityS
     poi,
     overlap,
     activity,
-    location: calculateLocationScore(data.heatmapScore, overlap, poi, activity)
+    location: data.locationScore ?? calculateLocationScore(data.heatmapScore, overlap, poi, activity)
   };
 }
 

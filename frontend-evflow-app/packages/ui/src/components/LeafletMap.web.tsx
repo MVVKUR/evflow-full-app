@@ -32,6 +32,7 @@ type LeafletMapProps = {
 };
 
 export type MapViewport = {
+  center?: { latitude: number; longitude: number };
   east: number;
   north: number;
   south: number;
@@ -103,6 +104,8 @@ export function LeafletMap({
   const reactId = useId();
   const mapContainerId = `leaflet-map-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const mapRef = useRef<import('leaflet').Map | null>(null);
+  const requestedViewRef = useRef({ center, zoom });
+  requestedViewRef.current = { center, zoom };
   const userMarkerRef = useRef<import('leaflet').CircleMarker | null>(null);
   const stationMarkersRef = useRef<import('leaflet').Layer[]>([]);
   const radiusCircleRef = useRef<import('leaflet').Circle | null>(null);
@@ -293,10 +296,11 @@ export function LeafletMap({
           return;
         }
 
+        const requestedView = requestedViewRef.current;
         map = leaflet.map(mapContainerId, {
           attributionControl: true,
-          center: [center.latitude, center.longitude],
-          zoom,
+          center: [requestedView.center.latitude, requestedView.center.longitude],
+          zoom: requestedView.zoom,
           zoomControl: false
         });
 
@@ -318,7 +322,9 @@ export function LeafletMap({
         });
         map.on('moveend', () => {
           const bounds = map!.getBounds();
+          const viewportCenter = map!.getCenter();
           onViewportChangeRef.current?.({
+            center: { latitude: viewportCenter.lat, longitude: viewportCenter.lng },
             east: bounds.getEast(), north: bounds.getNorth(), south: bounds.getSouth(), west: bounds.getWest(), zoom: map!.getZoom()
           });
         });
@@ -350,7 +356,7 @@ export function LeafletMap({
       polylineLayersRef.current = [];
       polygonLayersRef.current = [];
     };
-  }, [center.latitude, center.longitude, mapContainerId, zoom]);
+  }, [mapContainerId]);
 
   useEffect(() => {
     radiusKmRef.current = radiusKm ?? null;
@@ -370,7 +376,15 @@ export function LeafletMap({
   }, [onViewportChange]);
 
   useEffect(() => {
-    mapRef.current?.setView([center.latitude, center.longitude], zoom);
+    const map = mapRef.current;
+    if (!map) return;
+
+    const currentCenter = map.getCenter();
+    const centerChanged = Math.abs(currentCenter.lat - center.latitude) > 0.000001
+      || Math.abs(currentCenter.lng - center.longitude) > 0.000001;
+    if (centerChanged || map.getZoom() !== zoom) {
+      map.setView([center.latitude, center.longitude], zoom);
+    }
   }, [center.latitude, center.longitude, zoom]);
 
   const polylineLayersRef = useRef<import('leaflet').Layer[]>([]);

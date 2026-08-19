@@ -16,14 +16,16 @@ const tabs: Array<{ key: SiteFeasibilityTab; label: string }> = [
   { key: 'nearby', label: 'Nearby Stations' }
 ];
 
-export function SiteFeasibilitySheet({ activeTab, bottom, data, expanded, height, loading, onClose, onScrollTopChange, onTabChange, onToggleExpanded, panHandlers }: {
+export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded, height, loading, onClose, onRetry, onScrollTopChange, onTabChange, onToggleExpanded, panHandlers }: {
   activeTab: SiteFeasibilityTab;
   bottom: number;
   data: SiteFeasibilityData | null;
+  error: string | null;
   expanded: boolean;
   height: number;
   loading: boolean;
   onClose: () => void;
+  onRetry: () => void;
   onScrollTopChange: (atTop: boolean) => void;
   onTabChange: (tab: SiteFeasibilityTab) => void;
   onToggleExpanded: () => void;
@@ -35,8 +37,8 @@ export function SiteFeasibilitySheet({ activeTab, bottom, data, expanded, height
     content = activeTab === 'feasibility'
       ? <FeasibilityScoreTab data={data} scores={scores} />
       : activeTab === 'financial'
-        ? <FinancialProjectionsTab financial={data.financial} />
-        : <NearbyStationsTab stations={data.nearbyStations} />;
+        ? <FinancialProjectionsTab basis={data.financialBasis} financial={data.financial} />
+        : <NearbyStationsTab basis={data.nearbyBenchmarkBasis} stations={data.nearbyStations} />;
   }
 
   return (
@@ -56,7 +58,14 @@ export function SiteFeasibilitySheet({ activeTab, bottom, data, expanded, height
           <SvgAssetIcon color="#191C1D" height={14} name="close" svg={closeButtonIcon} width={14} />
         </Pressable>
       </View>
-      {loading || !data || !scores ? (
+      {error ? (
+        <View accessibilityLiveRegion="polite" style={styles.errorCard}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable accessibilityLabel="Retry site analysis" accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : loading || !data || !scores ? (
         <View style={styles.loading}><ActivityIndicator color="#007D8C" /><Text style={styles.loadingText}>Loading site analysis...</Text></View>
       ) : (
         <>
@@ -96,7 +105,11 @@ const styles = StyleSheet.create({
   detailContent: { flex: 1 },
   content: { padding: 16, paddingBottom: 30 },
   loading: { alignItems: 'center', flex: 1, gap: 10, justifyContent: 'center' },
-  loadingText: { color: '#607077', fontSize: 12 }
+  loadingText: { color: '#607077', fontSize: 12 },
+  errorCard: { backgroundColor: '#FFF7ED', borderColor: '#F4C384', borderRadius: 12, borderWidth: 1, gap: 12, margin: 16, padding: 14 },
+  errorText: { color: '#7A4410', fontSize: 12, lineHeight: 17 },
+  retryButton: { alignItems: 'center', alignSelf: 'flex-start', borderColor: '#00696F', borderRadius: 8, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 16 },
+  retryText: { color: '#005F64', fontSize: 12, fontWeight: '800' }
 });
 
 type WebTransitionStyle = ViewStyle & {

@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('react-native', () => ({ NativeModules: {} }));
 import { generateMockOptimalSites, jakartaViewport } from '../demandHeatmap';
 import {
   calculateActivityScore,
@@ -13,7 +15,7 @@ import {
   resolveOptimalSite,
   sortStationsByDistance
 } from './siteFeasibilityLogic';
-import { getSiteFeasibility } from './siteFeasibilityMockData';
+import { getSiteFeasibility } from './siteFeasibilityData';
 
 describe('Epic 5 feasibility calculations', () => {
   it('calculates and caps the POI density score', () => {

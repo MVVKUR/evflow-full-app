@@ -6,6 +6,7 @@ export * from './charging/api';
 export * from './chargers/filterChargers';
 export * from './ev_models/api';
 export * from './html/escapeHtml';
+export * from './planner/api';
 export * from './routes/buildRoutePlanRequest';
 export * from './routes/routeTypes';
 export * from './routes/routeApi';

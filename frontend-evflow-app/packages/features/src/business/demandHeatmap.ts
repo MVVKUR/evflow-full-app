@@ -36,26 +36,29 @@ export function demandHeatmapPolygons(): LeafletPolygonLayer[] {
   return demandZones.map((zone) => ({ id: zone.id, coordinates: zone.coordinates, fillColor: priorityColors[zone.priority], fillOpacity: 0.28, color: priorityColors[zone.priority], weight: 1 }));
 }
 
-const existingSpklus: LeafletMapMarker[] = [
-  { id: 'spklu-menteng', label: 'Mock SPKLU · Menteng', latitude: -6.192, longitude: 106.832 },
-  { id: 'spklu-kemang', label: 'Mock SPKLU · Kemang', latitude: -6.265, longitude: 106.816 },
-  { id: 'spklu-tomang', label: 'Mock SPKLU · Tomang', latitude: -6.171, longitude: 106.79 }
-];
-const commercialPois: LeafletMapMarker[] = [
-  { id: 'poi-mall', label: 'Mock commercial POI · Mall', latitude: -6.224, longitude: 106.81 },
-  { id: 'poi-office', label: 'Mock commercial POI · Office hub', latitude: -6.214, longitude: 106.822 },
-  { id: 'poi-transit', label: 'Mock commercial POI · Transit', latitude: -6.176, longitude: 106.827 }
-];
-
-const densityPolygons: LeafletPolygonLayer[] = [{ id: 'density-high', coordinates: [[-6.15, 106.8], [-6.15, 106.86], [-6.22, 106.86], [-6.22, 106.8]], fillColor: '#7c3aed', fillOpacity: .13 }, { id: 'density-medium', coordinates: [[-6.22, 106.72], [-6.22, 106.8], [-6.3, 106.8], [-6.3, 106.72]], fillColor: '#a78bfa', fillOpacity: .1 }];
-const landUsePolygons: LeafletPolygonLayer[] = [{ id: 'land-commercial', coordinates: [[-6.12, 106.78], [-6.12, 106.84], [-6.18, 106.84], [-6.18, 106.78]], fillColor: '#0ea5e9', fillOpacity: .12 }, { id: 'land-mixed', coordinates: [[-6.2, 106.84], [-6.2, 106.92], [-6.27, 106.92], [-6.27, 106.84]], fillColor: '#f97316', fillOpacity: .12 }];
-
-export function plannerPolygons(layers: PlannerLayerState): LeafletPolygonLayer[] {
-  return [...(layers.landUse ? landUsePolygons : []), ...(layers.populationDensity ? densityPolygons : []), ...(layers.demandHeatmap ? demandHeatmapPolygons() : [])];
+export function plannerPolygons(
+  layers: PlannerLayerState,
+  overlays: {
+    commercialPois?: LeafletPolygonLayer[];
+    demandHeatmap?: LeafletPolygonLayer[];
+    landUse?: LeafletPolygonLayer[];
+    populationDensity?: LeafletPolygonLayer[];
+  } = {}
+): LeafletPolygonLayer[] {
+  return [
+    ...(layers.landUse ? overlays.landUse ?? [] : []),
+    ...(layers.populationDensity ? overlays.populationDensity ?? [] : []),
+    ...(layers.demandHeatmap ? overlays.demandHeatmap ?? demandHeatmapPolygons() : []),
+    ...(layers.commercialPois ? overlays.commercialPois ?? [] : [])
+  ];
 }
-export function plannerMarkers(layers: PlannerLayerState, sites: OptimalSite[]): LeafletMapMarker[] {
+export function plannerMarkers(
+  layers: PlannerLayerState,
+  sites: OptimalSite[],
+  existingSpklus: LeafletMapMarker[] = []
+): LeafletMapMarker[] {
   const recommendationMarkers = sites.map((site) => ({ id: site.id, label: `${site.district} · Viability ${site.score}`, latitude: site.latitude, longitude: site.longitude, iconSvg: scoreMarkerSvg(site.score) }));
-  return [...(layers.existingSpklus ? existingSpklus : []), ...(layers.commercialPois ? commercialPois : []), ...(layers.optimalSites ? recommendationMarkers : [])];
+  return [...(layers.existingSpklus ? existingSpklus : []), ...(layers.optimalSites ? recommendationMarkers : [])];
 }
 function scoreMarkerSvg(score: number) {
   const tier = viabilityTier(score); const fill = tier === 1 ? '#00a9e8' : '#f3f6fa'; const text = tier === 1 ? '#ffffff' : '#1f2937'; const stroke = tier === 1 ? '#ffffff' : '#64748b'; const halo = tier === 1 ? 'filter:drop-shadow(0 0 8px rgba(0,169,232,.72));' : 'filter:drop-shadow(0 2px 4px rgba(15,23,42,.28));';

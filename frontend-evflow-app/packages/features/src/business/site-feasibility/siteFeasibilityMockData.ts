@@ -53,6 +53,6 @@ function createFallbackSite(siteId: string): SiteFeasibilityData {
   };
 }
 
-export async function getSiteFeasibility(siteId: string): Promise<SiteFeasibilityData> {
+export function getMockSiteFeasibility(siteId: string): SiteFeasibilityData {
   return siteId === primarySite.optimalSiteId ? primarySite : createFallbackSite(siteId);
 }
