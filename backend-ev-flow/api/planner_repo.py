@@ -13,6 +13,7 @@ from typing import Optional
 from sqlalchemy import text
 
 from .db import engine
+from .services.planner_viewport import Viewport, metric_column
 from .services.site_scoring import SiteWeights, normalised_weights
 
 #: Percentile rank per feature, computed across every cell that survives the
@@ -112,6 +113,65 @@ def candidate_sites(weights: SiteWeights, clusters: int = 15,
     """
     with engine.connect() as c:
         return [dict(r) for r in c.execute(text(sql), params).mappings().all()]
+
+
+def cells_geojson(viewport: Viewport, metric: str = "score",
+                  weights: Optional[SiteWeights] = None, limit: int = 1500,
+                  min_overlap: float = 0.5,
+                  excluded_kota: Optional[list[str]] = None) -> list[dict]:
+    """Cell polygons inside the viewport, carrying the value the map colours by.
+
+    The map draws real polygons rather than a rendered image, so the geometry
+    goes over the wire. That makes the row limit the thing standing between a
+    zoomed-out request and a multi-megabyte response, which is why cells are
+    ordered by the chosen value and the highest ones survive the cut: a truncated
+    heatmap should lose its quiet cells, not an arbitrary slice of the map.
+
+    `metric` never reaches SQL as caller text. It is resolved through the fixed
+    table in planner_viewport, because a column name cannot be a bound parameter.
+    """
+    column = metric_column(metric)
+    # Safe to interpolate: `column` is a value from METRIC_COLUMNS, not input.
+    value_expr = "s.score" if column == "score" else f"p.{column}"
+
+    params = _weight_params(weights or SiteWeights())
+    params.update(west=viewport.west, south=viewport.south,
+                  east=viewport.east, north=viewport.north,
+                  limit=limit, min_overlap=min_overlap,
+                  excluded_kota=excluded_kota if excluded_kota is not None else DEFAULT_EXCLUDED_KOTA)
+    sql = _RANKED + f"""
+        SELECT s.cell_id, s.kota, s.score, {value_expr} AS value,
+               -- 6 decimals is about 11 cm, far finer than a 500 m cell needs.
+               -- The default 15 nearly doubles the payload for no visible gain.
+               ST_AsGeoJSON(p.geom, 6) AS geometry,
+               s.population, s.poi_total, s.station_count,
+               round(s.nearest_station_m::numeric, 0) AS nearest_station_m
+          FROM scored s
+          JOIN planning_cells p ON p.cell_id = s.cell_id
+         WHERE p.geom && ST_MakeEnvelope(:west, :south, :east, :north, 4326)
+      ORDER BY value DESC NULLS LAST, s.cell_id
+         LIMIT :limit
+    """
+    with engine.connect() as c:
+        return [dict(r) for r in c.execute(text(sql), params).mappings().all()]
+
+
+def cells_in_viewport(viewport: Viewport, min_overlap: float = 0.5,
+                      excluded_kota: Optional[list[str]] = None) -> int:
+    """How many cells the viewport actually covers, so a truncated response can say so."""
+    sql = """
+        SELECT count(*) FROM planning_cells
+         WHERE overlap_frac >= :min_overlap
+           AND kota <> ALL(:excluded_kota)
+           AND geom && ST_MakeEnvelope(:west, :south, :east, :north, 4326)
+    """
+    with engine.connect() as c:
+        return c.execute(text(sql), {
+            "west": viewport.west, "south": viewport.south,
+            "east": viewport.east, "north": viewport.north,
+            "min_overlap": min_overlap,
+            "excluded_kota": excluded_kota if excluded_kota is not None else DEFAULT_EXCLUDED_KOTA,
+        }).scalar_one()
 
 
 def get_cell(cell_id: str, weights: Optional[SiteWeights] = None,

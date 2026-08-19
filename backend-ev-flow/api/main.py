@@ -7,6 +7,7 @@ Spec: http://localhost:8000/openapi.json
 from __future__ import annotations
 
 import hashlib
+import json
 import hmac
 import logging
 import os
@@ -56,6 +57,7 @@ from .models import (
     PlannerCandidate,
     PlannerCandidatesResponse,
     PlannerCellDetail,
+    PlannerCellsGeoJSON,
     PlannerCellScore,
     PlannerGridSummary,
     PlannerNearbyStation,
@@ -63,6 +65,7 @@ from .models import (
     SiteWeightsInput,
 )
 from .services import service_area
+from .services.planner_viewport import METRIC_COLUMNS, parse_bbox
 from .services.site_scoring import SiteWeights, normalised_weights
 
 # Coordinate masking must not depend on the ASGI lifespan running: with
@@ -2438,6 +2441,67 @@ def planner_benchmark(cell_id: str,
     return PlannerBenchmarkResponse(
         cell_id=cell_id, radius_km=radius_km,
         stations=[PlannerNearbyStation(**r) for r in rows],
+    )
+
+
+@app.get("/api/v1/planner/cells.geojson", response_model=PlannerCellsGeoJSON, tags=["planner"],
+         summary="Grid cells in a viewport as polygons, for the heatmap layers (AC Epic 4)",
+         responses={422: {"description": "Malformed bbox or unknown metric"}})
+def planner_cells_geojson(
+    bbox: str = Query(..., description="Viewport as 'minLon,minLat,maxLon,maxLat'.",
+                      examples=["106.62,-6.38,106.98,-6.06"]),
+    metric: str = Query("score", description=f"Which layer to colour by: {', '.join(sorted(METRIC_COLUMNS))}."),
+    limit: int = Query(3000, ge=1, le=10000,
+                       description="Row cap. Cells are ordered by the metric, so the cut loses the "
+                                   "quiet ones. A Jakarta-wide viewport holds about 5,200 cells, so "
+                                   "the ceiling is set above that: read cells_in_viewport and raise "
+                                   "this rather than draw a map that is silently missing its edges."),
+    coverage: float = Query(0.35, ge=0), population: float = Query(0.35, ge=0),
+    activity: float = Query(0.20, ge=0), roads: float = Query(0.10, ge=0),
+    user: dict = Depends(require_planner),
+) -> PlannerCellsGeoJSON:
+    """Cell polygons for the map to colour, one feature per 500 m cell.
+
+    The map draws real polygons rather than a rendered image, so geometry crosses
+    the wire and the row limit is what keeps a zoomed-out request from returning
+    the whole grid. `cells_in_viewport` and `truncated` are reported next to the
+    features so a partial heatmap can say it is partial instead of looking
+    complete and being wrong at the edges.
+    """
+    try:
+        viewport = parse_bbox(bbox)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    weights, applied = _planner_weights_or_422(
+        SiteWeightsInput(coverage=coverage, population=population,
+                         activity=activity, roads=roads))
+    try:
+        rows = planner_repo.cells_geojson(viewport, metric=metric, weights=weights, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    features = [{
+        "type": "Feature",
+        "geometry": json.loads(r["geometry"]),
+        "properties": {
+            "cell_id": r["cell_id"], "kota": r["kota"],
+            "value": float(r["value"]) if r["value"] is not None else None,
+            "score": float(r["score"]) if r["score"] is not None else None,
+            "population": r["population"], "poi_total": r["poi_total"],
+            "station_count": r["station_count"],
+            # Decimal is not JSON serialisable and silently becomes a string,
+            # which a client reading it as a number would not notice until the
+            # arithmetic came out wrong.
+            "nearest_station_m": float(r["nearest_station_m"]) if r["nearest_station_m"] is not None else None,
+        },
+    } for r in rows]
+
+    return PlannerCellsGeoJSON(
+        type="FeatureCollection", features=features, metric=metric,
+        weights_applied=applied, cells_returned=len(features),
+        cells_in_viewport=planner_repo.cells_in_viewport(viewport),
+        truncated=len(features) >= limit,
     )
 
 

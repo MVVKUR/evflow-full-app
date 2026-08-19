@@ -1194,6 +1194,31 @@ class PlannerCellDetail(BaseModel):
     provenance: PlannerProvenance = PlannerProvenance()
 
 
+class PlannerCellsGeoJSON(BaseModel):
+    """RFC 7946 FeatureCollection of grid cells, plus what it took to build it.
+
+    Each feature is one 500 m cell polygon. `value` in the properties is the
+    number the layer is coloured by, already selected by `metric`, so the client
+    colours by one field and never has to know which column it came from.
+
+    Coordinates are GeoJSON order, longitude before latitude. Leaflet's polygon
+    constructor takes latitude first, so a Leaflet client has to swap them.
+    """
+    type: str = Field("FeatureCollection", examples=["FeatureCollection"])
+    features: list[dict[str, Any]]
+    metric: str = Field(..., description="Which layer the `value` property carries.")
+    weights_applied: dict[str, float] = Field(
+        ..., description="Rescaled to sum to 1. Only affects metric=score.")
+    cells_returned: int
+    cells_in_viewport: int = Field(
+        ..., description="How many cells the viewport covers before the row limit.")
+    truncated: bool = Field(
+        ..., description="True when the limit cut the response. The cells kept are "
+                         "the highest scoring ones, so a truncated map is missing its "
+                         "quiet areas rather than an arbitrary slice.")
+    provenance: PlannerProvenance = PlannerProvenance()
+
+
 class PlannerNearbyStation(BaseModel):
     id: str
     name: Optional[str] = None
