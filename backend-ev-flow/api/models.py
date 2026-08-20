@@ -1194,6 +1194,100 @@ class PlannerCellDetail(BaseModel):
     provenance: PlannerProvenance = PlannerProvenance()
 
 
+class SiteRoiInput(BaseModel):
+    """What a payback projection needs, split by who is entitled to know it.
+
+    Capex and opex have no defaults on purpose. They are the planner's own cost
+    structure, they dominate the result, and inventing them would make the
+    endpoint answer a question nobody asked. Demand has no default for the same
+    reason, and is required as either a daily session count or a utilisation
+    target, never both.
+    """
+    cell_id: str
+    capex_per_connector_idr: int = Field(
+        ..., ge=0, examples=[250_000_000],
+        description="Your installed cost per connector. No default: this is your number, not ours.")
+    opex_monthly_idr: int = Field(
+        ..., ge=0, examples=[15_000_000],
+        description="Rent, demand charge, maintenance and staffing per month.")
+    sessions_per_day: Optional[float] = Field(
+        None, ge=0, description="Assumed demand. Supply this or utilisation_target, not both.")
+    utilisation_target: Optional[float] = Field(
+        None, ge=0, le=1,
+        description="Assumed share of connector hours that are busy, 0 to 1. "
+                    "Converted to sessions per day using the hardware you specify.")
+    connectors: int = Field(2, ge=1, le=50)
+    power_kw: float = Field(60.0, gt=0, le=1000)
+    energy_per_session_kwh: float = Field(
+        30.0, gt=0, le=500,
+        description="Completed sessions in this database average 34.8 kWh, though "
+                    "all but eight of them are simulated.")
+    tariff_idr_per_kwh: Optional[int] = Field(
+        None, gt=0, description="Defaults to the tariff the charging flow actually bills at.")
+    admin_fee_idr: Optional[int] = Field(None, ge=0, description="Defaults to the billed admin fee.")
+    energy_cost_idr_per_kwh: int = Field(
+        0, ge=0, examples=[1450],
+        description="What you pay for a kWh before reselling it. The tariff above is the "
+                    "driver's price and you keep only the spread. Leave at 0 only if your "
+                    "opex figure already contains the electricity bill.")
+    horizon_years: int = Field(10, ge=1, le=40)
+
+    @model_validator(mode="after")
+    def _exactly_one_demand_input(self) -> "SiteRoiInput":
+        given = [self.sessions_per_day is not None, self.utilisation_target is not None]
+        if sum(given) != 1:
+            raise ValueError(
+                "supply exactly one of sessions_per_day or utilisation_target; "
+                "two demand figures that disagree cannot both drive the projection")
+        return self
+
+
+class SiteRoiResponse(BaseModel):
+    """A projection, with every input labelled by where it came from.
+
+    payback_months and payback_years are null when the site does not break even.
+    That is not a missing value: a site whose revenue never covers its running
+    costs has no payback period, and capex divided by a negative margin would
+    return a negative number that reads like a fast return.
+    """
+    cell_id: str
+    kota: Optional[str] = None
+    score: Optional[float] = None
+    population: float
+    poi_total: int
+    station_count: int
+    nearest_station_m: Optional[float] = None
+    stations_2km: int
+
+    sessions_per_day: float
+    sessions_per_month: float
+    energy_per_month_kwh: float
+    capacity_sessions_per_day: float = Field(
+        ..., description="Ceiling the hardware allows with no idle time at all. Real sites sit far beneath it.")
+    utilisation: float
+    revenue_monthly_idr: int = Field(..., description="Gross, before the energy is paid for.")
+    energy_cost_idr_per_kwh: int
+    energy_cost_monthly_idr: int
+    opex_monthly_idr: int
+    gross_margin_monthly_idr: int = Field(
+        ..., description="Revenue less energy purchase cost less opex.")
+    capex_total_idr: int
+    payback_months: Optional[float] = None
+    payback_years: Optional[float] = None
+    net_at_horizon_idr: int
+    breaks_even: bool
+    horizon_years: int
+
+    inputs: dict[str, Any] = Field(..., description="Every value the arithmetic used, after defaults.")
+    input_sources: dict[str, str] = Field(
+        ..., description="Where each input came from: planner, default, or charging tariff configuration.")
+    demand_basis: str = Field(
+        ..., description="What the demand figure rests on. Read this before quoting the payback.")
+    cost_basis: str = Field(
+        ..., description="How the electricity bill is being treated in this projection.")
+    provenance: PlannerProvenance = PlannerProvenance()
+
+
 class PlannerCellsGeoJSON(BaseModel):
     """RFC 7946 FeatureCollection of grid cells, plus what it took to build it.
 
