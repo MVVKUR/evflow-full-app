@@ -1,5 +1,11 @@
 -- Charging-session simulation, by M Aidil Akbar, 2026-07-29.
 --
+-- Amended 2026-08-20: the hour and weekday used to select a demand band are
+-- now read in Asia/Jakarta rather than in the database's Etc/UTC. The curve
+-- below was always written for local hours; the extraction was not, so every
+-- band fired seven hours away from the time of day it describes. Migration
+-- 0019 makes the matching correction on the aggregation side.
+--
 -- Generates synthetic charging_sessions so refresh_station_hourly_occupancy()
 -- has history to aggregate into the peak-hours chart. Kept in the repository so
 -- the logic is not lost, but deliberately NOT installed by any migration.
@@ -48,8 +54,14 @@ DECLARE
     min_energy NUMERIC;
     max_energy NUMERIC;
 BEGIN
-    is_weekend := EXTRACT(ISODOW FROM input_time) IN (6, 7);
-    hour_val := EXTRACT(HOUR FROM input_time);
+    -- input_time is TIMESTAMPTZ, and EXTRACT converts it to the session's
+    -- TimeZone before reading the field. This database runs Etc/UTC, so without
+    -- the conversion below hour_val is a UTC hour while every threshold in the
+    -- curve underneath is written for Jakarta: the weekday 06:00-09:00 commute
+    -- band was firing at 13:00-16:00 local, and the 15:00-20:00 evening peak in
+    -- the small hours of the following morning.
+    is_weekend := EXTRACT(ISODOW FROM input_time AT TIME ZONE 'Asia/Jakarta') IN (6, 7);
+    hour_val := EXTRACT(HOUR FROM input_time AT TIME ZONE 'Asia/Jakarta');
 
     -- 1. Walk every free connector and decide whether a session starts in this
     --    15-minute window. Thresholds are per-window, derived from an hourly

@@ -1067,7 +1067,11 @@ class StationStatusResponse(BaseModel):
                     "(type, speed_tier, power_kw) combination.")
 
 class StationOccupancyHour(BaseModel):
-    hour_of_day: int = Field(..., description="Hour of day (0 to 23).", examples=[14])
+    hour_of_day: int = Field(
+        ..., description="Hour of day, 0 to 23, in Asia/Jakarta (UTC+7). Local rather than UTC "
+                         "because the reader is a driver deciding when to go, and the two differ "
+                         "by seven hours here.",
+        examples=[14])
     avg_occupancy: float = Field(
         ..., description="Average share of the station's connectors busy in this hour, percent (0-100).",
         examples=[45.5])
@@ -1079,7 +1083,11 @@ class StationOccupancyHour(BaseModel):
         examples=["MODERATE"])
 
 class StationOccupancyDay(BaseModel):
-    day_of_week: int = Field(..., description="Day of week (1=Monday, ..., 7=Sunday).", examples=[1])
+    day_of_week: int = Field(
+        ..., description="Day of week, 1=Monday to 7=Sunday, in Asia/Jakarta. The day rolls over on "
+                         "the local boundary, so a session at 02:00 Monday in Jakarta is Monday here "
+                         "even though UTC still calls it Sunday.",
+        examples=[1])
     day_name: str = Field(..., description="Day name.", examples=["Monday"])
     hours: list[StationOccupancyHour]
 
