@@ -115,6 +115,66 @@ export type PlannerBenchmarkResponse = {
   provenance: PlannerProvenance;
 };
 
+export type PlannerRoiInput = {
+  cell_id: string;
+  capex_per_connector_idr: number;
+  opex_monthly_idr: number;
+  sessions_per_day?: number;
+  utilisation_target?: number;
+  connectors?: number;
+  power_kw?: number;
+  energy_per_session_kwh?: number;
+  tariff_idr_per_kwh?: number;
+  admin_fee_idr?: number;
+  energy_cost_idr_per_kwh?: number;
+  horizon_years?: number;
+};
+
+export type PlannerRoiResolvedInputs = {
+  connectors: number;
+  power_kw: number;
+  sessions_per_day: number;
+  energy_per_session_kwh: number;
+  capex_per_connector_idr: number;
+  opex_monthly_idr: number;
+  tariff_idr_per_kwh: number;
+  admin_fee_idr: number;
+  energy_cost_idr_per_kwh: number;
+  horizon_years: number;
+};
+
+export type PlannerRoiResponse = {
+  cell_id: string;
+  kota: string | null;
+  score: number | null;
+  population: number;
+  poi_total: number;
+  station_count: number;
+  nearest_station_m: number | null;
+  stations_2km: number;
+  sessions_per_day: number;
+  sessions_per_month: number;
+  energy_per_month_kwh: number;
+  capacity_sessions_per_day: number;
+  utilisation: number;
+  revenue_monthly_idr: number;
+  energy_cost_idr_per_kwh: number;
+  energy_cost_monthly_idr: number;
+  opex_monthly_idr: number;
+  gross_margin_monthly_idr: number;
+  capex_total_idr: number;
+  payback_months: number | null;
+  payback_years: number | null;
+  net_at_horizon_idr: number;
+  breaks_even: boolean;
+  horizon_years: number;
+  inputs: PlannerRoiResolvedInputs;
+  input_sources: Record<string, string>;
+  demand_basis: string;
+  cost_basis: string;
+  provenance: PlannerProvenance;
+};
+
 export type PlannerViewportRequest = {
   west: number;
   south: number;
@@ -180,6 +240,14 @@ export function fetchPlannerBenchmark(cellId: string, radiusKm = 5, fetcher: typ
   );
 }
 
+export function fetchPlannerRoi(input: PlannerRoiInput, fetcher: typeof fetch = fetch) {
+  return plannerRequest<PlannerRoiResponse>('/api/v1/planner/roi', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  }, fetcher);
+}
+
 async function plannerRequest<T>(path: string, init: RequestInit, fetcher: typeof fetch): Promise<T> {
   const authHeaders = getAuthHeaders();
   if (!authHeaders) throw new PlannerApiError(401, 'Sign in with a Business Planner account to load planning data.');
@@ -196,6 +264,12 @@ async function plannerErrorMessage(response: Response) {
   try {
     const payload = await response.clone().json() as { detail?: unknown };
     if (typeof payload.detail === 'string') return payload.detail;
+    if (Array.isArray(payload.detail)) {
+      const messages = payload.detail
+        .map((item) => item && typeof item === 'object' && 'msg' in item ? (item as { msg?: unknown }).msg : null)
+        .filter((message): message is string => typeof message === 'string');
+      if (messages.length > 0) return messages.join(' ');
+    }
   } catch {
     // Use the role-aware fallback below.
   }

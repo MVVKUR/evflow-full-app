@@ -26,6 +26,7 @@ describe('planner cell feasibility adapter', () => {
     expect(data.locationName).toBe('Jakarta Barat');
     expect(data.nearestSpkluDistanceKm).toBe(2);
     expect(calculateSiteScores(data).location).toBe(74);
+    expect(data.financial).toBeNull();
   });
 
   it('carries real station identity, distance and connector availability', () => {

@@ -22,7 +22,6 @@ export function plannerCellToSiteFeasibility(
   benchmark: PlannerBenchmarkResponse | null
 ): SiteFeasibilityData {
   const score = Math.round(Math.min(Math.max(detail.score ?? 0, 0), 1) * 100);
-  const sessionsPerDay = 10 + Math.round(score / 12);
   return {
     optimalSiteId: detail.cell_id,
     locationCode: detail.cell_id,
@@ -33,13 +32,7 @@ export function plannerCellToSiteFeasibility(
     nearestSpkluDistanceKm: detail.nearest_station_m === null ? 5 : detail.nearest_station_m / 1000,
     roadType: roadTypeFromNodes(detail.road_nodes),
     residentialPoints: Math.round(Math.min(Math.max(detail.land_use.residential ?? 0, 0), 1) * 50),
-    financial: {
-      sessionsPerDay,
-      energyPerDayKwh: sessionsPerDay * 18,
-      monthlyRevenueIdr: Math.round(sessionsPerDay * 1_350_000),
-      paybackYears: Number(Math.max(2.5, 5.5 - score / 30).toFixed(1))
-    },
-    financialBasis: 'Financial projections remain deterministic frontend estimates; the planner API does not expose a financial forecast yet.',
+    financial: null,
     nearbyStations: benchmark ? benchmarkStations(benchmark) : [],
     nearbyBenchmarkBasis: benchmark
       ? 'Station identity, distance, and connector availability come from the planner API. Session utilization remains simulated until historical sessions are exposed.'

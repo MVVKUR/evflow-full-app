@@ -16,15 +16,19 @@ const tabs: Array<{ key: SiteFeasibilityTab; label: string }> = [
   { key: 'nearby', label: 'Nearby Stations' }
 ];
 
-export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded, height, loading, onClose, onRetry, onScrollTopChange, onTabChange, onToggleExpanded, panHandlers }: {
+export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded, financial, financialError, financialLoading, height, loading, onClose, onFinancialRetry, onRetry, onScrollTopChange, onTabChange, onToggleExpanded, panHandlers }: {
   activeTab: SiteFeasibilityTab;
   bottom: number;
   data: SiteFeasibilityData | null;
   error: string | null;
   expanded: boolean;
+  financial: SiteFeasibilityData['financial'];
+  financialError: string | null;
+  financialLoading: boolean;
   height: number;
   loading: boolean;
   onClose: () => void;
+  onFinancialRetry: () => void;
   onRetry: () => void;
   onScrollTopChange: (atTop: boolean) => void;
   onTabChange: (tab: SiteFeasibilityTab) => void;
@@ -37,7 +41,7 @@ export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded,
     content = activeTab === 'feasibility'
       ? <FeasibilityScoreTab data={data} scores={scores} />
       : activeTab === 'financial'
-        ? <FinancialProjectionsTab basis={data.financialBasis} financial={data.financial} />
+        ? <FinancialProjectionsTab error={financialError} financial={financial} loading={financialLoading} onRetry={onFinancialRetry} />
         : <NearbyStationsTab basis={data.nearbyBenchmarkBasis} stations={data.nearbyStations} />;
   }
 

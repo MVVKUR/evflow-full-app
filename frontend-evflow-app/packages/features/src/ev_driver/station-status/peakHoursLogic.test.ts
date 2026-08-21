@@ -3,6 +3,7 @@ import {
   availabilityBandLabels,
   createPeakHourBars,
   getAvailabilityBand,
+  getJakartaDayAndHour,
   getLowDemandRecommendation,
   selectPeakHoursDay
 } from './peakHoursLogic';
@@ -13,6 +14,13 @@ const monday: DailyPeakHours = { dayOfWeek: 1, hourlyOccupancyPercent: Array.fro
 const tuesday: DailyPeakHours = { dayOfWeek: 2, hourlyOccupancyPercent: Array.from({ length: 24 }, (_, hour) => 100 - hour * 4) };
 
 describe('peak hours logic', () => {
+  it('compares server buckets with the current Jakarta weekday and hour', () => {
+    expect(getJakartaDayAndHour(new Date('2026-08-21T18:30:00Z'))).toEqual({
+      dayOfWeek: 6,
+      hour: 1
+    });
+  });
+
   it('creates exactly 24 bars, one for every hour', () => {
     const bars = createPeakHourBars(monday);
     expect(bars).toHaveLength(24);

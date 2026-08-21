@@ -95,6 +95,9 @@ export type StationOccupancyLevel = 'LOW' | 'MODERATE' | 'BUSY' | 'PEAK';
  *
  * `day_of_week` is ISO: 1 is Monday, 7 is Sunday. It does NOT line up with
  * `Date.prototype.getDay()`, where 0 is Sunday.
+ * Both `day_of_week` and `hour_of_day` are already bucketed in Asia/Jakarta
+ * (UTC+7) by the backend. Consume them directly; do not add seven hours or
+ * perform another UTC-to-Jakarta conversion.
  *
  * `days` and `hours` may be sparse, and an empty `days` array means there is
  * not enough history yet — which is not the same as a week of zero occupancy.

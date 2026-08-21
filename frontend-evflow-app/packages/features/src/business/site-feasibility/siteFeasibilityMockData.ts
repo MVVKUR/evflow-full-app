@@ -24,7 +24,14 @@ const primarySite: SiteFeasibilityData = {
   nearestSpkluDistanceKm: 4,
   roadType: 'primary',
   residentialPoints: 35,
-  financial: { sessionsPerDay: 18, energyPerDayKwh: 324, monthlyRevenueIdr: 24_000_000, paybackYears: 2.9 },
+  financial: {
+    sessionsPerDay: 18,
+    energyPerDayKwh: 324,
+    monthlyRevenueIdr: 24_000_000,
+    paybackYears: 2.9,
+    breaksEven: true,
+    projectionKind: 'mock'
+  },
   nearbyStations: commonNearbyStations
 };
 
@@ -47,7 +54,9 @@ function createFallbackSite(siteId: string): SiteFeasibilityData {
       sessionsPerDay: 13 + offset,
       energyPerDayKwh: (13 + offset) * 18,
       monthlyRevenueIdr: (18 + offset) * 1_000_000,
-      paybackYears: 3.1 + offset * 0.25
+      paybackYears: 3.1 + offset * 0.25,
+      breaksEven: true,
+      projectionKind: 'mock'
     },
     nearbyStations: commonNearbyStations.map((station, index) => ({ ...station, distanceKm: station.distanceKm + index * 0.15 + offset * 0.1 }))
   };

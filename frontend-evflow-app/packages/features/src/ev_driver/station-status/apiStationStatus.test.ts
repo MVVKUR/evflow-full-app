@@ -145,6 +145,7 @@ describe('getApiStationLiveStatus', () => {
     expect(result.peakHours.days.map((day) => day.dayOfWeek)).toEqual([1, 2, 3, 4, 5, 6, 0]);
     expect(monday.hourlyOccupancyPercent).toHaveLength(24);
     expect(monday.hourlyOccupancyPercent[8]).toBe(45.5);
+    expect(monday.hourlyOccupancyPercent[15]).toBe(0);
     expect(monday.hourlyOccupancyPercent[23]).toBe(100);
     expect(tuesday.hourlyOccupancyPercent).toEqual(Array(24).fill(0));
     expect(sunday.hourlyOccupancyPercent[12]).toBe(25);

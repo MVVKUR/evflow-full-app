@@ -10,6 +10,7 @@ import {
   fetchPlannerCandidates,
   fetchPlannerCell,
   fetchPlannerCells,
+  fetchPlannerRoi,
   PlannerApiError
 } from './api';
 
@@ -78,5 +79,47 @@ describe('planner API client', () => {
     await expect(fetchPlannerCandidates({}, fetcher)).rejects.toEqual(
       new PlannerApiError(403, 'this endpoint requires a planner account')
     );
+  });
+
+  it('posts a typed ROI request with planner auth and JSON content', async () => {
+    const payload = {
+      cell_id: 'JBDTBK_22219', payback_years: null, breaks_even: false,
+      input_sources: { capex_per_connector_idr: 'planner' }
+    };
+    const fetcher = fetcherReturning(response(payload));
+    const input = {
+      cell_id: 'JBDTBK_22219', capex_per_connector_idr: 250_000_000,
+      opex_monthly_idr: 15_000_000, utilisation_target: 0.2
+    };
+
+    await expect(fetchPlannerRoi(input, fetcher)).resolves.toBe(payload);
+    const [url, options] = (fetcher as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe(`${EVFLOW_API_BASE_URL}/api/v1/planner/roi`);
+    expect(options.method).toBe('POST');
+    expect(options.headers).toMatchObject({ ...auth, 'Content-Type': 'application/json' });
+    expect(JSON.parse(options.body)).toEqual(input);
+  });
+
+  it.each([
+    [401, 'missing bearer token'],
+    [403, 'this endpoint requires a planner account'],
+    [422, 'assumed demand exceeds hardware capacity']
+  ])('preserves ROI error %s detail', async (status, detail) => {
+    const fetcher = fetcherReturning(response({ detail }, { ok: false, status }));
+    await expect(fetchPlannerRoi({
+      cell_id: 'cell', capex_per_connector_idr: 1,
+      opex_monthly_idr: 1, utilisation_target: 0.2
+    }, fetcher)).rejects.toEqual(new PlannerApiError(status, detail));
+  });
+
+  it('surfaces Pydantic validation detail for an invalid ROI demand basis', async () => {
+    const fetcher = fetcherReturning(response({
+      detail: [{ type: 'value_error', loc: ['body'], msg: 'supply exactly one demand input' }]
+    }, { ok: false, status: 422 }));
+
+    await expect(fetchPlannerRoi({
+      cell_id: 'cell', capex_per_connector_idr: 1,
+      opex_monthly_idr: 1, utilisation_target: 0.2
+    }, fetcher)).rejects.toEqual(new PlannerApiError(422, 'supply exactly one demand input'));
   });
 });

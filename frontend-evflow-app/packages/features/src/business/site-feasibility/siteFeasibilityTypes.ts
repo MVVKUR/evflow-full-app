@@ -4,7 +4,14 @@ export type FinancialProjection = {
   sessionsPerDay: number;
   energyPerDayKwh: number;
   monthlyRevenueIdr: number;
-  paybackYears: number;
+  paybackYears: number | null;
+  breaksEven: boolean;
+  utilisation?: number;
+  capacitySessionsPerDay?: number;
+  demandBasis?: string;
+  costBasis?: string;
+  inputSources?: Record<string, string>;
+  projectionKind: 'backend' | 'mock';
 };
 
 export type NearbyStationBenchmark = {
@@ -28,8 +35,7 @@ export type SiteFeasibilityData = {
   nearestSpkluDistanceKm: number;
   roadType: RoadType;
   residentialPoints: number;
-  financial: FinancialProjection;
-  financialBasis?: string;
+  financial: FinancialProjection | null;
   nearbyStations: NearbyStationBenchmark[];
   nearbyBenchmarkBasis?: string;
 };
