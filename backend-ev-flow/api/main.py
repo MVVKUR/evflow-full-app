@@ -56,6 +56,9 @@ from .models import (
     PlannerBenchmarkResponse,
     PlannerCandidate,
     PlannerCandidatesResponse,
+    PlannerSavedSite,
+    PlannerSavedSiteStatus,
+    PlannerSavedSitesResponse,
     PlannerCellDetail,
     PlannerCellsGeoJSON,
     SiteRoiInput,
@@ -2400,6 +2403,34 @@ def planner_candidates(body: SiteWeightsInput,
         candidates=[PlannerCandidate(**r) for r in rows],
         excluded_areas=list(planner_repo.DEFAULT_EXCLUDED_KOTA),
     )
+
+
+@app.get("/api/v1/planner/saved-sites", response_model=PlannerSavedSitesResponse, tags=["planner"])
+def planner_saved_sites(user: dict = Depends(require_planner)) -> PlannerSavedSitesResponse:
+    rows = planner_repo.list_saved_sites(str(user["id"]))
+    return PlannerSavedSitesResponse(items=[PlannerSavedSite(**row) for row in rows], total=len(rows))
+
+
+@app.get("/api/v1/planner/saved-sites/{cell_id}", response_model=PlannerSavedSiteStatus, tags=["planner"])
+def planner_saved_site_status(cell_id: str, user: dict = Depends(require_planner)) -> PlannerSavedSiteStatus:
+    return PlannerSavedSiteStatus(
+        cell_id=cell_id,
+        saved=planner_repo.is_site_saved(str(user["id"]), cell_id),
+    )
+
+
+@app.put("/api/v1/planner/saved-sites/{cell_id}", response_model=PlannerSavedSiteStatus, tags=["planner"])
+def planner_save_site(cell_id: str, user: dict = Depends(require_planner)) -> PlannerSavedSiteStatus:
+    if planner_repo.get_cell(cell_id) is None:
+        raise HTTPException(404, f"cell '{cell_id}' not found")
+    planner_repo.save_site(str(user["id"]), cell_id)
+    return PlannerSavedSiteStatus(cell_id=cell_id, saved=True)
+
+
+@app.delete("/api/v1/planner/saved-sites/{cell_id}", response_model=PlannerSavedSiteStatus, tags=["planner"])
+def planner_unsave_site(cell_id: str, user: dict = Depends(require_planner)) -> PlannerSavedSiteStatus:
+    planner_repo.unsave_site(str(user["id"]), cell_id)
+    return PlannerSavedSiteStatus(cell_id=cell_id, saved=False)
 
 
 @app.get("/api/v1/planner/cells/{cell_id}", response_model=PlannerCellDetail, tags=["planner"],

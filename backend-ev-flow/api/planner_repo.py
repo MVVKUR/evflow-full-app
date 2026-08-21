@@ -222,6 +222,56 @@ def get_cell(cell_id: str, weights: Optional[SiteWeights] = None,
     return dict(row) if row else None
 
 
+def save_site(user_id: str, cell_id: str) -> None:
+    """Idempotently bookmark a real planning cell for one planner."""
+    with engine.begin() as c:
+        c.execute(text("""
+            INSERT INTO planner_saved_sites (user_id, cell_id)
+            VALUES (:user_id, :cell_id)
+            ON CONFLICT (user_id, cell_id) DO NOTHING
+        """), {"user_id": user_id, "cell_id": cell_id})
+
+
+def unsave_site(user_id: str, cell_id: str) -> None:
+    """Idempotently remove only this planner's bookmark."""
+    with engine.begin() as c:
+        c.execute(text("""
+            DELETE FROM planner_saved_sites
+            WHERE user_id = :user_id AND cell_id = :cell_id
+        """), {"user_id": user_id, "cell_id": cell_id})
+
+
+def is_site_saved(user_id: str, cell_id: str) -> bool:
+    with engine.connect() as c:
+        return bool(c.execute(text("""
+            SELECT EXISTS (
+                SELECT 1 FROM planner_saved_sites
+                WHERE user_id = :user_id AND cell_id = :cell_id
+            )
+        """), {"user_id": user_id, "cell_id": cell_id}).scalar_one())
+
+
+def list_saved_sites(user_id: str) -> list[dict]:
+    """Return current planning values, newest bookmark first with a stable tie-break."""
+    params = _weight_params(SiteWeights())
+    params.update(user_id=user_id, min_overlap=0.5, excluded_kota=DEFAULT_EXCLUDED_KOTA)
+    sql = _RANKED + """
+        SELECT pss.cell_id, p.kota,
+               ST_Y(p.centroid) AS latitude,
+               ST_X(p.centroid) AS longitude,
+               s.score, p.poi_total,
+               round(p.nearest_station_m::numeric, 0) AS nearest_station_m,
+               p.road_nodes, p.lu_residential_share, pss.saved_at
+          FROM planner_saved_sites pss
+          JOIN planning_cells p ON p.cell_id = pss.cell_id
+     LEFT JOIN scored s ON s.cell_id = pss.cell_id
+         WHERE pss.user_id = :user_id
+      ORDER BY pss.saved_at DESC, pss.cell_id ASC
+    """
+    with engine.connect() as c:
+        return [dict(row) for row in c.execute(text(sql), params).mappings().all()]
+
+
 def nearby_stations(cell_id: str, radius_km: float = 5.0, limit: int = 10) -> list[dict]:
     """Existing stations around a cell, nearest first (Epic 5 benchmarking)."""
     sql = """

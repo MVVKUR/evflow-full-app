@@ -11,6 +11,10 @@ import {
   fetchPlannerCell,
   fetchPlannerCells,
   fetchPlannerRoi,
+  fetchPlannerSavedSites,
+  fetchPlannerSavedSiteStatus,
+  savePlannerSite,
+  deletePlannerSavedSite,
   PlannerApiError
 } from './api';
 
@@ -98,6 +102,20 @@ describe('planner API client', () => {
     expect(options.method).toBe('POST');
     expect(options.headers).toMatchObject({ ...auth, 'Content-Type': 'application/json' });
     expect(JSON.parse(options.body)).toEqual(input);
+  });
+
+  it('uses explicit retry-safe methods for saved sites', async () => {
+    const fetcher = fetcherReturning(response({ cell_id: 'cell / one', saved: true }));
+    await fetchPlannerSavedSites(fetcher);
+    await fetchPlannerSavedSiteStatus('cell / one', fetcher);
+    await savePlannerSite('cell / one', fetcher);
+    await deletePlannerSavedSite('cell / one', fetcher);
+    const calls = (fetcher as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][0]).toBe(`${EVFLOW_API_BASE_URL}/api/v1/planner/saved-sites`);
+    expect(calls[1][0]).toContain('/saved-sites/cell%20%2F%20one');
+    expect(calls[2][1].method).toBe('PUT');
+    expect(calls[3][1].method).toBe('DELETE');
+    expect(calls.every((call) => call[1].headers.Authorization === auth.Authorization)).toBe(true);
   });
 
   it.each([

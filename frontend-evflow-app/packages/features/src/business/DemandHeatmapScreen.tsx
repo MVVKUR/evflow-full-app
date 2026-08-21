@@ -21,7 +21,7 @@ import {
   type LeafletPolygonLayer,
   type MapViewport
 } from '@evflow/ui';
-import { fetchPlannerCandidates, fetchPlannerCells, fetchStations, PlannerApiError } from '@evflow/shared';
+import { fetchPlannerCandidates, fetchPlannerCells, fetchStations } from '@evflow/shared';
 import { SvgAssetIcon } from '../shared/SvgAssetIcon';
 import { closeButtonIcon, filterSettingIcon, searchIcon } from '../ev_driver/components/driverMapIcons';
 import { getDrawerAwareMapCenter } from '../ev_driver/station-status/stationDetailState';
@@ -59,10 +59,7 @@ import {
 } from './plannerApiAdapters';
 import { SiteFeasibilitySheet } from './site-feasibility/SiteFeasibilitySheet';
 import { resolveOptimalSite } from './site-feasibility/siteFeasibilityLogic';
-import { getSiteFeasibility } from './site-feasibility/siteFeasibilityData';
-import { getSiteFinancialLifecycleKey, getSiteFinancialProjection, isMockOptimalSiteId } from './site-feasibility/siteFeasibilityFinancial';
-import { getMockSiteFeasibility } from './site-feasibility/siteFeasibilityMockData';
-import type { FinancialProjection, SiteFeasibilityData, SiteFeasibilityTab } from './site-feasibility/siteFeasibilityTypes';
+import { plannerErrorCopy, useSiteFeasibilityDetail } from './site-feasibility/useSiteFeasibilityDetail';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -129,17 +126,8 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   const [layerStatus, setLayerStatus] = useState<string | null>(null);
   const [sheetMode, setSheetMode] = useState<PlannerSheetMode>('layers');
   const [selectedSite, setSelectedSite] = useState<OptimalSite | null>(null);
-  const [siteData, setSiteData] = useState<SiteFeasibilityData | null>(null);
-  const [siteLoading, setSiteLoading] = useState(false);
-  const [siteError, setSiteError] = useState<string | null>(null);
-  const [siteRetry, setSiteRetry] = useState(0);
-  const [siteTab, setSiteTab] = useState<SiteFeasibilityTab>('feasibility');
-  const [financial, setFinancial] = useState<FinancialProjection | null>(null);
-  const [financialLoading, setFinancialLoading] = useState(false);
-  const [financialError, setFinancialError] = useState<string | null>(null);
-  const [financialRetry, setFinancialRetry] = useState(0);
   const selectedSiteId = selectedSite?.id ?? null;
-  const financialRequestKey = getSiteFinancialLifecycleKey(selectedSiteId, financialRetry);
+  const detail = useSiteFeasibilityDetail(selectedSiteId, { onMessage: setStatus });
   const expandedRef = useRef(expanded);
   const sheetModeRef = useRef(sheetMode);
   const sheetScrollAtTopRef = useRef(true);
@@ -157,66 +145,6 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
   useEffect(() => {
     sheetModeRef.current = sheetMode;
   }, [sheetMode]);
-
-  useEffect(() => {
-    if (!selectedSiteId) {
-      setSiteData(null);
-      setSiteLoading(false);
-      setSiteError(null);
-      return;
-    }
-
-    let active = true;
-    setSiteLoading(true);
-    setSiteError(null);
-    void getSiteFeasibility(selectedSiteId).then((data) => {
-      if (active) {
-        setSiteData(data);
-        setSiteLoading(false);
-      }
-    }).catch((error: unknown) => {
-      if (active) {
-        setSiteError(plannerErrorCopy(error));
-        setSiteLoading(false);
-      }
-    });
-    return () => { active = false; };
-  }, [selectedSiteId, siteRetry]);
-
-  useEffect(() => {
-    if (!selectedSiteId) {
-      setFinancial(null);
-      setFinancialError(null);
-      setFinancialLoading(false);
-      return;
-    }
-
-    setFinancial(null);
-    setFinancialError(null);
-
-    if (isMockOptimalSiteId(selectedSiteId)) {
-      setFinancial(getMockSiteFeasibility(selectedSiteId).financial);
-      setFinancialLoading(false);
-      return;
-    }
-
-    let active = true;
-    setFinancial(null);
-    setFinancialLoading(true);
-    setFinancialError(null);
-    void getSiteFinancialProjection(selectedSiteId).then((projection) => {
-      if (active) {
-        setFinancial(projection);
-        setFinancialLoading(false);
-      }
-    }).catch((error: unknown) => {
-      if (active) {
-        setFinancialError(plannerRoiErrorCopy(error));
-        setFinancialLoading(false);
-      }
-    });
-    return () => { active = false; };
-  }, [financialRequestKey]);
 
   useEffect(() => {
     if (!layers.optimalSites || selectedSite) return;
@@ -363,12 +291,6 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
     sheetModeRef.current = 'layers';
     animateNext();
     setSelectedSite(null);
-    setSiteData(null);
-    setSiteError(null);
-    setSiteTab('feasibility');
-    setFinancial(null);
-    setFinancialError(null);
-    setFinancialLoading(false);
     setSheetMode('layers');
     setExpanded(false);
     setCenter(previousMapView.center);
@@ -380,11 +302,6 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
     sheetModeRef.current = 'layers';
     animateNext();
     setSelectedSite(null);
-    setSiteData(null);
-    setSiteError(null);
-    setFinancial(null);
-    setFinancialError(null);
-    setFinancialLoading(false);
     setSheetMode('layers');
     setExpanded(true);
   }, [animateNext]);
@@ -438,11 +355,6 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
     sheetModeRef.current = 'site-feasibility';
     animateNext();
     setSelectedSite(site);
-    setSiteError(null);
-    setSiteTab('feasibility');
-    setFinancial(null);
-    setFinancialError(null);
-    setFinancialLoading(false);
     setSheetMode('site-feasibility');
     setExpanded(true);
   }, [animateNext, sites]);
@@ -643,22 +555,25 @@ export function DemandHeatmapScreen({ bottomOffset = 0, topInset = 0 }: DemandHe
         </View>
       ) : (
         <SiteFeasibilitySheet
-          activeTab={siteTab}
+          activeTab={detail.activeTab}
           bottom={bottomOffset}
-          data={siteData}
-          error={siteError}
+          data={detail.data}
+          error={detail.error}
           expanded={expanded}
-          financial={financial}
-          financialError={financialError}
-          financialLoading={financialLoading}
+          financial={detail.financial}
+          financialError={detail.financialError}
+          financialLoading={detail.financialLoading}
           height={siteSheetHeight}
-          loading={siteLoading}
+          isSaved={detail.isSaved}
+          isSaving={detail.isSaving}
+          loading={detail.loading}
           onClose={closeSiteFeasibility}
-          onFinancialRetry={() => setFinancialRetry((current) => current + 1)}
+          onFinancialRetry={detail.retryFinancial}
           onScrollTopChange={(atTop) => { sheetScrollAtTopRef.current = atTop; }}
-          onTabChange={setSiteTab}
+          onTabChange={detail.setActiveTab}
           onToggleExpanded={() => setSheetExpanded(!expanded)}
-          onRetry={() => setSiteRetry((current) => current + 1)}
+          onToggleSaved={detail.isMock ? undefined : detail.toggleSaved}
+          onRetry={detail.retry}
           panHandlers={drawerPanResponder.panHandlers}
         />
       )}
@@ -747,24 +662,6 @@ function getSiteExpandedSheetHeight(screenHeight: number, screenWidth: number, t
   const roomBelowSearch = usableHeight - (topInset + 102);
   const targetHeight = screenWidth < 768 ? roomBelowSearch : Math.min(720, usableHeight * 0.8, roomBelowSearch);
   return Math.max(collapsedSiteSheetHeight, Math.floor(targetHeight));
-}
-
-function plannerErrorCopy(error: unknown) {
-  if (error instanceof PlannerApiError) return error.message;
-  if (error instanceof TypeError) return 'Unable to reach the backend.';
-  return 'Planning data could not be loaded.';
-}
-
-function plannerRoiErrorCopy(error: unknown) {
-  if (error instanceof PlannerApiError) {
-    if (error.status === 401) return 'Session expired. Sign in again.';
-    if (error.status === 403) return 'Business Planner access is required.';
-    if (error.status === 404) return 'This planning cell is no longer available.';
-    if (error.status === 422) return error.message;
-    return error.message;
-  }
-  if (error instanceof TypeError) return 'Unable to reach the backend.';
-  return 'Financial projection could not be calculated.';
 }
 
 function loadMetricLayer({

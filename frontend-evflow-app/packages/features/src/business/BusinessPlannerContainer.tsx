@@ -5,6 +5,7 @@ import { BottomNavigation, evDriverContainerStyles as containerStyles, SideMenu 
 import { useAppSafeAreaInsets } from '../shared/useAppSafeAreaInsets';
 import { ProfileScreen } from '../ev_driver/ProfileScreen';
 import { DemandHeatmapScreen } from './DemandHeatmapScreen';
+import { SavedSitesScreen } from './saved-sites/SavedSitesScreen';
 import { getBusinessPlannerNavigationItems, getBusinessPlannerPath, getBusinessPlannerTab } from './businessPlannerNavigation';
 
 /**
@@ -38,11 +39,9 @@ export function BusinessPlannerContainer() {
       ) : null}
 
       <View style={[containerStyles.content, containerStyles.viewportContent]}>
-        {activeTab === 'demand-heatmap' ? (
-          <DemandHeatmapScreen bottomOffset={bottomOffset} topInset={insets.top} />
-        ) : (
-          <ProfileScreen bottomOffset={bottomOffset} topInset={insets.top} />
-        )}
+        {activeTab === 'demand-heatmap' && <DemandHeatmapScreen bottomOffset={bottomOffset} topInset={insets.top} />}
+        {activeTab === 'saved-sites' && <SavedSitesScreen bottomOffset={bottomOffset} topInset={insets.top} />}
+        {activeTab === 'profile' && <ProfileScreen bottomOffset={bottomOffset} topInset={insets.top} />}
 
         {!desktop ? (
           <View style={[containerStyles.bottomNavWrap, { paddingBottom: insets.bottom }]}>

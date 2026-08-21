@@ -1,11 +1,13 @@
 import { createElement } from 'react';
 import type { NavigationItem } from '@evflow/ui';
 import { DriverAssetIcon } from '../ev_driver/components/DriverAssetIcon';
+import { BusinessPlannerIcon } from './BusinessPlannerIcon';
 
-export type BusinessPlannerTabKey = 'demand-heatmap' | 'profile';
+export type BusinessPlannerTabKey = 'demand-heatmap' | 'saved-sites' | 'profile';
 
 export const businessPlannerTabs: readonly BusinessPlannerTabKey[] = [
   'demand-heatmap',
+  'saved-sites',
   'profile'
 ];
 
@@ -23,7 +25,11 @@ export function getBusinessPlannerPath(tab: BusinessPlannerTabKey): string {
 
 export function getBusinessPlannerNavigationItems(): NavigationItem[] {
   return [
-    makeItem('demand-heatmap', 'Demand Heatmap', 'map'),
+    makeItem('demand-heatmap', 'Heatmap', 'map'),
+    {
+      key: 'saved-sites', label: 'Saved Sites', accessibilityLabel: 'Saved Sites',
+      icon: ({ color }) => createElement(BusinessPlannerIcon, { color, name: 'bookmark' })
+    },
     makeItem('profile', 'Profile', 'profile')
   ];
 }

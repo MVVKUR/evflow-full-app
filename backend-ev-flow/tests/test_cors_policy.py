@@ -144,6 +144,11 @@ def test_the_running_app_never_pairs_credentials_with_a_wildcard():
         assert cors_policy.WILDCARD not in options["allow_origins"]
 
 
+@pytest.mark.unit
+def test_cors_preflight_allows_every_state_changing_route_verb():
+    assert set(cors_policy.STATE_CHANGING_METHODS) <= set(cors_policy.ALLOWED_METHODS)
+
+
 # ================================================= the guard, as a pure function
 
 ALLOWED = ["https://ev-flow.opensoft.id", "http://localhost:5173"]

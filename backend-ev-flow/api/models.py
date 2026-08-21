@@ -1171,6 +1171,29 @@ class PlannerCandidatesResponse(BaseModel):
     provenance: PlannerProvenance = PlannerProvenance()
 
 
+class PlannerSavedSiteStatus(BaseModel):
+    cell_id: str
+    saved: bool
+
+
+class PlannerSavedSite(BaseModel):
+    cell_id: str
+    kota: Optional[str] = None
+    latitude: float
+    longitude: float
+    score: Optional[float] = None
+    poi_total: int
+    nearest_station_m: Optional[float] = None
+    road_nodes: int
+    lu_residential_share: float
+    saved_at: datetime
+
+
+class PlannerSavedSitesResponse(BaseModel):
+    items: list[PlannerSavedSite]
+    total: int
+
+
 class PlannerCellDetail(BaseModel):
     cell_id: str
     kota: Optional[str] = None

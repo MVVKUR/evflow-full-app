@@ -44,6 +44,22 @@ export type PlannerCandidatesResponse = {
   provenance: PlannerProvenance;
 };
 
+export type PlannerSavedSiteApi = {
+  cell_id: string;
+  kota: string | null;
+  latitude: number;
+  longitude: number;
+  score: number | null;
+  poi_total: number;
+  nearest_station_m: number | null;
+  road_nodes: number;
+  lu_residential_share: number;
+  saved_at: string;
+};
+
+export type PlannerSavedSiteStatusApi = { cell_id: string; saved: boolean };
+export type PlannerSavedSitesResponse = { items: PlannerSavedSiteApi[]; total: number };
+
 export type PlannerCellProperties = {
   cell_id: string;
   kota: string | null;
@@ -246,6 +262,22 @@ export function fetchPlannerRoi(input: PlannerRoiInput, fetcher: typeof fetch = 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input)
   }, fetcher);
+}
+
+export function fetchPlannerSavedSites(fetcher: typeof fetch = fetch) {
+  return plannerRequest<PlannerSavedSitesResponse>('/api/v1/planner/saved-sites', {}, fetcher);
+}
+
+export function fetchPlannerSavedSiteStatus(cellId: string, fetcher: typeof fetch = fetch) {
+  return plannerRequest<PlannerSavedSiteStatusApi>(`/api/v1/planner/saved-sites/${encodeURIComponent(cellId)}`, {}, fetcher);
+}
+
+export function savePlannerSite(cellId: string, fetcher: typeof fetch = fetch) {
+  return plannerRequest<PlannerSavedSiteStatusApi>(`/api/v1/planner/saved-sites/${encodeURIComponent(cellId)}`, { method: 'PUT' }, fetcher);
+}
+
+export function deletePlannerSavedSite(cellId: string, fetcher: typeof fetch = fetch) {
+  return plannerRequest<PlannerSavedSiteStatusApi>(`/api/v1/planner/saved-sites/${encodeURIComponent(cellId)}`, { method: 'DELETE' }, fetcher);
 }
 
 async function plannerRequest<T>(path: string, init: RequestInit, fetcher: typeof fetch): Promise<T> {

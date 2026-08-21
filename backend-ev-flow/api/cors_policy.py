@@ -65,7 +65,7 @@ WILDCARD = "*"
 
 # Mirrors the verbs the app actually routes. OPTIONS is absent deliberately:
 # CORSMiddleware answers preflight itself and does not need it listed.
-ALLOWED_METHODS: tuple[str, ...] = ("GET", "POST", "PATCH", "DELETE")
+ALLOWED_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
 # Only these get the origin check. GET/HEAD read public data, and OPTIONS *is*
 # the preflight -- 403ing it would break the very handshake that tells the

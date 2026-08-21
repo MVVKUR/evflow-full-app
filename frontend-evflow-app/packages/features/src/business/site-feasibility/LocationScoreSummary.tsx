@@ -1,10 +1,16 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { BookmarkButton } from '../BookmarkButton';
 import { SvgAssetIcon } from '../../shared/SvgAssetIcon';
 import { buildingIcon, energyIcon, fireIcon } from './siteFeasibilityIcons';
 import { getHeatmapSummary, getLocationPriority, getOverlapSummary, getPoiSummary } from './siteFeasibilityLogic';
 import type { SiteFeasibilityScores } from './siteFeasibilityTypes';
 
-export function LocationScoreSummary({ scores }: { scores: SiteFeasibilityScores }) {
+export function LocationScoreSummary({ isSaved, isSaving, onToggleSaved, scores }: {
+  isSaved?: boolean;
+  isSaving?: boolean;
+  onToggleSaved?: () => void;
+  scores: SiteFeasibilityScores;
+}) {
   const rows = [
     { icon: fireIcon, text: getHeatmapSummary(scores.heatmap) },
     { icon: buildingIcon, text: getPoiSummary(scores.poi) },
@@ -13,6 +19,7 @@ export function LocationScoreSummary({ scores }: { scores: SiteFeasibilityScores
 
   return (
     <View style={styles.card}>
+      {onToggleSaved ? <View style={styles.bookmark}><BookmarkButton disabled={isSaving} isSaved={Boolean(isSaved)} onPress={onToggleSaved} /></View> : null}
       <View accessibilityLabel={`Location score ${scores.location} out of 100`} style={styles.scoreCircle}>
         <Text style={styles.score}>{scores.location}</Text>
         <Text style={styles.outOf}>/100</Text>
@@ -32,11 +39,12 @@ export function LocationScoreSummary({ scores }: { scores: SiteFeasibilityScores
 }
 
 const styles = StyleSheet.create({
-  card: { alignItems: 'center', backgroundColor: '#F8FAFC', borderColor: '#DCE5EA', borderRadius: 16, borderWidth: 1, flexDirection: 'row', minHeight: 164, padding: 20 },
+  card: { alignItems: 'center', backgroundColor: '#F8FAFC', borderColor: '#DCE5EA', borderRadius: 16, borderWidth: 1, flexDirection: 'row', minHeight: 164, padding: 20, position: 'relative' },
+  bookmark: { position: 'absolute', right: 10, top: 10, zIndex: 2 },
   scoreCircle: { alignItems: 'center', borderColor: '#0BA4E0', borderRadius: 42, borderWidth: 6, height: 84, justifyContent: 'center', marginHorizontal: 8, width: 84 },
   score: { color: '#2563EB', fontSize: 26, fontWeight: '800', lineHeight: 28 },
   outOf: { color: '#64748B', fontSize: 9 },
-  copy: { flex: 1, marginLeft: 20 },
+  copy: { flex: 1, marginLeft: 20, paddingRight: 32 },
   eyebrow: { color: '#64748B', fontSize: 10, fontWeight: '800', letterSpacing: 0.7 },
   priority: { color: '#172033', fontSize: 15, fontWeight: '800', marginBottom: 9, marginTop: 2 },
   row: { alignItems: 'center', flexDirection: 'row', gap: 5, marginBottom: 7 },

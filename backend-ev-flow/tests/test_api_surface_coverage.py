@@ -681,13 +681,13 @@ def test_cors_allows_the_browser_verbs_the_frontend_uses(client):
     assert r.status_code == 200
     assert r.headers["access-control-allow-origin"] == _expected_allow_origin(origin)
     allowed = {m.strip() for m in r.headers["access-control-allow-methods"].split(",")}
-    assert allowed == {"GET", "POST", "PATCH", "DELETE"}
+    assert allowed == {"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 
 def test_cors_rejects_a_verb_the_api_does_not_expose(client):
     r = client.options("/api/v1/stations",
                        headers={"Origin": _cors_probe_origin(),
-                                "Access-Control-Request-Method": "PUT"})
+                                "Access-Control-Request-Method": "TRACE"})
     assert r.status_code == 400
     assert "Disallowed CORS method" in r.text
 

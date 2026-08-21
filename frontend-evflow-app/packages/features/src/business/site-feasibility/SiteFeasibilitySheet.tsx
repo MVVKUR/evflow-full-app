@@ -16,7 +16,7 @@ const tabs: Array<{ key: SiteFeasibilityTab; label: string }> = [
   { key: 'nearby', label: 'Nearby Stations' }
 ];
 
-export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded, financial, financialError, financialLoading, height, loading, onClose, onFinancialRetry, onRetry, onScrollTopChange, onTabChange, onToggleExpanded, panHandlers }: {
+export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded, financial, financialError, financialLoading, height, isSaved, isSaving, loading, onClose, onFinancialRetry, onRetry, onScrollTopChange, onTabChange, onToggleExpanded, onToggleSaved, panHandlers }: {
   activeTab: SiteFeasibilityTab;
   bottom: number;
   data: SiteFeasibilityData | null;
@@ -26,6 +26,8 @@ export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded,
   financialError: string | null;
   financialLoading: boolean;
   height: number;
+  isSaved: boolean;
+  isSaving: boolean;
   loading: boolean;
   onClose: () => void;
   onFinancialRetry: () => void;
@@ -33,6 +35,7 @@ export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded,
   onScrollTopChange: (atTop: boolean) => void;
   onTabChange: (tab: SiteFeasibilityTab) => void;
   onToggleExpanded: () => void;
+  onToggleSaved?: () => void;
   panHandlers: GestureResponderHandlers;
 }) {
   const scores = data ? calculateSiteScores(data) : null;
@@ -73,7 +76,7 @@ export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded,
         <View style={styles.loading}><ActivityIndicator color="#007D8C" /><Text style={styles.loadingText}>Loading site analysis...</Text></View>
       ) : (
         <>
-          <View style={styles.summary}><LocationScoreSummary scores={scores} /></View>
+          <View style={styles.summary}><LocationScoreSummary isSaved={isSaved} isSaving={isSaving} onToggleSaved={onToggleSaved} scores={scores} /></View>
           <View
             accessibilityElementsHidden={!expanded}
             importantForAccessibility={expanded ? 'auto' : 'no-hide-descendants'}
