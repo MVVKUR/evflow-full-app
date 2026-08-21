@@ -2,7 +2,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SvgAssetIcon } from '../../shared/SvgAssetIcon';
 import { energyIcon, paybackIcon, revenueIcon, sessionsIcon } from './siteFeasibilityIcons';
 import { formatRevenueIdr } from './siteFeasibilityLogic';
-import { getPaybackProjectionCopy } from './siteFeasibilityFinancial';
+import { getEnergyProjectionCopy, getPaybackProjectionCopy, getSessionsProjectionCopy } from './siteFeasibilityFinancial';
 import type { FinancialProjection } from './siteFeasibilityTypes';
 
 export function FinancialProjectionsTab({ error, financial, loading, onRetry }: {
@@ -27,14 +27,10 @@ export function FinancialProjectionsTab({ error, financial, loading, onRetry }: 
   }
   if (!financial) return null;
 
-  const isMock = financial.projectionKind === 'mock';
   const payback = getPaybackProjectionCopy(financial);
-  const utilisation = financial.utilisation === undefined
-    ? 'Mock utilization estimate'
-    : `${Math.round(financial.utilisation * 100)}% utilisation of ${formatSessions(financial.capacitySessionsPerDay ?? 0)} capacity`;
   const metrics = [
-    { title: 'Sessions/day', value: formatSessions(financial.sessionsPerDay), supporting: utilisation, icon: sessionsIcon },
-    { title: 'Energy/day', value: `${formatSessions(financial.energyPerDayKwh)} kWh`, supporting: isMock ? 'Mock daily energy estimate' : 'From backend projection inputs', icon: energyIcon },
+    { title: 'Sessions/day', value: formatSessions(financial.sessionsPerDay), supporting: getSessionsProjectionCopy(financial.sessionsPerDay), icon: sessionsIcon },
+    { title: 'Energy/day', value: `${formatSessions(financial.energyPerDayKwh)} kWh`, supporting: getEnergyProjectionCopy(financial.energyPerDayKwh), icon: energyIcon },
     { title: 'Monthly Revenue', value: formatRevenueIdr(financial.monthlyRevenueIdr), supporting: 'Gross top-line projection', icon: revenueIcon },
     { title: 'Payback Period', value: payback.value, supporting: payback.supporting, icon: paybackIcon }
   ];

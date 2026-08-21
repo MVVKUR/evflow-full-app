@@ -5,7 +5,9 @@ vi.mock('react-native', () => ({ NativeModules: {} }));
 import type { PlannerRoiResponse } from '@evflow/shared';
 import {
   DEMO_PLANNER_ROI_ASSUMPTIONS,
+  getEnergyProjectionCopy,
   getPaybackProjectionCopy,
+  getSessionsProjectionCopy,
   getSiteFinancialLifecycleKey,
   getSiteFinancialProjection,
   isMockOptimalSiteId,
@@ -59,6 +61,20 @@ describe('site financial projection', () => {
     expect(getPaybackProjectionCopy(financial)).toEqual({
       value: 'No Payback', supporting: 'Does not break even'
     });
+  });
+
+  it('uses the revised sessions-per-day supporting thresholds', () => {
+    expect(getSessionsProjectionCopy(21)).toBe('High utilization per charger');
+    expect(getSessionsProjectionCopy(20)).toBe('Optimal target per charger');
+    expect(getSessionsProjectionCopy(10)).toBe('Optimal target per charger');
+    expect(getSessionsProjectionCopy(9)).toBe('Below optimal utilization');
+  });
+
+  it('uses the revised energy-per-day supporting thresholds', () => {
+    expect(getEnergyProjectionCopy(401)).toBe('High grid load profile');
+    expect(getEnergyProjectionCopy(399)).toBe('Target grid utilization');
+    expect(getEnergyProjectionCopy(180)).toBe('Target grid utilization');
+    expect(getEnergyProjectionCopy(179)).toBe('Below target load');
   });
 
   it('centralizes the temporary demo assumptions and supplies exactly one demand basis', () => {

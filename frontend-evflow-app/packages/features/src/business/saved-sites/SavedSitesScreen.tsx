@@ -177,9 +177,9 @@ function SavedSiteCard({ onOpen, onRemove, site }: { onOpen: () => void; onRemov
   const data = savedSiteData(site);
   return (
     <View style={styles.card}>
-      <Pressable accessibilityLabel={`Open details for ${site.cell_id}`} accessibilityRole="button" onPress={onOpen}>
+      <Pressable accessibilityLabel={`Open details for ${site.cell_id}`} accessibilityRole="button" onPress={onOpen} style={styles.cardOpen}>
         <Text style={styles.siteTitle}>{site.cell_id} ({cleanArea(site.kota)})</Text>
-        <LocationScoreSummary scores={calculateSiteScores(data)} />
+        <LocationScoreSummary embedded scores={calculateSiteScores(data)} />
       </Pressable>
       <View style={styles.cardBookmark}><BookmarkButton isSaved onPress={onRemove} /></View>
     </View>
@@ -256,7 +256,8 @@ const styles = StyleSheet.create({
   action: { alignItems: 'center', borderColor: '#00696F', borderRadius: 8, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 18 },
   actionText: { color: '#005F64', fontSize: 12, fontWeight: '800' },
   list: { gap: 14, paddingBottom: 28 },
-  card: { gap: 8, position: 'relative' },
-  cardBookmark: { position: 'absolute', right: 10, top: 42, zIndex: 2 },
-  siteTitle: { color: '#172033', fontSize: 15, fontWeight: '800' }
+  card: { backgroundColor: '#F8FAFC', borderColor: '#DCE5EA', borderRadius: 16, borderWidth: 1, overflow: 'hidden', position: 'relative' },
+  cardOpen: { padding: 16 },
+  cardBookmark: { position: 'absolute', right: 16, top: 16, zIndex: 2 },
+  siteTitle: { color: '#172033', fontSize: 15, fontWeight: '800', paddingRight: 54 }
 });

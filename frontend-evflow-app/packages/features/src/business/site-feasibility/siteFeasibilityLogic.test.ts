@@ -12,6 +12,7 @@ import {
   getOverlapDescription,
   getPaybackStatus,
   getPoiDescription,
+  formatRevenueIdr,
   resolveOptimalSite,
   sortStationsByDistance
 } from './siteFeasibilityLogic';
@@ -67,14 +68,20 @@ describe('Epic 5 dynamic classifications', () => {
     expect(getPaybackStatus(5)).toBe('Standard capital recovery');
     expect(getPaybackStatus(5.1)).toBe('Long-term capital recovery');
   });
+
+  it('formats abbreviated Indonesian revenue in Juta and Miliar', () => {
+    expect(formatRevenueIdr(24_000_000)).toBe('Rp. 24 Juta');
+    expect(formatRevenueIdr(8_500_000)).toBe('Rp. 8,5 Juta');
+    expect(formatRevenueIdr(1_200_000_000)).toBe('Rp. 1,2 Miliar');
+  });
 });
 
 describe('Epic 5 nearby station and marker selection logic', () => {
   const stations = [
-    { id: 'far', name: 'Far', distanceKm: 5.1, averageDailySessions: 1, averageWeeklySessions: 7, averageMonthlySessions: 30 },
-    { id: 'second', name: 'Second', distanceKm: 2, averageDailySessions: 1, averageWeeklySessions: 7, averageMonthlySessions: 30 },
-    { id: 'first', name: 'First', distanceKm: 1, averageDailySessions: 1, averageWeeklySessions: 7, averageMonthlySessions: 30 },
-    { id: 'edge', name: 'Edge', distanceKm: 5, averageDailySessions: 1, averageWeeklySessions: 7, averageMonthlySessions: 30 }
+    { id: 'far', name: 'Far', distanceKm: 5.1, averageDailySessions: 1, dailySessionsTrendPct: 1, monthlyRevenueIdr: 1, monthlyRevenueTrendPct: 1 },
+    { id: 'second', name: 'Second', distanceKm: 2, averageDailySessions: 1, dailySessionsTrendPct: 1, monthlyRevenueIdr: 1, monthlyRevenueTrendPct: 1 },
+    { id: 'first', name: 'First', distanceKm: 1, averageDailySessions: 1, dailySessionsTrendPct: 1, monthlyRevenueIdr: 1, monthlyRevenueTrendPct: 1 },
+    { id: 'edge', name: 'Edge', distanceKm: 5, averageDailySessions: 1, dailySessionsTrendPct: 1, monthlyRevenueIdr: 1, monthlyRevenueTrendPct: 1 }
   ];
 
   it('filters to five kilometres inclusively and sorts without mutating input', () => {

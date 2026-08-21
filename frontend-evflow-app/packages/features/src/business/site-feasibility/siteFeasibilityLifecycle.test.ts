@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const detailSource = readFileSync(resolve(currentDirectory, 'useSiteFeasibilityDetail.ts'), 'utf8');
 const financialTabSource = readFileSync(resolve(currentDirectory, 'FinancialProjectionsTab.tsx'), 'utf8');
+const nearbyTabSource = readFileSync(resolve(currentDirectory, 'NearbyStationsTab.tsx'), 'utf8');
+const sheetSource = readFileSync(resolve(currentDirectory, 'SiteFeasibilitySheet.tsx'), 'utf8');
 
 describe('Site Feasibility ROI lifecycle contract', () => {
   it('attaches ROI loading to the selected-site lifecycle rather than tab state', () => {
@@ -26,5 +28,18 @@ describe('Site Feasibility ROI lifecycle contract', () => {
     expect(financialTabSource).not.toContain('styles.disclosure');
     expect(financialTabSource).not.toContain('compactProjectionBasis');
     expect(financialTabSource).not.toContain('Projection based on planner-provided');
+  });
+
+  it('renders the revised Nearby Stations tab without the legacy benchmark copy', () => {
+    expect(sheetSource).toContain("{ key: 'nearby', label: 'Nearby Stations' }");
+    expect(sheetSource).toContain('<NearbyStationsTab stations={data.nearbyStations} />');
+    expect(nearbyTabSource).toContain('STATIONS WITHIN 5 KM');
+    expect(nearbyTabSource).toContain('Sessions/day');
+    expect(nearbyTabSource).toContain('Monthly Revenue');
+    expect(nearbyTabSource).toContain('No existing SPKLUs within 5 km.');
+    expect(nearbyTabSource).not.toContain('NEARBY SPKLU BENCHMARK');
+    expect(nearbyTabSource).not.toContain('benchmark-basis');
+    expect(nearbyTabSource).not.toContain("label: 'Weekly'");
+    expect(nearbyTabSource).not.toContain("label: 'Monthly'");
   });
 });

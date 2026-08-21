@@ -63,3 +63,15 @@ export function getPaybackProjectionCopy(financial: FinancialProjection) {
       : 'Long-term capital recovery';
   return { supporting, value: `${financial.paybackYears.toFixed(1)} Yrs` };
 }
+
+export function getSessionsProjectionCopy(sessionsPerDay: number) {
+  if (sessionsPerDay > 20) return 'High utilization per charger';
+  if (sessionsPerDay >= 10) return 'Optimal target per charger';
+  return 'Below optimal utilization';
+}
+
+export function getEnergyProjectionCopy(energyPerDayKwh: number) {
+  if (energyPerDayKwh > 400) return 'High grid load profile';
+  if (energyPerDayKwh >= 180) return 'Target grid utilization';
+  return 'Below target load';
+}

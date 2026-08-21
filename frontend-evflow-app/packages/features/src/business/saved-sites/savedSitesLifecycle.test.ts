@@ -36,6 +36,7 @@ describe('Saved Sites lifecycle', () => {
     expect(screen).toContain("navigate('/business-dashboard/demand-heatmap')");
     expect(screen).toContain('<SiteFeasibilitySheet');
     expect(screen).toContain('setSelectedSite(site)');
+    expect(screen).toContain('<LocationScoreSummary embedded');
   });
 
   it('opens as a full-height drawer and exposes saved-site pins when collapsed', () => {

@@ -45,7 +45,7 @@ export function SiteFeasibilitySheet({ activeTab, bottom, data, error, expanded,
       ? <FeasibilityScoreTab data={data} scores={scores} />
       : activeTab === 'financial'
         ? <FinancialProjectionsTab error={financialError} financial={financial} loading={financialLoading} onRetry={onFinancialRetry} />
-        : <NearbyStationsTab basis={data.nearbyBenchmarkBasis} stations={data.nearbyStations} />;
+        : <NearbyStationsTab stations={data.nearbyStations} />;
   }
 
   return (

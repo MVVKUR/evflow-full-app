@@ -19,8 +19,9 @@ export type NearbyStationBenchmark = {
   name: string;
   distanceKm: number;
   averageDailySessions: number;
-  averageWeeklySessions: number;
-  averageMonthlySessions: number;
+  dailySessionsTrendPct: number;
+  monthlyRevenueIdr: number;
+  monthlyRevenueTrendPct: number;
   availableConnectors?: number;
   totalConnectors?: number;
 };
@@ -37,7 +38,6 @@ export type SiteFeasibilityData = {
   residentialPoints: number;
   financial: FinancialProjection | null;
   nearbyStations: NearbyStationBenchmark[];
-  nearbyBenchmarkBasis?: string;
 };
 
 export type SiteFeasibilityTab = 'feasibility' | 'financial' | 'nearby';

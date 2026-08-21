@@ -82,8 +82,13 @@ export function getPaybackStatus(paybackYears: number) {
 }
 
 export function formatRevenueIdr(value: number) {
-  if (value >= 1_000_000) return `Rp. ${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(value / 1_000_000)} Juta`;
+  if (value >= 1_000_000_000) return `Rp. ${formatCompactIdr(value / 1_000_000_000)} Miliar`;
+  if (value >= 1_000_000) return `Rp. ${formatCompactIdr(value / 1_000_000)} Juta`;
   return `Rp. ${new Intl.NumberFormat('id-ID').format(value)}`;
+}
+
+function formatCompactIdr(value: number) {
+  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(value);
 }
 
 export function getNearbyStationsWithinRadius(stations: NearbyStationBenchmark[], radiusKm = 5) {

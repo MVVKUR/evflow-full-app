@@ -5,6 +5,7 @@ import {
   type PlannerCellDetailApi
 } from '@evflow/shared';
 import { getMockSiteFeasibility } from './siteFeasibilityMockData';
+import { getMockNearbyStationPerformance } from './nearbyStationPerformance';
 import type { NearbyStationBenchmark, RoadType, SiteFeasibilityData } from './siteFeasibilityTypes';
 
 export async function getSiteFeasibility(siteId: string): Promise<SiteFeasibilityData> {
@@ -33,10 +34,7 @@ export function plannerCellToSiteFeasibility(
     roadType: roadTypeFromNodes(detail.road_nodes),
     residentialPoints: Math.round(Math.min(Math.max(detail.land_use.residential ?? 0, 0), 1) * 50),
     financial: null,
-    nearbyStations: benchmark ? benchmarkStations(benchmark) : [],
-    nearbyBenchmarkBasis: benchmark
-      ? 'Station identity, distance, and connector availability come from the planner API. Session utilization remains simulated until historical sessions are exposed.'
-      : 'Nearby station data is temporarily unavailable.'
+    nearbyStations: benchmark ? benchmarkStations(benchmark) : []
   };
 }
 
@@ -47,19 +45,14 @@ export function roadTypeFromNodes(roadNodes: number): RoadType {
 }
 
 function benchmarkStations(response: PlannerBenchmarkResponse): NearbyStationBenchmark[] {
-  return response.stations.map((station) => {
-    const daily = 10 + stableNumber(station.id, 9);
-    return {
-      id: station.id,
-      name: station.name ?? station.operator ?? 'Unnamed SPKLU',
-      distanceKm: station.distance_m / 1000,
-      averageDailySessions: daily,
-      averageWeeklySessions: daily * 7,
-      averageMonthlySessions: Math.round(daily * 30.4),
-      availableConnectors: station.available_connectors,
-      totalConnectors: station.total_connectors
-    };
-  });
+  return response.stations.map((station) => ({
+    id: station.id,
+    name: station.name ?? station.operator ?? 'Unnamed SPKLU',
+    distanceKm: station.distance_m / 1000,
+    ...getMockNearbyStationPerformance(station),
+    availableConnectors: station.available_connectors,
+    totalConnectors: station.total_connectors
+  }));
 }
 
 function cleanAreaName(value: string | null) {
@@ -68,8 +61,4 @@ function cleanAreaName(value: string | null) {
 
 function sumPoi(poi: Record<string, number>) {
   return Object.entries(poi).reduce((total, [key, value]) => key === 'total' ? total : total + value, 0);
-}
-
-function stableNumber(value: string, modulus: number) {
-  return [...value].reduce((sum, character) => sum + character.charCodeAt(0), 0) % modulus;
 }

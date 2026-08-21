@@ -1,10 +1,10 @@
-import type { SiteFeasibilityData } from './siteFeasibilityTypes';
+import type { NearbyStationBenchmark, SiteFeasibilityData } from './siteFeasibilityTypes';
 
-const commonNearbyStations = [
-  { id: 'nearby-thamrin', name: 'SPKLU PLN Sukses Thamrin Hub', distanceKm: 1.2, averageDailySessions: 16, averageWeeklySessions: 108, averageMonthlySessions: 472 },
-  { id: 'nearby-voltron', name: 'SPKLU Voltron', distanceKm: 1.8, averageDailySessions: 17, averageWeeklySessions: 116, averageMonthlySessions: 501 },
-  { id: 'nearby-kuningan', name: 'SPKLU Kuningan City', distanceKm: 3.6, averageDailySessions: 14, averageWeeklySessions: 96, averageMonthlySessions: 418 },
-  { id: 'nearby-outside', name: 'SPKLU Kelapa Gading', distanceKm: 6.4, averageDailySessions: 12, averageWeeklySessions: 82, averageMonthlySessions: 352 }
+const commonNearbyStations: NearbyStationBenchmark[] = [
+  { id: 'nearby-thamrin', name: 'SPKLU PLN Sukses Thamrin Hub', distanceKm: 1.2, averageDailySessions: 16, dailySessionsTrendPct: -11, monthlyRevenueIdr: 26_000_000, monthlyRevenueTrendPct: 8 },
+  { id: 'nearby-voltron', name: 'SPKLU Voltron', distanceKm: 1.8, averageDailySessions: 17, dailySessionsTrendPct: -5, monthlyRevenueIdr: 25_000_000, monthlyRevenueTrendPct: 4 },
+  { id: 'nearby-kuningan', name: 'SPKLU Kuningan City', distanceKm: 3.6, averageDailySessions: 14, dailySessionsTrendPct: 3, monthlyRevenueIdr: 22_000_000, monthlyRevenueTrendPct: -2 },
+  { id: 'nearby-outside', name: 'SPKLU Kelapa Gading', distanceKm: 6.4, averageDailySessions: 12, dailySessionsTrendPct: 0, monthlyRevenueIdr: 19_000_000, monthlyRevenueTrendPct: 0 }
 ];
 
 const siteMetadata: Record<string, Pick<SiteFeasibilityData, 'locationCode' | 'locationName'>> = {
